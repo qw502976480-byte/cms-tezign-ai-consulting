@@ -13,7 +13,7 @@ type ResourceRow = {
 };
 
 export default async function AdminResourcesPage() {
-  const supabase = createClient();
+const supabase = await createClient();
 
   const { data, error } = await supabase
     .from('resources')
