@@ -11,6 +11,9 @@ interface ResourceFormProps {
   initialData?: Resource;
 }
 
+const TYPE_CAROUSEL = 'latest_updates_carousel';
+const TYPE_FIXED = 'latest_updates_fixed';
+
 export default function ResourceForm({ initialData }: ResourceFormProps) {
   const supabase = createClient();
   const router = useRouter();
@@ -31,8 +34,8 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
 
   // Homepage Slots State
   const [homepageFlags, setHomepageFlags] = useState({
-    carousel: false, // type: 'latest_carousel'
-    sidebar: false,  // type: 'latest_sidebar'
+    carousel: false, // latest_updates_carousel
+    sidebar: false,  // latest_updates_fixed
   });
 
   // Load Homepage Config (Slots) from homepage_modules
@@ -44,7 +47,7 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
       const { data, error } = await supabase
         .from('homepage_modules')
         .select('type, content_item_ids')
-        .in('type', ['latest_carousel', 'latest_sidebar']);
+        .in('type', [TYPE_CAROUSEL, TYPE_FIXED]);
       
       if (error) {
         console.error("Error fetching homepage slots:", error);
@@ -57,8 +60,8 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
         data.forEach((row: any) => {
           const ids: string[] = Array.isArray(row.content_item_ids) ? row.content_item_ids : [];
           if (ids.includes(initialData.id)) {
-            if (row.type === 'latest_carousel') flags.carousel = true;
-            if (row.type === 'latest_sidebar') flags.sidebar = true;
+            if (row.type === TYPE_CAROUSEL) flags.carousel = true;
+            if (row.type === TYPE_FIXED) flags.sidebar = true;
           }
         });
       }
@@ -117,10 +120,10 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
 
   // Helper to update homepage_modules array
   const updateHomepageSlot = async (typeKey: string, shouldBeIn: boolean, resourceId: string) => {
-    // 1. Fetch current list
+    // 1. Fetch current list AND other required fields to preserve them
     const { data: currentData, error: fetchError } = await supabase
       .from('homepage_modules')
-      .select('content_item_ids')
+      .select('content_item_ids, status, data')
       .eq('type', typeKey)
       .maybeSingle();
     
@@ -157,14 +160,19 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
         return;
     }
 
+    // Prepare fields for payload. If row didn't exist, set defaults.
+    const status = currentData?.status || 'active';
+    const dataField = currentData?.data || {};
+
     // 3. Upsert using 'type' as the key
     const { error: upsertError } = await supabase
         .from('homepage_modules')
         .upsert({
             type: typeKey,
             content_item_ids: ids,
-            // Assuming 'updated_at' exists based on typical schema, if not remove it
-            // created_at is usually default
+            status: status,
+            data: dataField
+            // created_at is handled by DB default
         }, { onConflict: 'type' });
 
     if (upsertError) {
@@ -224,8 +232,8 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
       // 3. Update Homepage Slots (homepage_modules) using 'type'
       if (resourceId) {
         await Promise.all([
-          updateHomepageSlot('latest_carousel', homepageFlags.carousel, resourceId),
-          updateHomepageSlot('latest_sidebar', homepageFlags.sidebar, resourceId)
+          updateHomepageSlot(TYPE_CAROUSEL, homepageFlags.carousel, resourceId),
+          updateHomepageSlot(TYPE_FIXED, homepageFlags.sidebar, resourceId)
         ]);
       }
 
