@@ -1,0 +1,1 @@
+// This file should be deleted. The project is a Next.js Server Side Rendered app. Entry point is app/page.tsx
