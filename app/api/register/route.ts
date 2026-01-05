@@ -1,6 +1,8 @@
 import { createServiceClient } from '@/utils/supabase/server';
 import { NextRequest, NextResponse } from 'next/server';
 
+export const runtime = 'nodejs';
+
 export async function POST(request: NextRequest) {
   // Use Service Client to bypass RLS for public write if needed, 
   // or standard client if tables allow public insert.

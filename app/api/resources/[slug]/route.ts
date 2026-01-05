@@ -1,6 +1,8 @@
 import { createClient } from '@/utils/supabase/server';
 import { NextRequest, NextResponse } from 'next/server';
 
+export const runtime = 'nodejs';
+
 export async function GET(
   request: NextRequest,
   { params }: { params: { slug: string } }
