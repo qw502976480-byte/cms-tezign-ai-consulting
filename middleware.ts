@@ -1,30 +1,3 @@
-import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
-
-const PUBLIC_PATH_PREFIXES = [
-  "/auth/callback",
-  "/reset-password",
-  "/login",
-  "/",
-];
-
-export function middleware(req: NextRequest) {
-  const { pathname } = req.nextUrl;
-
-  // ✅ 放行 Supabase 回调 & 重置密码页面（不做任何重定向）
-  if (PUBLIC_PATH_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"))) {
-    return NextResponse.next();
-  }
-
-  // ⬇️ 下面保持你原来的鉴权逻辑不变
-  // return ... (你原本的代码)
-  return NextResponse.next();
-}
-
-export const config = {
-  // 让 middleware 作用于除了静态资源以外的所有路由
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"],
-};
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
@@ -81,17 +54,26 @@ export async function middleware(request: NextRequest) {
     }
   )
 
+  const { pathname } = request.nextUrl
+
+  // Whitelist paths - allow these to proceed without redirecting
+  const whitelist = ['/auth/callback', '/reset-password', '/login']
+  if (whitelist.some(path => pathname === path || pathname.startsWith(`${path}/`))) {
+    return response
+  }
+
+  // Refresh session
   const { data: { user } } = await supabase.auth.getUser()
 
   // Protect /admin routes
-  if (request.nextUrl.pathname.startsWith('/admin')) {
-    if (!user && request.nextUrl.pathname !== '/admin/login') {
+  if (pathname.startsWith('/admin')) {
+    if (!user && pathname !== '/admin/login') {
       return NextResponse.redirect(new URL('/admin/login', request.url))
     }
   }
 
   // Redirect logged in user away from login
-  if (request.nextUrl.pathname === '/admin/login' && user) {
+  if (pathname === '/admin/login' && user) {
       return NextResponse.redirect(new URL('/admin', request.url))
   }
 
@@ -100,6 +82,12 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/admin/:path*',
+    /*
+     * Match all request paths except for the ones starting with:
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     */
+    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }
