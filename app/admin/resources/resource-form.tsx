@@ -19,7 +19,7 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
   const [formData, setFormData] = useState({
     title: initialData?.title || '',
     slug: initialData?.slug || '',
-    category: initialData?.category || 'Report',
+    category: initialData?.category || 'report',
     summary: initialData?.summary || '',
     content: initialData?.content || '',
   });
@@ -117,10 +117,10 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
             onChange={handleChange}
             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-black bg-white"
           >
-            <option value="Report">Report</option>
-            <option value="Announcement">Announcement</option>
-            <option value="Case Study">Case Study</option>
-            <option value="Methodology">Methodology</option>
+            <option value="report">Report</option>
+            <option value="announcement">Announcement</option>
+            <option value="case_study">Case Study</option>
+            <option value="methodology">Methodology</option>
           </select>
         </div>
 

@@ -1,4 +1,4 @@
-export type ResourceCategory = 'Report' | 'Announcement' | 'Case Study' | 'Methodology';
+export type ResourceCategory = 'report' | 'announcement' | 'case_study' | 'methodology';
 export type DemoStatus = 'New' | 'Confirmed' | 'Completed' | 'Canceled';
 export type HomepageModuleType = 'hero' | 'gpt_search' | 'latest_news' | 'core_capabilities' | 'product_claim' | 'primary_cta';
 
