@@ -35,7 +35,10 @@ export default function AdminLayoutClient({ children }: { children: React.ReactN
       {/* Sidebar */}
       <aside className="w-64 bg-white border-r border-gray-200 fixed h-full z-10 hidden md:flex flex-col">
         <div className="p-6 border-b border-gray-100">
-          <span className="font-bold text-lg text-gray-900 tracking-tight">CMS | Tezign AI Consulting</span>
+          <div className="flex flex-col">
+            <span className="font-bold text-xl text-gray-900 tracking-tight">CMS</span>
+            <span className="text-sm text-gray-500 font-medium">Tezign AI Consulting</span>
+          </div>
         </div>
         <nav className="flex-1 p-4 space-y-1">
           {navItems.map((item) => {
