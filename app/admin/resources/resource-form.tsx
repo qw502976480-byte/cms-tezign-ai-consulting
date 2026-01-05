@@ -130,17 +130,11 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
         status: formData.status,
       };
 
-      // Handle Published At
-      // If status is published, ensure we have a date. 
-      // If user provided a date in the form, use it. 
-      // If it's empty but status is published, default to now.
       if (formData.status === 'published') {
          payload.published_at = formData.published_at 
             ? new Date(formData.published_at).toISOString() 
             : new Date().toISOString();
       } else {
-         // If draft, we can still save the date preference if set, or null it out?
-         // Usually better to keep the date if user set it.
          if (formData.published_at) {
              payload.published_at = new Date(formData.published_at).toISOString();
          }
@@ -189,7 +183,6 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
         if (configError) throw configError;
       }
 
-      // alert("保存成功！");
       router.push('/admin/resources');
       router.refresh();
     } catch (error: any) {
@@ -211,7 +204,7 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
             <h1 className="text-2xl font-bold text-gray-900">{initialData ? '编辑资源' : '新建资源'}</h1>
             {initialData && (
                 <div className="flex items-center gap-2 mt-1">
-                  <span className={`text-xs font-bold uppercase tracking-wider ${formData.status === 'published' ? 'text-green-600' : 'text-gray-500'}`}>
+                  <span className={`text-xs font-bold uppercase tracking-wider ${formData.status === 'published' ? 'text-gray-900' : 'text-gray-400'}`}>
                     {formData.status}
                   </span>
                   {formData.published_at && (
@@ -228,14 +221,14 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
         <div className="flex items-center gap-4">
             {/* Status Toggle */}
             <div className="flex items-center gap-3 bg-white border border-gray-200 rounded-full px-4 py-2 shadow-sm">
-                <span className={`text-sm font-medium transition-colors ${formData.status === 'published' ? 'text-green-600' : 'text-gray-500'}`}>
+                <span className={`text-sm font-medium transition-colors ${formData.status === 'published' ? 'text-gray-900' : 'text-gray-400'}`}>
                     {formData.status === 'published' ? '已发布 (On)' : '草稿 (Off)'}
                 </span>
                 <button
                     type="button"
                     onClick={toggleStatus}
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2 ${
-                        formData.status === 'published' ? 'bg-green-500' : 'bg-gray-200'
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 ${
+                        formData.status === 'published' ? 'bg-gray-900' : 'bg-gray-200'
                     }`}
                 >
                     <span className="sr-only">Toggle publish status</span>
@@ -252,7 +245,7 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
               type="button"
               onClick={handleSave}
               disabled={loading}
-              className="flex items-center gap-2 bg-black hover:bg-gray-800 text-white px-6 py-2 rounded-full font-medium transition disabled:opacity-50 shadow-md"
+              className="flex items-center gap-2 bg-gray-900 hover:bg-black text-white px-6 py-2 rounded-full font-medium transition disabled:opacity-50 shadow-md"
             >
               {loading ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
               保存更改
@@ -266,7 +259,7 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
           {/* Block 1: Basic Information */}
           <section className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 flex items-center gap-2">
-              <FileText size={18} className="text-gray-500" />
+              <FileText size={18} className="text-gray-400" />
               <h2 className="font-semibold text-gray-900">基础信息 (Basic Info)</h2>
             </div>
             <div className="p-6 space-y-5">
@@ -277,7 +270,7 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
                   required
                   value={formData.title}
                   onChange={handleChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-black"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"
                   placeholder="请输入资源标题"
                 />
               </div>
@@ -291,7 +284,7 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
                         name="published_at"
                         value={formData.published_at}
                         onChange={handleChange}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-black pl-10"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900 pl-10"
                     />
                     <CalendarIcon className="absolute left-3 top-2.5 text-gray-400" size={18} />
                   </div>
@@ -302,7 +295,7 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
                     name="category"
                     value={formData.category}
                     onChange={handleChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-black bg-white"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white"
                   >
                     <option value="report">Report</option>
                     <option value="announcement">Announcement</option>
@@ -318,7 +311,7 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
                       <button 
                         type="button" 
                         onClick={handleRegenerateSlug}
-                        className="text-xs flex items-center gap-1 text-blue-600 hover:text-blue-800"
+                        className="text-xs flex items-center gap-1 text-gray-500 hover:text-gray-900 transition-colors"
                         title="Regenerate based on title"
                       >
                           <RefreshCw size={12} /> Regenerate
@@ -335,7 +328,7 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
           {/* Block 2: Content */}
           <section className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 flex items-center gap-2">
-              <Layout size={18} className="text-gray-500" />
+              <Layout size={18} className="text-gray-400" />
               <h2 className="font-semibold text-gray-900">内容编辑 (Content)</h2>
             </div>
             <div className="p-6 space-y-5">
@@ -346,7 +339,7 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
                   rows={3}
                   value={formData.summary}
                   onChange={handleChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-black"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"
                   placeholder="用于列表卡片展示的简短描述..."
                 />
               </div>
@@ -358,7 +351,7 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
                   rows={15}
                   value={formData.content}
                   onChange={handleChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-black font-mono text-sm"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900 font-mono text-sm"
                   placeholder="在此输入正文内容 (支持 Markdown)..."
                 />
               </div>
@@ -370,7 +363,7 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
         <div className="space-y-8">
            <section className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden sticky top-24">
             <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 flex items-center gap-2">
-              <Globe size={18} className="text-blue-600" />
+              <Globe size={18} className="text-gray-900" />
               <h2 className="font-semibold text-gray-900">首页推广 (Homepage)</h2>
             </div>
             <div className="p-6">
@@ -383,7 +376,7 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
                       name="featured"
                       checked={homepageFlags.featured}
                       onChange={handleHomepageFlagChange}
-                      className="mt-1 h-4 w-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                      className="mt-1 h-4 w-4 text-gray-900 rounded border-gray-300 focus:ring-gray-900"
                     />
                     <div>
                       <span className="block text-sm font-medium text-gray-900">最新动态 · 轮播位</span>
@@ -397,7 +390,7 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
                       name="latest"
                       checked={homepageFlags.latest}
                       onChange={handleHomepageFlagChange}
-                      className="mt-1 h-4 w-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                      className="mt-1 h-4 w-4 text-gray-900 rounded border-gray-300 focus:ring-gray-900"
                     />
                     <div>
                       <span className="block text-sm font-medium text-gray-900">最新动态 · 固定位</span>

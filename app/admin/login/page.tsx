@@ -46,7 +46,7 @@ export default function LoginPage() {
             <input
               type="email"
               required
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900 transition-all"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="admin@example.com"
@@ -54,7 +54,7 @@ export default function LoginPage() {
           </div>
 
           {message && (
-            <div className={`p-3 rounded-lg text-sm ${message.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
+            <div className={`p-3 rounded-lg text-sm ${message.type === 'success' ? 'bg-gray-50 text-gray-900 border border-gray-200' : 'bg-red-50 text-red-600 border border-red-100'}`}>
               {message.text}
             </div>
           )}
@@ -62,7 +62,7 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full flex justify-center items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors disabled:opacity-50"
+            className="w-full flex justify-center items-center gap-2 bg-gray-900 hover:bg-black text-white font-medium py-2 px-4 rounded-lg transition-colors disabled:opacity-50"
           >
              {loading && <Loader2 className="animate-spin" size={16} />}
              {loading ? 'Sending...' : 'Send Login Link'}

@@ -10,7 +10,7 @@ export default function Home() {
             This is the API and Admin host.
           </p>
           <div className="flex gap-4 justify-center">
-            <Link href="/admin" className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
+            <Link href="/admin" className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-black transition">
               Go to Admin
             </Link>
             <Link href="/api/resources" className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition">

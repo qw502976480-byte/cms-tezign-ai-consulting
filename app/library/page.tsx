@@ -6,7 +6,6 @@ export const dynamic = 'force-dynamic';
 export default async function LibraryPage() {
   const supabase = await createClient();
 
-  // FIX: Filter by status='published' instead of removed boolean field
   const { data: resources, error } = await supabase
     .from('resources')
     .select('id, title, slug, category, summary, published_at')
@@ -42,7 +41,7 @@ export default async function LibraryPage() {
             >
               <div className="bg-white h-full rounded-xl border border-gray-200 overflow-hidden hover:shadow-lg transition-shadow duration-300 flex flex-col p-6">
                 <div className="flex items-center justify-between mb-4">
-                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 capitalize border border-blue-100">
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700 capitalize border border-gray-200">
                     {item.category?.replace(/_/g, ' ') || 'Uncategorized'}
                   </span>
                   <span className="text-xs text-gray-400">
@@ -50,7 +49,7 @@ export default async function LibraryPage() {
                   </span>
                 </div>
                 
-                <h3 className="text-xl font-semibold text-gray-900 mb-3 group-hover:text-blue-600 transition-colors">
+                <h3 className="text-xl font-semibold text-gray-900 mb-3 group-hover:text-gray-600 transition-colors">
                   {item.title}
                 </h3>
                 
@@ -58,7 +57,7 @@ export default async function LibraryPage() {
                   {item.summary || 'No summary available.'}
                 </p>
 
-                <div className="mt-4 pt-4 border-t border-gray-50 flex items-center text-sm font-medium text-blue-600 group-hover:text-blue-800">
+                <div className="mt-4 pt-4 border-t border-gray-50 flex items-center text-sm font-medium text-gray-900 group-hover:underline">
                   Read more &rarr;
                 </div>
               </div>

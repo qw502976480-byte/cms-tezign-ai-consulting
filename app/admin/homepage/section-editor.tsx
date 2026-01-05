@@ -88,15 +88,15 @@ export default function SectionEditor({ moduleConfig }: { moduleConfig: Homepage
           <>
             <div>
               <label className="block text-sm font-medium text-gray-700">主标题</label>
-              <input name="title" required value={(config as any).title} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border" />
+              <input name="title" required value={(config as any).title} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border focus:ring-gray-900 focus:border-gray-900" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700">副标题</label>
-              <textarea name="subtitle" required value={(config as any).subtitle} onChange={handleChange} rows={3} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border" />
+              <textarea name="subtitle" required value={(config as any).subtitle} onChange={handleChange} rows={3} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border focus:ring-gray-900 focus:border-gray-900" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700">CTA 按钮文案</label>
-              <input name="cta_text" required value={(config as any).cta_text} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border" />
+              <input name="cta_text" required value={(config as any).cta_text} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border focus:ring-gray-900 focus:border-gray-900" />
             </div>
           </>
         );
@@ -105,11 +105,11 @@ export default function SectionEditor({ moduleConfig }: { moduleConfig: Homepage
           <>
             <div>
               <label className="block text-sm font-medium text-gray-700">输入框占位提示</label>
-              <input name="placeholder_text" required value={(config as any).placeholder_text} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border" />
+              <input name="placeholder_text" required value={(config as any).placeholder_text} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border focus:ring-gray-900 focus:border-gray-900" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700">示例问题 (每个一行)</label>
-              <textarea name="example_prompts" value={(config as any).example_prompts.join('\n')} onChange={(e) => setConfig({ ...config, example_prompts: e.target.value.split('\n') })} rows={4} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border" />
+              <textarea name="example_prompts" value={(config as any).example_prompts.join('\n')} onChange={(e) => setConfig({ ...config, example_prompts: e.target.value.split('\n') })} rows={4} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border focus:ring-gray-900 focus:border-gray-900" />
             </div>
           </>
         );
@@ -121,7 +121,7 @@ export default function SectionEditor({ moduleConfig }: { moduleConfig: Homepage
               <div className="border border-gray-200 rounded-md max-h-80 overflow-y-auto p-2 grid gap-1 bg-gray-50">
                 {resources.map(item => (
                   <label key={item.id} className="flex items-center gap-2 p-2 hover:bg-white rounded cursor-pointer">
-                    <input type="checkbox" checked={(config as any).featured_items?.includes(item.id)} onChange={() => handleResourceToggle('featured_items', item.id!, 5)} />
+                    <input type="checkbox" checked={(config as any).featured_items?.includes(item.id)} onChange={() => handleResourceToggle('featured_items', item.id!, 5)} className="text-gray-900 focus:ring-gray-900" />
                     <span className="text-sm text-gray-700">{item.title}</span>
                   </label>
                 ))}
@@ -132,7 +132,7 @@ export default function SectionEditor({ moduleConfig }: { moduleConfig: Homepage
               <div className="border border-gray-200 rounded-md max-h-80 overflow-y-auto p-2 grid gap-1 bg-gray-50">
                 {resources.map(item => (
                   <label key={item.id} className="flex items-center gap-2 p-2 hover:bg-white rounded cursor-pointer">
-                    <input type="checkbox" checked={(config as any).list_items?.includes(item.id)} onChange={() => handleResourceToggle('list_items', item.id!, 3)} />
+                    <input type="checkbox" checked={(config as any).list_items?.includes(item.id)} onChange={() => handleResourceToggle('list_items', item.id!, 3)} className="text-gray-900 focus:ring-gray-900" />
                     <span className="text-sm text-gray-700">{item.title}</span>
                   </label>
                 ))}
@@ -145,7 +145,7 @@ export default function SectionEditor({ moduleConfig }: { moduleConfig: Homepage
           <>
             <div>
               <label className="block text-sm font-medium text-gray-700">大主题标题</label>
-              <input name="section_title" required value={(config as any).section_title} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border" />
+              <input name="section_title" required value={(config as any).section_title} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border focus:ring-gray-900 focus:border-gray-900" />
             </div>
             <div className="space-y-6 pt-4">
               <h3 className="text-base font-medium text-gray-800 border-b pb-2">能力卡片 (固定 3 个)</h3>
@@ -153,16 +153,16 @@ export default function SectionEditor({ moduleConfig }: { moduleConfig: Homepage
                 <div key={index} className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 border rounded-lg bg-gray-50">
                   <div className="md:col-span-1">
                     <label className="block text-xs font-medium text-gray-600">图片 URL</label>
-                    <input name="image" value={item.image} onChange={(e) => handleCapabilityChange(index, e)} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border text-sm" />
+                    <input name="image" value={item.image} onChange={(e) => handleCapabilityChange(index, e)} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border text-sm focus:ring-gray-900 focus:border-gray-900" />
                   </div>
                   <div className="md:col-span-2 space-y-2">
                     <div>
                       <label className="block text-xs font-medium text-gray-600">能力标题</label>
-                      <input name="title" value={item.title} onChange={(e) => handleCapabilityChange(index, e)} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border text-sm" />
+                      <input name="title" value={item.title} onChange={(e) => handleCapabilityChange(index, e)} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border text-sm focus:ring-gray-900 focus:border-gray-900" />
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-gray-600">能力说明</label>
-                      <textarea name="description" value={item.description} onChange={(e) => handleCapabilityChange(index, e)} rows={2} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border text-sm" />
+                      <textarea name="description" value={item.description} onChange={(e) => handleCapabilityChange(index, e)} rows={2} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border text-sm focus:ring-gray-900 focus:border-gray-900" />
                     </div>
                   </div>
                 </div>
@@ -175,15 +175,15 @@ export default function SectionEditor({ moduleConfig }: { moduleConfig: Homepage
           <>
             <div>
               <label className="block text-sm font-medium text-gray-700">主张标题</label>
-              <input name="title" required value={(config as any).title} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border" />
+              <input name="title" required value={(config as any).title} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border focus:ring-gray-900 focus:border-gray-900" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700">主张正文 (支持 HTML)</label>
-              <textarea name="content" required value={(config as any).content} onChange={handleChange} rows={5} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border" />
+              <textarea name="content" required value={(config as any).content} onChange={handleChange} rows={5} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border focus:ring-gray-900 focus:border-gray-900" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700">配图 URL</label>
-              <input name="image" required value={(config as any).image} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border" />
+              <input name="image" required value={(config as any).image} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border focus:ring-gray-900 focus:border-gray-900" />
             </div>
           </>
         );
@@ -192,15 +192,15 @@ export default function SectionEditor({ moduleConfig }: { moduleConfig: Homepage
           <>
             <div>
               <label className="block text-sm font-medium text-gray-700">CTA 标题</label>
-              <input name="title" required value={(config as any).title} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border" />
+              <input name="title" required value={(config as any).title} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border focus:ring-gray-900 focus:border-gray-900" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700">CTA 描述 (可选)</label>
-              <textarea name="description" value={(config as any).description} onChange={handleChange} rows={2} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border" />
+              <textarea name="description" value={(config as any).description} onChange={handleChange} rows={2} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border focus:ring-gray-900 focus:border-gray-900" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700">按钮文案</label>
-              <input name="cta_text" required value={(config as any).cta_text} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border" />
+              <input name="cta_text" required value={(config as any).cta_text} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border focus:ring-gray-900 focus:border-gray-900" />
             </div>
           </>
         );
@@ -216,7 +216,7 @@ export default function SectionEditor({ moduleConfig }: { moduleConfig: Homepage
       </div>
       <div className="flex gap-4">
         <button type="button" onClick={() => router.back()} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition">取消</button>
-        <button type="submit" disabled={loading} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition disabled:opacity-50">
+        <button type="submit" disabled={loading} className="flex items-center gap-2 bg-gray-900 hover:bg-black text-white px-6 py-2 rounded-lg font-medium transition disabled:opacity-50">
           {loading && <Loader2 className="animate-spin" size={16} />}
           保存配置
         </button>

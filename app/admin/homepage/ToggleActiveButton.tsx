@@ -19,7 +19,7 @@ export default function ToggleActiveButton({ type, isActive }: { type: string; i
       onClick={handleToggle}
       className={`text-xs font-medium px-3 py-1 rounded-full transition ${
         isActive
-          ? 'bg-green-100 text-green-700 hover:bg-green-200'
+          ? 'bg-gray-900 text-white hover:bg-black'
           : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
       }`}
     >

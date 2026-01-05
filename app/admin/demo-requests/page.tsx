@@ -48,7 +48,7 @@ export default function DemoRequestsPage() {
                     value={req.status} 
                     onChange={(e) => updateStatus(req.id, e.target.value)}
                     className={`border-none bg-transparent font-medium focus:ring-0 ${
-                      req.status === 'New' ? 'text-blue-600' :
+                      req.status === 'New' ? 'text-gray-900 font-bold' :
                       req.status === 'Confirmed' ? 'text-green-600' : 'text-gray-500'
                     }`}
                   >

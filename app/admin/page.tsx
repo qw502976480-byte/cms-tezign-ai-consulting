@@ -27,9 +27,9 @@ export default async function AdminDashboard() {
       <h1 className="text-2xl font-bold text-gray-900">仪表盘 (Dashboard)</h1>
       
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
           <div className="flex items-center gap-4">
-            <div className="p-3 bg-blue-50 text-blue-600 rounded-lg">
+            <div className="p-3 bg-gray-50 text-gray-900 rounded-lg border border-gray-100">
               <FileText size={24} />
             </div>
             <div>
@@ -39,9 +39,9 @@ export default async function AdminDashboard() {
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
           <div className="flex items-center gap-4">
-            <div className="p-3 bg-purple-50 text-purple-600 rounded-lg">
+            <div className="p-3 bg-gray-50 text-gray-900 rounded-lg border border-gray-100">
               <Users size={24} />
             </div>
             <div>
@@ -51,9 +51,9 @@ export default async function AdminDashboard() {
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
           <div className="flex items-center gap-4">
-            <div className="p-3 bg-amber-50 text-amber-600 rounded-lg">
+            <div className="p-3 bg-gray-50 text-gray-900 rounded-lg border border-gray-100">
               <Calendar size={24} />
             </div>
             <div>
