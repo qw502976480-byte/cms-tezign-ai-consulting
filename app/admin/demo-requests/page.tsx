@@ -22,16 +22,16 @@ export default function DemoRequestsPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900">Demo Requests</h1>
+      <h1 className="text-2xl font-bold text-gray-900">演示申请管理</h1>
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <table className="w-full text-sm text-left">
           <thead className="text-gray-500 font-medium border-b border-gray-200 bg-gray-50">
             <tr>
-              <th className="px-6 py-4">Contact</th>
-              <th className="px-6 py-4">Timezone</th>
-              <th className="px-6 py-4">Notes</th>
-              <th className="px-6 py-4">Status</th>
-              <th className="px-6 py-4">Requested</th>
+              <th className="px-6 py-4">联系人</th>
+              <th className="px-6 py-4">时区</th>
+              <th className="px-6 py-4">备注</th>
+              <th className="px-6 py-4">状态</th>
+              <th className="px-6 py-4">申请时间</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -52,10 +52,10 @@ export default function DemoRequestsPage() {
                       req.status === 'Confirmed' ? 'text-green-600' : 'text-gray-500'
                     }`}
                   >
-                    <option value="New">New</option>
-                    <option value="Confirmed">Confirmed</option>
-                    <option value="Completed">Completed</option>
-                    <option value="Canceled">Canceled</option>
+                    <option value="New">新申请 (New)</option>
+                    <option value="Confirmed">已确认 (Confirmed)</option>
+                    <option value="Completed">已完成 (Completed)</option>
+                    <option value="Canceled">已取消 (Canceled)</option>
                   </select>
                 </td>
                 <td className="px-6 py-4 text-gray-500">{new Date(req.created_at).toLocaleDateString()}</td>

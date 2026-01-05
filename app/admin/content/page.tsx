@@ -18,12 +18,12 @@ export default async function ContentList({ searchParams }: { searchParams: { ty
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-gray-900">Content</h1>
+        <h1 className="text-2xl font-bold text-gray-900">内容列表</h1>
         <Link 
           href="/admin/content/new"
           className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition"
         >
-          <Plus size={16} /> New Item
+          <Plus size={16} /> 新建内容
         </Link>
       </div>
 
@@ -39,18 +39,18 @@ export default async function ContentList({ searchParams }: { searchParams: { ty
                    : 'text-gray-500 hover:bg-gray-100'
                }`}
              >
-               {t}
+               {t === 'All' ? '全部' : t}
              </Link>
            ))}
         </div>
         <table className="w-full text-sm text-left">
           <thead className="text-gray-500 font-medium border-b border-gray-200 bg-gray-50">
             <tr>
-              <th className="px-6 py-4">Title</th>
-              <th className="px-6 py-4">Type</th>
-              <th className="px-6 py-4">Status</th>
-              <th className="px-6 py-4">Published</th>
-              <th className="px-6 py-4 text-right">Actions</th>
+              <th className="px-6 py-4">标题</th>
+              <th className="px-6 py-4">类型</th>
+              <th className="px-6 py-4">状态</th>
+              <th className="px-6 py-4">发布时间</th>
+              <th className="px-6 py-4 text-right">操作</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -63,7 +63,7 @@ export default async function ContentList({ searchParams }: { searchParams: { ty
                     item.status === 'Published' ? 'bg-green-100 text-green-700' :
                     item.status === 'Draft' ? 'bg-gray-100 text-gray-700' : 'bg-red-50 text-red-600'
                   }`}>
-                    {item.status}
+                    {item.status === 'Published' ? '已发布' : item.status === 'Draft' ? '草稿' : '已归档'}
                   </span>
                 </td>
                 <td className="px-6 py-4 text-gray-500">{item.published_at}</td>
@@ -76,7 +76,7 @@ export default async function ContentList({ searchParams }: { searchParams: { ty
             ))}
             {content?.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-6 py-8 text-center text-gray-400">No content found.</td>
+                <td colSpan={5} className="px-6 py-8 text-center text-gray-400">暂无内容</td>
               </tr>
             )}
           </tbody>

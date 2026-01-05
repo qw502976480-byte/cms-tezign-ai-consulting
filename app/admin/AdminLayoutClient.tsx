@@ -21,11 +21,11 @@ export default function AdminLayoutClient({ children }: { children: React.ReactN
   if (isLoginPage) return <>{children}</>;
 
   const navItems = [
-    { label: 'Overview', href: '/admin', icon: LayoutDashboard },
-    { label: 'Content', href: '/admin/content', icon: FileText },
-    { label: 'Homepage', href: '/admin/homepage', icon: LayoutTemplate },
-    { label: 'Registrations', href: '/admin/registrations', icon: Users },
-    { label: 'Demo Requests', href: '/admin/demo-requests', icon: Calendar },
+    { label: '概览仪表盘', href: '/admin', icon: LayoutDashboard },
+    { label: '内容管理', href: '/admin/content', icon: FileText },
+    { label: '首页模块', href: '/admin/homepage', icon: LayoutTemplate },
+    { label: '注册用户', href: '/admin/registrations', icon: Users },
+    { label: '演示申请', href: '/admin/demo-requests', icon: Calendar },
   ];
 
   return (
@@ -61,7 +61,7 @@ export default function AdminLayoutClient({ children }: { children: React.ReactN
             className="flex items-center gap-3 px-3 py-2 w-full text-sm font-medium text-gray-600 hover:bg-red-50 hover:text-red-600 rounded-lg transition-colors"
           >
             <LogOut size={18} />
-            Sign Out
+            退出登录
           </button>
         </div>
       </aside>
