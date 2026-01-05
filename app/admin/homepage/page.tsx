@@ -39,6 +39,9 @@ export default async function HomepageManager() {
             const config = configs.get(type);
             const isInitialized = !!config;
 
+            // 构建编辑链接，确保使用 type 作为路径参数
+            const editHref = `/admin/homepage/${type}/edit`;
+
             return (
               <li key={type} className="flex items-center justify-between p-4 sm:p-6 hover:bg-gray-50 transition-colors">
                 <div className="flex-1 pr-4">
@@ -65,7 +68,7 @@ export default async function HomepageManager() {
                     <>
                       <ToggleActiveButton type={type} isActive={config.is_active} />
                       <Link
-                        href={`/admin/homepage/${type}/edit`}
+                        href={editHref}
                         className="flex items-center gap-2 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium transition shadow-sm"
                       >
                         <Edit2 size={14} />
