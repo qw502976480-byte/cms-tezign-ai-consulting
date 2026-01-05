@@ -5,7 +5,7 @@ import { Plus, Edit2, Eye } from 'lucide-react';
 export const dynamic = 'force-dynamic';
 
 export default async function ContentList({ searchParams }: { searchParams: { type?: string } }) {
-  const supabase = createClient();
+  const supabase = await createClient();
   const typeFilter = searchParams.type;
 
   let query = supabase.from('content_items').select('*').order('published_at', { ascending: false });

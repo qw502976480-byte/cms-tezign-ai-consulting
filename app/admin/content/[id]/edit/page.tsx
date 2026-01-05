@@ -4,7 +4,7 @@ import { createClient } from '@/utils/supabase/server';
 export const dynamic = 'force-dynamic';
 
 export default async function EditContentPage({ params }: { params: { id: string } }) {
-  const supabase = createClient();
+  const supabase = await createClient();
   const { data } = await supabase.from('content_items').select('*').eq('id', params.id).single();
 
   if (!data) return <div>内容不存在</div>;

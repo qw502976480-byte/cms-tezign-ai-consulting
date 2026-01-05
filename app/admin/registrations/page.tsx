@@ -3,7 +3,7 @@ import { createClient } from '@/utils/supabase/server';
 export const dynamic = 'force-dynamic';
 
 export default async function RegistrationsPage() {
-  const supabase = createClient();
+  const supabase = await createClient();
   const { data: regs } = await supabase.from('registrations').select('*').order('created_at', { ascending: false });
 
   return (

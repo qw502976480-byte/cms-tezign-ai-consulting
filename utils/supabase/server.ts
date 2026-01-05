@@ -3,8 +3,8 @@ import { cookies } from 'next/headers'
 // FIX: Use ES module import instead of require
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 
-export function createClient() {
-  const cookieStore = cookies()
+export async function createClient() {
+  const cookieStore = await cookies()
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,

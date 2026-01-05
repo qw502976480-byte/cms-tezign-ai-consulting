@@ -1,4 +1,4 @@
-export type ContentType = 'Case Study' | 'Report' | 'Methodology' | 'Announcement';
+export type ContentType = 'case_study' | 'report' | 'methodology' | 'announcement';
 export type ContentStatus = 'Draft' | 'Published' | 'Archived';
 export type DemoStatus = 'New' | 'Confirmed' | 'Completed' | 'Canceled';
 export type HomepageModuleType = 'hero' | 'gpt_search' | 'latest_news' | 'core_capabilities' | 'product_claim' | 'primary_cta';
@@ -7,7 +7,7 @@ export interface ContentItem {
   id: string;
   type: ContentType;
   title: string;
-  subtitle: string;
+  subtitle: string; // Used as Summary
   slug: string;
   cover_image_url: string | null;
   published_at: string;

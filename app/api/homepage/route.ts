@@ -6,7 +6,7 @@ import { HomepageModuleType, HomepageLatestNewsConfig } from '@/types';
 export const runtime = 'nodejs';
 
 export async function GET() {
-  const supabase = createClient();
+  const supabase = await createClient();
 
   // 1. Get all active homepage configs
   const { data: configs, error: configError } = await supabase

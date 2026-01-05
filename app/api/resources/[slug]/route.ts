@@ -7,7 +7,7 @@ export async function GET(
   request: NextRequest,
   { params }: { params: { slug: string } }
 ) {
-  const supabase = createClient();
+  const supabase = await createClient();
   const slug = params.slug;
 
   const { data, error } = await supabase

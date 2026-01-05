@@ -4,7 +4,7 @@ import { FileText, Users, Calendar } from 'lucide-react';
 export const dynamic = 'force-dynamic';
 
 async function getStats() {
-  const supabase = createClient();
+  const supabase = await createClient();
   
   const [
     { count: publishedCount },

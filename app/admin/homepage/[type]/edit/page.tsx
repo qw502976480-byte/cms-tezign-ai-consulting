@@ -36,7 +36,7 @@ export default async function EditSectionPage({
     );
   }
 
-  const supabase = createClient();
+  const supabase = await createClient();
   const { data, error } = await supabase
     .from('homepage_modules') // ⚠️ 注意：你现在用的是这个表
     .select('*')

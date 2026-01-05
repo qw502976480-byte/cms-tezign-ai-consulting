@@ -16,7 +16,7 @@ const MODULE_DEFINITIONS: { type: HomepageModuleType; name: string; description:
 ];
 
 export default async function HomepageManager() {
-  const supabase = createClient();
+  const supabase = await createClient();
   
   // Fetch configs
   const { data } = await supabase.from('homepage_config').select('*');
