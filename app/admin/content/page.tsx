@@ -2,6 +2,8 @@ import Link from 'next/link';
 import { createClient } from '@/utils/supabase/server';
 import { Plus, Edit2, Eye } from 'lucide-react';
 
+export const dynamic = 'force-dynamic';
+
 export default async function ContentList({ searchParams }: { searchParams: { type?: string } }) {
   const supabase = createClient();
   const typeFilter = searchParams.type;

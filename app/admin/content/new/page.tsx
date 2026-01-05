@@ -1,5 +1,7 @@
 import ContentEditor from '@/components/ContentEditor';
 
+export const dynamic = 'force-dynamic';
+
 export default function NewContentPage() {
   return (
     <div className="space-y-6">

@@ -1,6 +1,8 @@
 import { createClient } from '@/utils/supabase/server';
 import { FileText, Users, Calendar } from 'lucide-react';
 
+export const dynamic = 'force-dynamic';
+
 async function getStats() {
   const supabase = createClient();
   
