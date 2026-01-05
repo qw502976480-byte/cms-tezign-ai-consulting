@@ -1,15 +1,16 @@
 export type ResourceCategory = 'report' | 'announcement' | 'case_study' | 'methodology';
 export type DemoStatus = 'New' | 'Confirmed' | 'Completed' | 'Canceled';
 export type HomepageModuleType = 'hero' | 'gpt_search' | 'latest_news' | 'core_capabilities' | 'product_claim' | 'primary_cta';
+export type ResourceStatus = 'draft' | 'published' | 'archived';
 
 export interface Resource {
   id: string;
   title: string;
   slug: string;
-  category: string;
+  category: ResourceCategory;
   summary: string | null;
   content: string | null;
-  published: boolean;
+  status: ResourceStatus;
   published_at: string | null;
   created_at: string;
 }

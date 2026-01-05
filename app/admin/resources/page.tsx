@@ -1,15 +1,15 @@
 import Link from 'next/link';
 import { createClient } from '@/utils/supabase/server';
 import { Plus, Edit2 } from 'lucide-react';
+import { ResourceStatus } from '@/types';
 
-// 1. Define local type for list display
 interface ResourceRow {
   id: string;
   title: string;
   slug: string;
   category: string;
   summary: string | null;
-  published: boolean;
+  status: ResourceStatus;
   published_at: string | null;
   created_at: string;
 }
@@ -21,8 +21,8 @@ export default async function ResourcesListPage() {
 
   const { data: resources, error } = await supabase
     .from('resources')
-    .select('id, title, slug, category, summary, published, published_at, created_at')
-    .order('published_at', { ascending: false, nullsFirst: false });
+    .select('id, title, slug, category, summary, status, published_at, created_at')
+    .order('created_at', { ascending: false });
 
   if (error) {
     return (
@@ -53,37 +53,37 @@ export default async function ResourcesListPage() {
             <tr>
               <th className="px-6 py-4">Title</th>
               <th className="px-6 py-4">Status</th>
-              <th className="px-6 py-4">Date</th>
+              <th className="px-6 py-4">Published At</th>
               <th className="px-6 py-4">Category</th>
               <th className="px-6 py-4">Summary</th>
               <th className="px-6 py-4 text-right">Action</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {/* 2. Update map to use local ResourceRow type */}
             {resources?.map((item: any) => {
               const resource = item as ResourceRow;
-              const displayDate = resource.published_at || resource.created_at;
+              const isPublished = resource.status === 'published';
+              
               return (
                 <tr key={resource.id} className="hover:bg-gray-50 transition-colors">
                   <td className="px-6 py-4 font-medium text-gray-900">{resource.title}</td>
                   <td className="px-6 py-4">
-                     {resource.published ? (
+                     {isPublished ? (
                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 border border-green-200">
                           Published
                         </span>
                      ) : (
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 border border-gray-200">
-                          Draft
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 border border-gray-200 uppercase">
+                          {resource.status || 'Draft'}
                         </span>
                      )}
                   </td>
                   <td className="px-6 py-4 text-gray-500 text-xs">
-                    {displayDate ? new Date(displayDate).toLocaleDateString() : '-'}
+                    {resource.published_at ? new Date(resource.published_at).toLocaleDateString() : '-'}
                   </td>
                   <td className="px-6 py-4">
                     <span className="capitalize text-gray-600">
-                      {resource.category.replace(/_/g, ' ')}
+                      {resource.category?.replace(/_/g, ' ') || 'Uncategorized'}
                     </span>
                   </td>
                   <td className="px-6 py-4 text-gray-500">

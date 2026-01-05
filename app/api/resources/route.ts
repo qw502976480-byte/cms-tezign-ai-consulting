@@ -13,10 +13,12 @@ export async function GET(request: NextRequest) {
   const limit = 20;
   const offset = (page - 1) * limit;
 
+  // FIX: Filter by status='published' and use published_at for sorting
   let query = supabase
     .from('resources')
-    .select('id, title, slug, category, summary, content, created_at')
-    .order('created_at', { ascending: false })
+    .select('id, title, slug, category, summary, content, status, published_at')
+    .eq('status', 'published')
+    .order('published_at', { ascending: false, nullsLast: true })
     .range(offset, offset + limit - 1);
 
   if (category) {

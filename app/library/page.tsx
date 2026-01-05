@@ -1,17 +1,17 @@
 import Link from 'next/link';
 import { createClient } from '@/utils/supabase/server';
 
-// Ensure the page is dynamic to fetch fresh data on request
 export const dynamic = 'force-dynamic';
 
 export default async function LibraryPage() {
   const supabase = await createClient();
 
-  // Fetch resources with specific fields, sorted by created_at descending
+  // FIX: Filter by status='published' instead of removed boolean field
   const { data: resources, error } = await supabase
     .from('resources')
-    .select('id, title, slug, category, summary, created_at')
-    .order('created_at', { ascending: false });
+    .select('id, title, slug, category, summary, published_at')
+    .eq('status', 'published')
+    .order('published_at', { ascending: false });
 
   if (error) {
     return (
@@ -46,7 +46,7 @@ export default async function LibraryPage() {
                     {item.category?.replace(/_/g, ' ') || 'Uncategorized'}
                   </span>
                   <span className="text-xs text-gray-400">
-                    {new Date(item.created_at).toLocaleDateString()}
+                    {item.published_at ? new Date(item.published_at).toLocaleDateString() : 'Recently'}
                   </span>
                 </div>
                 
@@ -67,7 +67,7 @@ export default async function LibraryPage() {
 
           {(!resources || resources.length === 0) && (
             <div className="col-span-full text-center py-16">
-              <p className="text-gray-500 text-lg">No resources found yet.</p>
+              <p className="text-gray-500 text-lg">No published resources found yet.</p>
             </div>
           )}
         </div>

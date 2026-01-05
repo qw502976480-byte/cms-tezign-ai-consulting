@@ -17,12 +17,6 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
   const [loading, setLoading] = useState(false);
   const [newsConfig, setNewsConfig] = useState<HomepageLatestNewsConfig | null>(null);
 
-  // Helper to format date for input type="date"
-  const formatDateForInput = (dateStr?: string | null) => {
-    if (!dateStr) return new Date().toISOString().split('T')[0];
-    return new Date(dateStr).toISOString().split('T')[0];
-  };
-
   // Form State
   const [formData, setFormData] = useState({
     title: initialData?.title || '',
@@ -30,9 +24,9 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
     category: initialData?.category || 'report',
     summary: initialData?.summary || '',
     content: initialData?.content || '',
-    // published state is handled by the action buttons now, but we keep it in state to track initial status or if we want to toggle it internally
-    published: initialData?.published || false,
-    published_at: formatDateForInput(initialData?.published_at),
+    // Note: 'status' is not fully controlled by form inputs, but by action buttons
+    // We only keep track of published_at for manual override if needed
+    published_at: initialData?.published_at ? new Date(initialData.published_at).toISOString().split('T')[0] : '',
   });
 
   // Homepage Slots State
@@ -41,7 +35,7 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
     latest: false,   // 固定位
   });
 
-  // Load Homepage Config on Mount
+  // Load Homepage Config
   useEffect(() => {
     const fetchHomepageConfig = async () => {
       const { data } = await supabase
@@ -68,37 +62,20 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
 
   // Slug auto-generation logic
   useEffect(() => {
-    // Only auto-generate if we are creating new or if the user hasn't heavily modified it manually (simplified here to: always update if not saved yet, or just update based on title)
-    // The requirement says: "Auto generate... real-time update...".
-    // We'll update slug when title changes.
-    // To avoid overwriting existing slugs that might be indexed, we should be careful.
-    // But requirement says "Slug... no longer required user input".
-    // Let's assume for new resources we always generate. For existing, we keep it unless title changes? 
-    // Actually, usually changing title shouldn't change slug for SEO. 
-    // BUT the requirement implies dynamic generation.
-    // I will generate it based on title.
-    
     const generateSlug = (text: string) => {
       return text
         .toString()
         .toLowerCase()
         .trim()
-        .replace(/\s+/g, '-')     // Replace spaces with -
-        .replace(/[^\w\-]+/g, '') // Remove all non-word chars
-        .replace(/\-\-+/g, '-');  // Replace multiple - with single -
+        .replace(/\s+/g, '-')     
+        .replace(/[^\w\-]+/g, '') 
+        .replace(/\-\-+/g, '-');  
     };
-
-    // If it's a new resource, or if we want to force sync
-    // The requirement says "Real-time update slug when user inputs Title (only if user hasn't manually edited slug)".
-    // Since we are effectively disabling manual edit (making it read-only preview), we can just sync it.
-    // However, for existing items, we might want to preserve the slug.
     
-    if (!initialData?.id) {
+    // Auto-generate for new items only
+    if (!initialData?.id && formData.title) {
        setFormData(prev => ({ ...prev, slug: generateSlug(prev.title) }));
     }
-    // If editing, we generally don't change slug automatically to break links. 
-    // But I will add a "Regenerate" button for manual trigger on edit.
-    
   }, [formData.title, initialData?.id]);
 
   const handleRegenerateSlug = () => {
@@ -115,13 +92,8 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    const { name, value, type } = e.target;
-    if (type === 'checkbox') {
-      const checked = (e.target as HTMLInputElement).checked;
-      setFormData(prev => ({ ...prev, [name]: checked }));
-    } else {
-      setFormData(prev => ({ ...prev, [name]: value }));
-    }
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
   };
 
   const handleHomepageFlagChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -129,14 +101,13 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
     setHomepageFlags(prev => ({ ...prev, [name]: checked }));
   };
 
-  // Unified save handler
-  const handleSave = async (shouldPublish: boolean) => {
+  const handleSave = async (isPublishAction: boolean) => {
     if (!formData.title) {
         alert("请输入标题");
         return;
     }
     
-    if (shouldPublish) {
+    if (isPublishAction) {
         if (!confirm("确认发布？发布后将对外可见。")) {
             return;
         }
@@ -145,16 +116,39 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
     setLoading(true);
 
     try {
-      // 1. Save Resource
-      const payload = {
+      // 1. Prepare Payload
+      const payload: any = {
         title: formData.title,
-        slug: formData.slug || `resource-${Date.now()}`, // Fallback
+        slug: formData.slug || `resource-${Date.now()}`, 
         category: formData.category,
         summary: formData.summary,
         content: formData.content,
-        published: shouldPublish, // Force published status
-        published_at: formData.published_at,
       };
+
+      // 2. Handle Status & Published Date
+      if (isPublishAction) {
+        // ACTION: PUBLISH
+        payload.status = 'published';
+        // Use user-selected date if present, otherwise NOW
+        payload.published_at = formData.published_at 
+          ? new Date(formData.published_at).toISOString() 
+          : new Date().toISOString();
+      } else {
+        // ACTION: SAVE (Draft or Edit)
+        if (initialData?.id) {
+          // Editing existing: Preserve original status (Do not send status field)
+          // Exception: If you want to allow user to revert to draft, you'd need a separate 'Unpublish' button.
+          // For this request: "Save" preserves status.
+        } else {
+          // New Item: Default to draft
+          payload.status = 'draft';
+        }
+        
+        // If user set a date in form, save it, even if draft
+        if (formData.published_at) {
+           payload.published_at = new Date(formData.published_at).toISOString();
+        }
+      }
 
       let resourceId = initialData?.id;
 
@@ -174,25 +168,21 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
         resourceId = data.id;
       }
 
-      // 2. Update Homepage Config if available and resourceId exists
+      // 3. Update Homepage Config
       if (newsConfig && resourceId) {
         const newConfig = { ...newsConfig };
         const id = resourceId;
 
-        // Update Featured Items (Carousel)
+        // Update Featured
         let featured = newConfig.featured_items || [];
-        featured = featured.filter(item => item !== id); // Remove first
-        if (homepageFlags.featured) {
-            featured.unshift(id); // Add to top
-        }
+        featured = featured.filter(item => item !== id);
+        if (homepageFlags.featured) featured.unshift(id);
         newConfig.featured_items = featured;
 
-        // Update List Items (Fixed)
+        // Update List
         let list = newConfig.list_items || [];
-        list = list.filter(item => item !== id); // Remove first
-        if (homepageFlags.latest) {
-            list.unshift(id); // Add to top
-        }
+        list = list.filter(item => item !== id);
+        if (homepageFlags.latest) list.unshift(id);
         newConfig.list_items = list;
 
         const { error: configError } = await supabase
@@ -203,7 +193,7 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
         if (configError) throw configError;
       }
 
-      if (shouldPublish) {
+      if (isPublishAction) {
         alert("发布成功！");
       }
       
@@ -227,9 +217,16 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
           <div className="flex flex-col">
             <h1 className="text-2xl font-bold text-gray-900">{initialData ? '编辑资源' : '新建资源'}</h1>
             {initialData && (
-                 <span className={`text-xs font-medium ${initialData.published ? 'text-green-600' : 'text-gray-500'}`}>
-                    Currently: {initialData.published ? 'Published' : 'Draft'}
-                 </span>
+                 <div className="flex items-center gap-2">
+                   <span className={`text-xs font-bold uppercase ${initialData.status === 'published' ? 'text-green-600' : 'text-gray-500'}`}>
+                      {initialData.status}
+                   </span>
+                   {initialData.published_at && (
+                     <span className="text-xs text-gray-400">
+                       {new Date(initialData.published_at).toLocaleDateString()}
+                     </span>
+                   )}
+                 </div>
             )}
           </div>
         </div>
@@ -241,7 +238,7 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
               className="flex items-center gap-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-lg font-medium transition disabled:opacity-50 shadow-sm"
             >
               {loading ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
-              保存更改 (草稿)
+              保存更改
             </button>
             <button
               type="button"
@@ -250,13 +247,12 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
               className="flex items-center gap-2 bg-black hover:bg-gray-800 text-white px-4 py-2 rounded-lg font-medium transition disabled:opacity-50 shadow-sm"
             >
               {loading ? <Loader2 className="animate-spin" size={18} /> : <Send size={18} />}
-              展示到官网
+              发布到官网
             </button>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 pb-10">
-        {/* Left Column: Content */}
         <div className="lg:col-span-2 space-y-8">
           
           {/* Block 1: Basic Information */}
@@ -280,18 +276,18 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                  <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">发布日期 (Date) <span className="text-red-500">*</span></label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">发布日期 (Date)</label>
                   <div className="relative">
                     <input
                         type="date"
                         name="published_at"
-                        required
                         value={formData.published_at}
                         onChange={handleChange}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-black pl-10"
                     />
                     <CalendarIcon className="absolute left-3 top-2.5 text-gray-400" size={18} />
                   </div>
+                  <p className="text-xs text-gray-400 mt-1">留空则在发布时自动使用当前时间</p>
                 </div>
                  <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">内容类型 (Category) <span className="text-red-500">*</span></label>
@@ -309,7 +305,6 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
                 </div>
               </div>
 
-              {/* Slug Preview */}
               <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
                   <div className="flex items-center justify-between mb-1">
                       <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">URL Preview</label>
@@ -330,7 +325,7 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
             </div>
           </section>
 
-          {/* Block 3: Content */}
+          {/* Block 2: Content */}
           <section className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 flex items-center gap-2">
               <Layout size={18} className="text-gray-500" />
@@ -366,7 +361,6 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
 
         {/* Right Column: Settings */}
         <div className="space-y-8">
-           {/* Block 2: Website Display */}
            <section className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden sticky top-24">
             <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 flex items-center gap-2">
               <Globe size={18} className="text-blue-600" />
@@ -374,14 +368,12 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
             </div>
             <div className="p-6 space-y-6">
               
-              {/* Note about publishing status */}
               <div className="text-sm text-gray-600">
-                <p>Use the buttons at the top to publish or save as draft.</p>
+                <p>Status is managed via the buttons at the top of the page.</p>
               </div>
 
               <hr className="border-gray-100" />
 
-              {/* Homepage Slots */}
               <div>
                 <label className="block text-sm font-medium text-gray-900 mb-3">首页位置 (Homepage Slots)</label>
                 <div className="space-y-3">
