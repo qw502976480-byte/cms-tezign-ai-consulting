@@ -4,42 +4,35 @@ import React from 'react';
 import { useState, useEffect } from 'react';
 import { createClient } from '@/utils/supabase/client';
 import { useRouter } from 'next/navigation';
-import { Loader2, Trash2 } from 'lucide-react';
-import { HomepageConfig, ContentItem, CapabilityItem, HomepageModuleType } from '@/types';
+import { Loader2 } from 'lucide-react';
+import { HomepageConfig, CapabilityItem } from '@/types';
 
 export default function SectionEditor({ moduleConfig }: { moduleConfig: HomepageConfig }) {
   const supabase = createClient();
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [config, setConfig] = useState(moduleConfig.config);
-  const [contentItems, setContentItems] = useState<Partial<ContentItem>[]>([]);
+  
+  // Stores simple list of resources for selection
+  const [resources, setResources] = useState<{id: string, title: string}[]>([]);
 
   useEffect(() => {
-    // Load published content for selection in "Latest News" module
+    // Load resources for "Latest News" module selection
     if (moduleConfig.type === 'latest_news') {
-      const loadContent = async () => {
+      const loadResources = async () => {
         const { data } = await supabase
-          .from('content_items')
-          .select('id, title, status')
-          .eq('status', 'Published')
-          .order('published_at', { ascending: false });
-        setContentItems(data || []);
+          .from('resources')
+          .select('id, title')
+          .order('created_at', { ascending: false });
+        setResources(data || []);
       };
-      loadContent();
+      loadResources();
     }
   }, [moduleConfig.type, supabase]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setConfig(prev => ({ ...prev, [name]: value }));
-  };
-
-  const handleArrayChange = (field: string, index: number, value: string) => {
-    setConfig(prev => {
-      const newArray = [...(prev as any)[field]];
-      newArray[index] = value;
-      return { ...prev, [field]: newArray };
-    });
   };
   
   const handleCapabilityChange = (index: number, e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -53,7 +46,7 @@ export default function SectionEditor({ moduleConfig }: { moduleConfig: Homepage
 
   const handleResourceToggle = (field: 'featured_items' | 'list_items', id: string, limit: number) => {
     setConfig(prev => {
-      const current = [...(prev as any)[field]];
+      const current = [...(prev as any)[field] || []];
       const isSelected = current.includes(id);
 
       if (isSelected) {
@@ -62,11 +55,10 @@ export default function SectionEditor({ moduleConfig }: { moduleConfig: Homepage
         return { ...prev, [field]: [...current, id] };
       }
       
-      alert(`此区域最多只能选择 ${limit} 篇内容。`);
+      alert(`Limit reached. You can only select ${limit} items.`);
       return prev;
     });
   };
-
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -125,22 +117,22 @@ export default function SectionEditor({ moduleConfig }: { moduleConfig: Homepage
         return (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">左侧轮播卡片 (最多 5 条)</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Left Carousel (Max 5)</label>
               <div className="border border-gray-200 rounded-md max-h-80 overflow-y-auto p-2 grid gap-1 bg-gray-50">
-                {contentItems.map(item => (
+                {resources.map(item => (
                   <label key={item.id} className="flex items-center gap-2 p-2 hover:bg-white rounded cursor-pointer">
-                    <input type="checkbox" checked={(config as any).featured_items.includes(item.id)} onChange={() => handleResourceToggle('featured_items', item.id!, 5)} />
+                    <input type="checkbox" checked={(config as any).featured_items?.includes(item.id)} onChange={() => handleResourceToggle('featured_items', item.id!, 5)} />
                     <span className="text-sm text-gray-700">{item.title}</span>
                   </label>
                 ))}
               </div>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">右侧固定列表 (固定 3 条)</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Right List (Max 3)</label>
               <div className="border border-gray-200 rounded-md max-h-80 overflow-y-auto p-2 grid gap-1 bg-gray-50">
-                {contentItems.map(item => (
+                {resources.map(item => (
                   <label key={item.id} className="flex items-center gap-2 p-2 hover:bg-white rounded cursor-pointer">
-                    <input type="checkbox" checked={(config as any).list_items.includes(item.id)} onChange={() => handleResourceToggle('list_items', item.id!, 3)} />
+                    <input type="checkbox" checked={(config as any).list_items?.includes(item.id)} onChange={() => handleResourceToggle('list_items', item.id!, 3)} />
                     <span className="text-sm text-gray-700">{item.title}</span>
                   </label>
                 ))}

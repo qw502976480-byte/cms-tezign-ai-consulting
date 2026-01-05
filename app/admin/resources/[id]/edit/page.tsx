@@ -1,6 +1,6 @@
 import ResourceForm from '../../resource-form';
 import { createClient } from '@/utils/supabase/server';
-import { ContentItem } from '@/types';
+import { Resource } from '@/types';
 import Link from 'next/link';
 
 export const dynamic = 'force-dynamic';
@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 export default async function EditResourcePage({ params }: { params: { id: string } }) {
   const supabase = await createClient();
   const { data, error } = await supabase
-    .from('content_items')
+    .from('resources')
     .select('*')
     .eq('id', params.id)
     .single();
@@ -16,9 +16,9 @@ export default async function EditResourcePage({ params }: { params: { id: strin
   if (error || !data) {
     return (
       <div className="flex flex-col items-center justify-center h-64">
-        <h2 className="text-xl font-bold text-gray-900">资源未找到</h2>
+        <h2 className="text-xl font-bold text-gray-900">Resource Not Found</h2>
         <Link href="/admin/resources" className="mt-4 text-blue-600 hover:underline">
-          返回列表
+          Go Back
         </Link>
       </div>
     );
@@ -26,7 +26,7 @@ export default async function EditResourcePage({ params }: { params: { id: strin
 
   return (
     <div className="py-6">
-      <ResourceForm initialData={data as ContentItem} />
+      <ResourceForm initialData={data as Resource} />
     </div>
   );
 }

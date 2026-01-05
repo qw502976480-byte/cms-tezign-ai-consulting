@@ -1,23 +1,15 @@
-export type ContentType = 'case_study' | 'report' | 'methodology' | 'announcement';
-export type ContentStatus = 'Draft' | 'Published' | 'Archived';
+export type ResourceCategory = 'Report' | 'Announcement' | 'Case Study' | 'Methodology';
 export type DemoStatus = 'New' | 'Confirmed' | 'Completed' | 'Canceled';
 export type HomepageModuleType = 'hero' | 'gpt_search' | 'latest_news' | 'core_capabilities' | 'product_claim' | 'primary_cta';
 
-export interface ContentItem {
+export interface Resource {
   id: string;
-  type: ContentType;
   title: string;
-  subtitle: string; // Used as Summary
   slug: string;
-  cover_image_url: string | null;
-  published_at: string;
-  reading_minutes: number;
-  status: ContentStatus;
-  language: string;
-  interests: string[];
-  body_blocks: any[]; // JSONB
+  category: string;
+  summary: string | null;
+  content: string | null;
   created_at: string;
-  updated_at: string;
 }
 
 export interface Registration {
@@ -42,7 +34,7 @@ export interface DemoRequest {
   created_at: string;
 }
 
-// --- New Homepage Configuration Types ---
+// --- Homepage Configuration Types ---
 
 export interface HomepageHeroConfig {
   title: string;
@@ -56,8 +48,8 @@ export interface HomepageGptSearchConfig {
 }
 
 export interface HomepageLatestNewsConfig {
-  featured_items: string[]; // Array of content IDs
-  list_items: string[];     // Array of content IDs
+  featured_items: string[]; // Array of Resource IDs
+  list_items: string[];     // Array of Resource IDs
 }
 
 export interface CapabilityItem {

@@ -1,6 +1,5 @@
 import { createClient } from '@/utils/supabase/server';
 import { NextResponse } from 'next/server';
-// FIX: Import HomepageLatestNewsConfig to cast config object
 import { HomepageModuleType, HomepageLatestNewsConfig } from '@/types';
 
 export const runtime = 'nodejs';
@@ -21,25 +20,23 @@ export async function GET() {
   // Use a Map for easy lookup
   const configMap = new Map(configs.map(c => [c.type, c.config]));
 
-  // 2. Identify and collect all content IDs needed for 'latest_news'
-  // FIX: Cast newsConfig to the correct type to access its properties
+  // 2. Identify and collect all resource IDs needed for 'latest_news'
   const newsConfig = configMap.get('latest_news') as HomepageLatestNewsConfig | undefined;
   let allResourceIds: string[] = [];
   if (newsConfig) {
     allResourceIds = [...(newsConfig.featured_items || []), ...(newsConfig.list_items || [])];
   }
   
-  // 3. Fetch associated content items if any are linked
-  let contentMap = new Map();
+  // 3. Fetch associated resources
+  let resourceMap = new Map();
   if (allResourceIds.length > 0) {
-    const { data: content, error: contentError } = await supabase
-        .from('content_items')
-        .select('id, type, title, subtitle, published_at, reading_minutes, slug, cover_image_url')
-        .in('id', allResourceIds)
-        .eq('status', 'Published');
+    const { data: resources, error: resourceError } = await supabase
+        .from('resources')
+        .select('id, title, slug, category, summary')
+        .in('id', allResourceIds);
 
-    if (!contentError && content) {
-        contentMap = new Map(content.map((c: any) => [c.id, c]));
+    if (!resourceError && resources) {
+        resourceMap = new Map(resources.map((c: any) => [c.id, c]));
     }
   }
 
@@ -48,15 +45,14 @@ export async function GET() {
   
   for (const config of configs) {
     if (config.type === 'latest_news') {
-      // FIX: Cast config.config for type safety
       const newsModuleConfig = config.config as HomepageLatestNewsConfig;
-      // Resolve content items for the news module
+      // Resolve resource items for the news module
       const resolvedConfig = {
         featured_items: (newsModuleConfig.featured_items || [])
-          .map((id: string) => contentMap.get(id))
+          .map((id: string) => resourceMap.get(id))
           .filter(Boolean),
         list_items: (newsModuleConfig.list_items || [])
-          .map((id: string) => contentMap.get(id))
+          .map((id: string) => resourceMap.get(id))
           .filter(Boolean),
       };
       response.latest_news = resolvedConfig;

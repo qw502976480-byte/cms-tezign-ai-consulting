@@ -11,26 +11,14 @@ export async function GET(
   const slug = params.slug;
 
   const { data, error } = await supabase
-    .from('content_items')
-    .select('type, title, subtitle, published_at, reading_minutes, slug, cover_image_url, body_blocks')
+    .from('resources')
+    .select('*')
     .eq('slug', slug)
-    .eq('status', 'Published')
     .single();
 
   if (error) {
-    return NextResponse.json({ error: 'Not found or not published' }, { status: 404 });
+    return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
 
-  const transformed = {
-    type: data.type,
-    title: data.title,
-    subtitle: data.subtitle,
-    date: data.published_at,
-    readingMinutes: data.reading_minutes,
-    slug: data.slug,
-    coverImage: data.cover_image_url,
-    bodyBlocks: data.body_blocks
-  };
-
-  return NextResponse.json(transformed);
+  return NextResponse.json(data);
 }
