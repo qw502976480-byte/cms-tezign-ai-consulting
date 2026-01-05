@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { createClient } from '@/utils/supabase/client';
 import { useRouter } from 'next/navigation';
-import { Loader2, ArrowLeft, Save, Globe, Layout, FileText, Send, RefreshCw, Calendar as CalendarIcon } from 'lucide-react';
+import { Loader2, ArrowLeft, Save, Globe, Layout, FileText, RefreshCw, Calendar as CalendarIcon } from 'lucide-react';
 import { Resource, HomepageLatestNewsConfig } from '@/types';
 import Link from 'next/link';
 
@@ -24,9 +24,12 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
     category: initialData?.category || 'report',
     summary: initialData?.summary || '',
     content: initialData?.content || '',
-    // Note: 'status' is not fully controlled by form inputs, but by action buttons
-    // We only keep track of published_at for manual override if needed
-    published_at: initialData?.published_at ? new Date(initialData.published_at).toISOString().split('T')[0] : '',
+    // Status is now controlled by the toggle
+    status: initialData?.status || 'draft',
+    // Published date logic: default to today if publishing, or use existing
+    published_at: initialData?.published_at 
+      ? new Date(initialData.published_at).toISOString().split('T')[0] 
+      : new Date().toISOString().split('T')[0],
   });
 
   // Homepage Slots State
@@ -101,16 +104,17 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
     setHomepageFlags(prev => ({ ...prev, [name]: checked }));
   };
 
-  const handleSave = async (isPublishAction: boolean) => {
+  const toggleStatus = () => {
+    setFormData(prev => ({
+      ...prev,
+      status: prev.status === 'published' ? 'draft' : 'published'
+    }));
+  };
+
+  const handleSave = async () => {
     if (!formData.title) {
         alert("请输入标题");
         return;
-    }
-    
-    if (isPublishAction) {
-        if (!confirm("确认发布？发布后将对外可见。")) {
-            return;
-        }
     }
 
     setLoading(true);
@@ -123,31 +127,23 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
         category: formData.category,
         summary: formData.summary,
         content: formData.content,
+        status: formData.status,
       };
 
-      // 2. Handle Status & Published Date
-      if (isPublishAction) {
-        // ACTION: PUBLISH
-        payload.status = 'published';
-        // Use user-selected date if present, otherwise NOW
-        payload.published_at = formData.published_at 
-          ? new Date(formData.published_at).toISOString() 
-          : new Date().toISOString();
+      // Handle Published At
+      // If status is published, ensure we have a date. 
+      // If user provided a date in the form, use it. 
+      // If it's empty but status is published, default to now.
+      if (formData.status === 'published') {
+         payload.published_at = formData.published_at 
+            ? new Date(formData.published_at).toISOString() 
+            : new Date().toISOString();
       } else {
-        // ACTION: SAVE (Draft or Edit)
-        if (initialData?.id) {
-          // Editing existing: Preserve original status (Do not send status field)
-          // Exception: If you want to allow user to revert to draft, you'd need a separate 'Unpublish' button.
-          // For this request: "Save" preserves status.
-        } else {
-          // New Item: Default to draft
-          payload.status = 'draft';
-        }
-        
-        // If user set a date in form, save it, even if draft
-        if (formData.published_at) {
-           payload.published_at = new Date(formData.published_at).toISOString();
-        }
+         // If draft, we can still save the date preference if set, or null it out?
+         // Usually better to keep the date if user set it.
+         if (formData.published_at) {
+             payload.published_at = new Date(formData.published_at).toISOString();
+         }
       }
 
       let resourceId = initialData?.id;
@@ -193,10 +189,7 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
         if (configError) throw configError;
       }
 
-      if (isPublishAction) {
-        alert("发布成功！");
-      }
-      
+      // alert("保存成功！");
       router.push('/admin/resources');
       router.refresh();
     } catch (error: any) {
@@ -217,37 +210,52 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
           <div className="flex flex-col">
             <h1 className="text-2xl font-bold text-gray-900">{initialData ? '编辑资源' : '新建资源'}</h1>
             {initialData && (
-                 <div className="flex items-center gap-2">
-                   <span className={`text-xs font-bold uppercase ${initialData.status === 'published' ? 'text-green-600' : 'text-gray-500'}`}>
-                      {initialData.status}
-                   </span>
-                   {initialData.published_at && (
-                     <span className="text-xs text-gray-400">
-                       {new Date(initialData.published_at).toLocaleDateString()}
-                     </span>
-                   )}
-                 </div>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className={`text-xs font-bold uppercase tracking-wider ${formData.status === 'published' ? 'text-green-600' : 'text-gray-500'}`}>
+                    {formData.status}
+                  </span>
+                  {formData.published_at && (
+                    <span className="text-xs text-gray-400">
+                      {formData.published_at}
+                    </span>
+                  )}
+                </div>
             )}
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        
+        {/* Right Actions: Toggle + Save */}
+        <div className="flex items-center gap-4">
+            {/* Status Toggle */}
+            <div className="flex items-center gap-3 bg-white border border-gray-200 rounded-full px-4 py-2 shadow-sm">
+                <span className={`text-sm font-medium transition-colors ${formData.status === 'published' ? 'text-green-600' : 'text-gray-500'}`}>
+                    {formData.status === 'published' ? '已发布 (On)' : '草稿 (Off)'}
+                </span>
+                <button
+                    type="button"
+                    onClick={toggleStatus}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2 ${
+                        formData.status === 'published' ? 'bg-green-500' : 'bg-gray-200'
+                    }`}
+                >
+                    <span className="sr-only">Toggle publish status</span>
+                    <span
+                        className={`${
+                            formData.status === 'published' ? 'translate-x-6' : 'translate-x-1'
+                        } inline-block h-4 w-4 transform rounded-full bg-white transition-transform`}
+                    />
+                </button>
+            </div>
+
+            {/* Save Button */}
             <button
               type="button"
-              onClick={() => handleSave(false)}
+              onClick={handleSave}
               disabled={loading}
-              className="flex items-center gap-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-lg font-medium transition disabled:opacity-50 shadow-sm"
+              className="flex items-center gap-2 bg-black hover:bg-gray-800 text-white px-6 py-2 rounded-full font-medium transition disabled:opacity-50 shadow-md"
             >
               {loading ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
               保存更改
-            </button>
-            <button
-              type="button"
-              onClick={() => handleSave(true)}
-              disabled={loading}
-              className="flex items-center gap-2 bg-black hover:bg-gray-800 text-white px-4 py-2 rounded-lg font-medium transition disabled:opacity-50 shadow-sm"
-            >
-              {loading ? <Loader2 className="animate-spin" size={18} /> : <Send size={18} />}
-              发布到官网
             </button>
         </div>
       </div>
@@ -287,7 +295,6 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
                     />
                     <CalendarIcon className="absolute left-3 top-2.5 text-gray-400" size={18} />
                   </div>
-                  <p className="text-xs text-gray-400 mt-1">留空则在发布时自动使用当前时间</p>
                 </div>
                  <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">内容类型 (Category) <span className="text-red-500">*</span></label>
@@ -364,16 +371,9 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
            <section className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden sticky top-24">
             <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 flex items-center gap-2">
               <Globe size={18} className="text-blue-600" />
-              <h2 className="font-semibold text-gray-900">官网展示 (Display)</h2>
+              <h2 className="font-semibold text-gray-900">首页推广 (Homepage)</h2>
             </div>
-            <div className="p-6 space-y-6">
-              
-              <div className="text-sm text-gray-600">
-                <p>Status is managed via the buttons at the top of the page.</p>
-              </div>
-
-              <hr className="border-gray-100" />
-
+            <div className="p-6">
               <div>
                 <label className="block text-sm font-medium text-gray-900 mb-3">首页位置 (Homepage Slots)</label>
                 <div className="space-y-3">

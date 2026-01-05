@@ -1,5 +1,5 @@
 {
-  "name": "Tezign AI Consulting Backend",
+  "name": "CMS-Tezign AI Consulting",
   "description": "A Next.js 14 App Router CMS and API backend for an AI consulting firm. Includes Admin Dashboard, Content Management, and Public APIs.",
   "requestFramePermissions": []
 }
