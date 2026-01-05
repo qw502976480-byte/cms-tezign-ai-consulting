@@ -34,7 +34,7 @@ export default async function EditSectionPage({ params }: { params: { type: stri
 
   const supabase = createClient();
   const { data, error } = await supabase
-    .from('homepage_config')
+  .from('homepage_modules')
     .select('*')
     .eq('type', type)
     .single();
