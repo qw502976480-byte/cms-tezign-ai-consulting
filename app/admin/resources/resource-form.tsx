@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { createClient } from '@/utils/supabase/client';
 import { useRouter } from 'next/navigation';
 import { Loader2, ArrowLeft, Save, Globe, Layout, FileText, RefreshCw, Calendar as CalendarIcon } from 'lucide-react';
-import { Resource, HomepageLatestNewsConfig } from '@/types';
+import { Resource } from '@/types';
 import Link from 'next/link';
 
 interface ResourceFormProps {
@@ -15,7 +15,6 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
   const supabase = createClient();
   const router = useRouter();
   const [loading, setLoading] = useState(false);
-  const [newsConfig, setNewsConfig] = useState<HomepageLatestNewsConfig | null>(null);
 
   // Form State
   const [formData, setFormData] = useState({
@@ -34,33 +33,35 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
 
   // Homepage Slots State
   const [homepageFlags, setHomepageFlags] = useState({
-    featured: false, // 轮播位
-    latest: false,   // 固定位
+    featured: false, // latest_updates_featured
+    latest: false,   // latest_updates_fixed
   });
 
-  // Load Homepage Config
+  // Load Homepage Config (Slots) from homepage_modules
   useEffect(() => {
-    const fetchHomepageConfig = async () => {
+    if (!initialData?.id) return;
+
+    const fetchHomepageSlots = async () => {
       const { data } = await supabase
-        .from('homepage_config')
-        .select('config')
-        .eq('type', 'latest_news')
-        .single();
+        .from('homepage_modules')
+        .select('section_key, content_item_ids')
+        .in('section_key', ['latest_updates_featured', 'latest_updates_fixed']);
       
-      if (data && data.config) {
-        const config = data.config as HomepageLatestNewsConfig;
-        setNewsConfig(config);
-        
-        if (initialData?.id) {
-          setHomepageFlags({
-            featured: config.featured_items?.includes(initialData.id) || false,
-            latest: config.list_items?.includes(initialData.id) || false,
-          });
-        }
+      const flags = { featured: false, latest: false };
+      
+      if (data) {
+        data.forEach((row: any) => {
+          const ids: string[] = Array.isArray(row.content_item_ids) ? row.content_item_ids : [];
+          if (ids.includes(initialData.id)) {
+            if (row.section_key === 'latest_updates_featured') flags.featured = true;
+            if (row.section_key === 'latest_updates_fixed') flags.latest = true;
+          }
+        });
       }
+      setHomepageFlags(flags);
     };
     
-    fetchHomepageConfig();
+    fetchHomepageSlots();
   }, [initialData?.id, supabase]);
 
   // Slug auto-generation logic
@@ -111,6 +112,47 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
     }));
   };
 
+  // Helper to update homepage_modules array
+  const updateHomepageSlot = async (sectionKey: string, shouldBeIn: boolean, resourceId: string) => {
+    // 1. Fetch current list
+    const { data: currentData } = await supabase
+      .from('homepage_modules')
+      .select('content_item_ids')
+      .eq('section_key', sectionKey)
+      .single();
+    
+    let ids: string[] = [];
+    if (currentData?.content_item_ids && Array.isArray(currentData.content_item_ids)) {
+        ids = [...currentData.content_item_ids];
+    }
+
+    const isCurrentlyIn = ids.includes(resourceId);
+
+    // 2. Determine if update is needed
+    if (shouldBeIn && !isCurrentlyIn) {
+        // Add to front (Latest)
+        ids.unshift(resourceId);
+    } else if (!shouldBeIn && isCurrentlyIn) {
+        // Remove
+        ids = ids.filter(id => id !== resourceId);
+    } else if (currentData) {
+        // If data existed and no change needed, return early
+        return;
+    } 
+    // If !currentData (row doesn't exist yet), we proceed to create it
+
+    // 3. Upsert
+    const { error: upsertError } = await supabase
+        .from('homepage_modules')
+        .upsert({
+            section_key: sectionKey,
+            content_item_ids: ids,
+            updated_at: new Date().toISOString()
+        }, { onConflict: 'section_key' });
+
+    if (upsertError) throw upsertError;
+  };
+
   const handleSave = async () => {
     if (!formData.title) {
         alert("请输入标题");
@@ -142,6 +184,7 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
 
       let resourceId = initialData?.id;
 
+      // 2. Save Resource
       if (resourceId) {
         const { error } = await supabase
           .from('resources')
@@ -158,35 +201,18 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
         resourceId = data.id;
       }
 
-      // 3. Update Homepage Config
-      if (newsConfig && resourceId) {
-        const newConfig = { ...newsConfig };
-        const id = resourceId;
-
-        // Update Featured
-        let featured = newConfig.featured_items || [];
-        featured = featured.filter(item => item !== id);
-        if (homepageFlags.featured) featured.unshift(id);
-        newConfig.featured_items = featured;
-
-        // Update List
-        let list = newConfig.list_items || [];
-        list = list.filter(item => item !== id);
-        if (homepageFlags.latest) list.unshift(id);
-        newConfig.list_items = list;
-
-        const { error: configError } = await supabase
-            .from('homepage_config')
-            .update({ config: newConfig, updated_at: new Date().toISOString() })
-            .eq('type', 'latest_news');
-        
-        if (configError) throw configError;
+      // 3. Update Homepage Slots (homepage_modules)
+      if (resourceId) {
+        await Promise.all([
+          updateHomepageSlot('latest_updates_featured', homepageFlags.featured, resourceId),
+          updateHomepageSlot('latest_updates_fixed', homepageFlags.latest, resourceId)
+        ]);
       }
 
       router.push('/admin/resources');
       router.refresh();
     } catch (error: any) {
-      alert(`Error: ${error.message}`);
+      alert(`保存失败: ${error.message}`);
     } finally {
       setLoading(false);
     }
