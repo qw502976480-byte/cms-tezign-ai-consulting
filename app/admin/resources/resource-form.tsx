@@ -31,8 +31,8 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
 
   // Homepage Slots State
   const [homepageFlags, setHomepageFlags] = useState({
-    featured: false, // latest_updates_featured
-    latest: false,   // latest_updates_fixed
+    carousel: false, // type: 'latest_carousel'
+    sidebar: false,  // type: 'latest_sidebar'
   });
 
   // Load Homepage Config (Slots) from homepage_modules
@@ -40,25 +40,25 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
     if (!initialData?.id) return;
 
     const fetchHomepageSlots = async () => {
-      // 使用 maybeSingle 避免 406/PGRST116 错误，但由于我们要查多行，这里用 select 返回数组即可
+      // Fetch based on 'type' column
       const { data, error } = await supabase
         .from('homepage_modules')
-        .select('section_key, content_item_ids')
-        .in('section_key', ['latest_updates_featured', 'latest_updates_fixed']);
+        .select('type, content_item_ids')
+        .in('type', ['latest_carousel', 'latest_sidebar']);
       
       if (error) {
         console.error("Error fetching homepage slots:", error);
         return;
       }
 
-      const flags = { featured: false, latest: false };
+      const flags = { carousel: false, sidebar: false };
       
       if (data) {
         data.forEach((row: any) => {
           const ids: string[] = Array.isArray(row.content_item_ids) ? row.content_item_ids : [];
           if (ids.includes(initialData.id)) {
-            if (row.section_key === 'latest_updates_featured') flags.featured = true;
-            if (row.section_key === 'latest_updates_fixed') flags.latest = true;
+            if (row.type === 'latest_carousel') flags.carousel = true;
+            if (row.type === 'latest_sidebar') flags.sidebar = true;
           }
         });
       }
@@ -116,17 +116,17 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
   };
 
   // Helper to update homepage_modules array
-  const updateHomepageSlot = async (sectionKey: string, shouldBeIn: boolean, resourceId: string) => {
-    // 1. Fetch current list using maybeSingle to handle non-existent rows gracefully
+  const updateHomepageSlot = async (typeKey: string, shouldBeIn: boolean, resourceId: string) => {
+    // 1. Fetch current list
     const { data: currentData, error: fetchError } = await supabase
       .from('homepage_modules')
       .select('content_item_ids')
-      .eq('section_key', sectionKey)
+      .eq('type', typeKey)
       .maybeSingle();
     
     if (fetchError) {
-        console.error(`Error fetching ${sectionKey}:`, fetchError);
-        throw fetchError;
+        console.error(`Error fetching ${typeKey}:`, fetchError);
+        // Don't throw here to allow saving the resource even if module fetch fails
     }
     
     let ids: string[] = [];
@@ -140,7 +140,7 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
     let needsUpdate = false;
 
     if (shouldBeIn && !isCurrentlyIn) {
-        // Add to front (Latest)
+        // Add to front
         ids.unshift(resourceId);
         needsUpdate = true;
     } else if (!shouldBeIn && isCurrentlyIn) {
@@ -157,17 +157,18 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
         return;
     }
 
-    // 3. Upsert
+    // 3. Upsert using 'type' as the key
     const { error: upsertError } = await supabase
         .from('homepage_modules')
         .upsert({
-            section_key: sectionKey,
+            type: typeKey,
             content_item_ids: ids,
-            updated_at: new Date().toISOString()
-        }, { onConflict: 'section_key' });
+            // Assuming 'updated_at' exists based on typical schema, if not remove it
+            // created_at is usually default
+        }, { onConflict: 'type' });
 
     if (upsertError) {
-        console.error(`Error updating ${sectionKey}:`, upsertError);
+        console.error(`Error updating ${typeKey}:`, upsertError);
         throw upsertError;
     }
   };
@@ -220,11 +221,11 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
         resourceId = data.id;
       }
 
-      // 3. Update Homepage Slots (homepage_modules)
+      // 3. Update Homepage Slots (homepage_modules) using 'type'
       if (resourceId) {
         await Promise.all([
-          updateHomepageSlot('latest_updates_featured', homepageFlags.featured, resourceId),
-          updateHomepageSlot('latest_updates_fixed', homepageFlags.latest, resourceId)
+          updateHomepageSlot('latest_carousel', homepageFlags.carousel, resourceId),
+          updateHomepageSlot('latest_sidebar', homepageFlags.sidebar, resourceId)
         ]);
       }
 
@@ -419,8 +420,8 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
                   <label className="flex items-start gap-3 p-3 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
                     <input
                       type="checkbox"
-                      name="featured"
-                      checked={homepageFlags.featured}
+                      name="carousel"
+                      checked={homepageFlags.carousel}
                       onChange={handleHomepageFlagChange}
                       className="mt-1 h-4 w-4 text-gray-900 rounded border-gray-300 focus:ring-gray-900"
                     />
@@ -433,8 +434,8 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
                   <label className="flex items-start gap-3 p-3 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
                     <input
                       type="checkbox"
-                      name="latest"
-                      checked={homepageFlags.latest}
+                      name="sidebar"
+                      checked={homepageFlags.sidebar}
                       onChange={handleHomepageFlagChange}
                       className="mt-1 h-4 w-4 text-gray-900 rounded border-gray-300 focus:ring-gray-900"
                     />

@@ -25,10 +25,11 @@ export default async function ResourcesListPage() {
       .from('resources')
       .select('id, title, slug, category, summary, status, published_at, created_at')
       .order('created_at', { ascending: false }),
+    // Use 'type' column instead of section_key
     supabase
       .from('homepage_modules')
-      .select('section_key, content_item_ids')
-      .in('section_key', ['latest_updates_featured', 'latest_updates_fixed'])
+      .select('type, content_item_ids')
+      .in('type', ['latest_carousel', 'latest_sidebar'])
   ]);
 
   const resources = resourcesResult.data;
@@ -43,15 +44,15 @@ export default async function ResourcesListPage() {
   }
 
   // Process homepage slots into Sets for O(1) lookup
-  const featuredIds = new Set<string>();
-  const fixedIds = new Set<string>();
+  const featuredIds = new Set<string>(); // latest_carousel
+  const fixedIds = new Set<string>();    // latest_sidebar
 
   if (modulesResult.data) {
     modulesResult.data.forEach((mod: any) => {
       const ids = Array.isArray(mod.content_item_ids) ? mod.content_item_ids : [];
-      if (mod.section_key === 'latest_updates_featured') {
+      if (mod.type === 'latest_carousel') {
         ids.forEach((id: string) => featuredIds.add(id));
-      } else if (mod.section_key === 'latest_updates_fixed') {
+      } else if (mod.type === 'latest_sidebar') {
         ids.forEach((id: string) => fixedIds.add(id));
       }
     });
