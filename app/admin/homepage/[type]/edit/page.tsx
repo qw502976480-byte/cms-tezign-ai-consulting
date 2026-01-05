@@ -1,3 +1,10 @@
+export default async function EditSectionPage({ params }) {
+  return (
+    <div style={{ padding: 40, color: 'red', fontSize: 24 }}>
+      🚨 如果你看到这行字，说明命中的是这个 page.tsx
+    </div>
+  );
+}
 import SectionEditor from '../../section-editor';
 import { createClient } from '@/utils/supabase/server';
 import { HomepageConfig, HomepageModuleType } from '@/types';
