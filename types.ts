@@ -9,6 +9,7 @@ export interface Resource {
   category: string;
   summary: string | null;
   content: string | null;
+  published: boolean;
   created_at: string;
 }
 
