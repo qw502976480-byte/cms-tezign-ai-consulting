@@ -13,9 +13,9 @@ Next.js 14 backend with CMS, Admin Dashboard, and Public APIs.
 
 ### 2. Run SQL Migrations
 1. Go to the **SQL Editor** in Supabase.
-2. Open `supabase/migrations/20240101000000_init.sql` from this repository.
-3. Paste the content into the SQL Editor and click **Run**.
-4. This creates tables: `content_items`, `registrations`, `demo_requests`, `homepage_slots`.
+2. Open `supabase/migrations/20240101000000_init.sql` from this repository. Paste its content into the SQL Editor and click **Run**.
+3. Open `supabase/migrations/20240103000000_refactor_homepage_config.sql`. Paste its content into the SQL Editor and click **Run**.
+4. This creates all necessary tables: `content_items`, `registrations`, `demo_requests`, and the new `homepage_config`.
 
 ### 3. Create Admin User
 1. Go to **Authentication > Users** in Supabase Dashboard.
@@ -47,4 +47,4 @@ EMAIL_TO_INTERNAL=your_email@example.com
 1. **Admin Login:** Go to `/admin/login`. Log in with the user created in Step 3.
 2. **Create Content:** Go to `/admin/content/new` and publish a "Case Study".
 3. **Public API:** Visit `/api/resources` to see the JSON output of published content.
-4. **Homepage:** Visit `/api/homepage`.
+4. **Homepage API:** Visit `/api/homepage` to see the new structured homepage config.

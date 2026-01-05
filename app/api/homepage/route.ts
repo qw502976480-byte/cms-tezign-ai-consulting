@@ -1,37 +1,41 @@
 import { createClient } from '@/utils/supabase/server';
 import { NextResponse } from 'next/server';
+// FIX: Import HomepageLatestNewsConfig to cast config object
+import { HomepageModuleType, HomepageLatestNewsConfig } from '@/types';
 
 export const runtime = 'nodejs';
 
 export async function GET() {
   const supabase = createClient();
-  
-  // 1. Get Active Sections
-  const { data: sections, error: sectionsError } = await supabase
-    .from('homepage_sections')
-    .select('*')
-    .eq('is_active', true)
-    .order('display_order', { ascending: true });
 
-  if (sectionsError) {
-    return NextResponse.json({ error: sectionsError.message }, { status: 500 });
+  // 1. Get all active homepage configs
+  const { data: configs, error: configError } = await supabase
+    .from('homepage_config')
+    .select('type, config, is_active')
+    .eq('is_active', true);
+
+  if (configError) {
+    return NextResponse.json({ error: configError.message }, { status: 500 });
   }
 
-  // 2. Collect all Resource IDs to fetch at once
-  let allIds: string[] = [];
-  sections.forEach((section: any) => {
-    if (Array.isArray(section.linked_resources) && section.linked_resources.length > 0) {
-      allIds = [...allIds, ...section.linked_resources];
-    }
-  });
+  // Use a Map for easy lookup
+  const configMap = new Map(configs.map(c => [c.type, c.config]));
 
-  // 3. Fetch content (ONLY Published)
+  // 2. Identify and collect all content IDs needed for 'latest_news'
+  // FIX: Cast newsConfig to the correct type to access its properties
+  const newsConfig = configMap.get('latest_news') as HomepageLatestNewsConfig | undefined;
+  let allResourceIds: string[] = [];
+  if (newsConfig) {
+    allResourceIds = [...(newsConfig.featured_items || []), ...(newsConfig.list_items || [])];
+  }
+  
+  // 3. Fetch associated content items if any are linked
   let contentMap = new Map();
-  if (allIds.length > 0) {
+  if (allResourceIds.length > 0) {
     const { data: content, error: contentError } = await supabase
         .from('content_items')
         .select('id, type, title, subtitle, published_at, reading_minutes, slug, cover_image_url')
-        .in('id', allIds)
+        .in('id', allResourceIds)
         .eq('status', 'Published');
 
     if (!contentError && content) {
@@ -39,35 +43,28 @@ export async function GET() {
     }
   }
 
-  // 4. Transform response
-  const response = sections.map((section: any) => {
-    // Basic fields
-    const moduleData: any = {
-        id: section.id,
-        type: section.type,
-        title: section.title,
-        subtitle: section.subtitle,
-        content: section.content,
-    };
-
-    // If section has linked resources, resolve them
-    if (section.linked_resources && section.linked_resources.length > 0) {
-        moduleData.resources = section.linked_resources
-            .map((id: string) => contentMap.get(id))
-            .filter(Boolean) // Remove nulls (drafts/archived/deleted)
-            .map((item: any) => ({
-                type: item.type,
-                title: item.title,
-                subtitle: item.subtitle,
-                date: item.published_at,
-                readingMinutes: item.reading_minutes,
-                slug: item.slug,
-                coverImage: item.cover_image_url
-            }));
+  // 4. Build the final structured response object
+  const response: { [key in HomepageModuleType]?: any } = {};
+  
+  for (const config of configs) {
+    if (config.type === 'latest_news') {
+      // FIX: Cast config.config for type safety
+      const newsModuleConfig = config.config as HomepageLatestNewsConfig;
+      // Resolve content items for the news module
+      const resolvedConfig = {
+        featured_items: (newsModuleConfig.featured_items || [])
+          .map((id: string) => contentMap.get(id))
+          .filter(Boolean),
+        list_items: (newsModuleConfig.list_items || [])
+          .map((id: string) => contentMap.get(id))
+          .filter(Boolean),
+      };
+      response.latest_news = resolvedConfig;
+    } else {
+      // For all other modules, just add their config
+      response[config.type as HomepageModuleType] = config.config;
     }
-
-    return moduleData;
-  });
+  }
 
   return NextResponse.json(response);
 }

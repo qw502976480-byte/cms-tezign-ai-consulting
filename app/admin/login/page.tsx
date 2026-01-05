@@ -1,4 +1,6 @@
 'use client';
+// FIX: Import React to use React.FormEvent
+import React from 'react';
 import { useState } from 'react';
 import { createClient } from '@/utils/supabase/client';
 import { Loader2 } from 'lucide-react';

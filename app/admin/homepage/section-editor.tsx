@@ -1,66 +1,84 @@
 'use client';
+// FIX: Import React to use React types
+import React from 'react';
 import { useState, useEffect } from 'react';
 import { createClient } from '@/utils/supabase/client';
 import { useRouter } from 'next/navigation';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Trash2 } from 'lucide-react';
+import { HomepageConfig, ContentItem, CapabilityItem, HomepageModuleType } from '@/types';
 
-export default function SectionEditor({ initialData }: { initialData?: any }) {
+export default function SectionEditor({ moduleConfig }: { moduleConfig: HomepageConfig }) {
   const supabase = createClient();
   const router = useRouter();
   const [loading, setLoading] = useState(false);
-  const [contentItems, setContentItems] = useState<any[]>([]);
-
-  const [formData, setFormData] = useState({
-    title: initialData?.title || '',
-    subtitle: initialData?.subtitle || '',
-    type: initialData?.type || 'featured_resources',
-    content: initialData?.content || '',
-    linked_resources: initialData?.linked_resources || [], // Array of IDs
-    is_active: initialData?.is_active ?? true,
-    display_order: initialData?.display_order ?? 0
-  });
+  const [config, setConfig] = useState(moduleConfig.config);
+  const [contentItems, setContentItems] = useState<Partial<ContentItem>[]>([]);
 
   useEffect(() => {
-    // Load published content for selection if type is featured_resources
-    const loadContent = async () => {
-      const { data } = await supabase.from('content_items').select('id, title, status').eq('status', 'Published').order('published_at', { ascending: false });
-      setContentItems(data || []);
-    };
-    loadContent();
-  }, []);
-
-  const handleChange = (e: any) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-  };
-
-  const handleResourceToggle = (id: string) => {
-    const current = [...formData.linked_resources];
-    if (current.includes(id)) {
-      setFormData(prev => ({ ...prev, linked_resources: current.filter(x => x !== id) }));
-    } else {
-      setFormData(prev => ({ ...prev, linked_resources: [...current, id] }));
+    // Load published content for selection in "Latest News" module
+    if (moduleConfig.type === 'latest_news') {
+      const loadContent = async () => {
+        const { data } = await supabase
+          .from('content_items')
+          .select('id, title, status')
+          .eq('status', 'Published')
+          .order('published_at', { ascending: false });
+        setContentItems(data || []);
+      };
+      loadContent();
     }
+  }, [moduleConfig.type, supabase]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    setConfig(prev => ({ ...prev, [name]: value }));
   };
+
+  const handleArrayChange = (field: string, index: number, value: string) => {
+    setConfig(prev => {
+      const newArray = [...(prev as any)[field]];
+      newArray[index] = value;
+      return { ...prev, [field]: newArray };
+    });
+  };
+  
+  const handleCapabilityChange = (index: number, e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    setConfig(prev => {
+      const newItems = [...(prev as any).capability_items];
+      newItems[index] = { ...newItems[index], [name]: value };
+      return { ...prev, capability_items: newItems };
+    });
+  };
+
+  const handleResourceToggle = (field: 'featured_items' | 'list_items', id: string, limit: number) => {
+    setConfig(prev => {
+      const current = [...(prev as any)[field]];
+      const isSelected = current.includes(id);
+
+      if (isSelected) {
+        return { ...prev, [field]: current.filter(x => x !== id) };
+      } else if (current.length < limit) {
+        return { ...prev, [field]: [...current, id] };
+      }
+      
+      alert(`此区域最多只能选择 ${limit} 篇内容。`);
+      return prev;
+    });
+  };
+
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
     try {
-      const payload = { ...formData };
+      const { error } = await supabase
+        .from('homepage_config')
+        .update({ config: config as any, updated_at: new Date().toISOString() })
+        .eq('type', moduleConfig.type);
 
-      if (initialData?.id) {
-        const { error } = await supabase.from('homepage_sections').update(payload).eq('id', initialData.id);
-        if (error) throw error;
-      } else {
-        // Get max order to append to end
-        const { data: maxOrderData } = await supabase.from('homepage_sections').select('display_order').order('display_order', { ascending: false }).limit(1);
-        const nextOrder = (maxOrderData?.[0]?.display_order ?? -1) + 1;
-        
-        const { error } = await supabase.from('homepage_sections').insert({ ...payload, display_order: nextOrder });
-        if (error) throw error;
-      }
+      if (error) throw error;
 
       router.push('/admin/homepage');
       router.refresh();
@@ -70,84 +88,145 @@ export default function SectionEditor({ initialData }: { initialData?: any }) {
       setLoading(false);
     }
   };
+  
+  const renderFormFields = () => {
+    switch (moduleConfig.type) {
+      case 'hero':
+        return (
+          <>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">主标题</label>
+              <input name="title" required value={(config as any).title} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">副标题</label>
+              <textarea name="subtitle" required value={(config as any).subtitle} onChange={handleChange} rows={3} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">CTA 按钮文案</label>
+              <input name="cta_text" required value={(config as any).cta_text} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border" />
+            </div>
+          </>
+        );
+      case 'gpt_search':
+        return (
+          <>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">输入框占位提示</label>
+              <input name="placeholder_text" required value={(config as any).placeholder_text} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">示例问题 (每个一行)</label>
+              <textarea name="example_prompts" value={(config as any).example_prompts.join('\n')} onChange={(e) => setConfig({ ...config, example_prompts: e.target.value.split('\n') })} rows={4} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border" />
+            </div>
+          </>
+        );
+      case 'latest_news':
+        return (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">左侧轮播卡片 (最多 5 条)</label>
+              <div className="border border-gray-200 rounded-md max-h-80 overflow-y-auto p-2 grid gap-1 bg-gray-50">
+                {contentItems.map(item => (
+                  <label key={item.id} className="flex items-center gap-2 p-2 hover:bg-white rounded cursor-pointer">
+                    <input type="checkbox" checked={(config as any).featured_items.includes(item.id)} onChange={() => handleResourceToggle('featured_items', item.id!, 5)} />
+                    <span className="text-sm text-gray-700">{item.title}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">右侧固定列表 (固定 3 条)</label>
+              <div className="border border-gray-200 rounded-md max-h-80 overflow-y-auto p-2 grid gap-1 bg-gray-50">
+                {contentItems.map(item => (
+                  <label key={item.id} className="flex items-center gap-2 p-2 hover:bg-white rounded cursor-pointer">
+                    <input type="checkbox" checked={(config as any).list_items.includes(item.id)} onChange={() => handleResourceToggle('list_items', item.id!, 3)} />
+                    <span className="text-sm text-gray-700">{item.title}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          </div>
+        );
+      case 'core_capabilities':
+        return (
+          <>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">大主题标题</label>
+              <input name="section_title" required value={(config as any).section_title} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border" />
+            </div>
+            <div className="space-y-6 pt-4">
+              <h3 className="text-base font-medium text-gray-800 border-b pb-2">能力卡片 (固定 3 个)</h3>
+              {(config as any).capability_items.map((item: CapabilityItem, index: number) => (
+                <div key={index} className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 border rounded-lg bg-gray-50">
+                  <div className="md:col-span-1">
+                    <label className="block text-xs font-medium text-gray-600">图片 URL</label>
+                    <input name="image" value={item.image} onChange={(e) => handleCapabilityChange(index, e)} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border text-sm" />
+                  </div>
+                  <div className="md:col-span-2 space-y-2">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600">能力标题</label>
+                      <input name="title" value={item.title} onChange={(e) => handleCapabilityChange(index, e)} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600">能力说明</label>
+                      <textarea name="description" value={item.description} onChange={(e) => handleCapabilityChange(index, e)} rows={2} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border text-sm" />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        );
+      case 'product_claim':
+        return (
+          <>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">主张标题</label>
+              <input name="title" required value={(config as any).title} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">主张正文 (支持 HTML)</label>
+              <textarea name="content" required value={(config as any).content} onChange={handleChange} rows={5} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">配图 URL</label>
+              <input name="image" required value={(config as any).image} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border" />
+            </div>
+          </>
+        );
+      case 'primary_cta':
+        return (
+          <>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">CTA 标题</label>
+              <input name="title" required value={(config as any).title} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">CTA 描述 (可选)</label>
+              <textarea name="description" value={(config as any).description} onChange={handleChange} rows={2} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">按钮文案</label>
+              <input name="cta_text" required value={(config as any).cta_text} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border" />
+            </div>
+          </>
+        );
+      default:
+        return <p>未知的模块类型</p>;
+    }
+  };
 
   return (
     <form onSubmit={handleSubmit} className="max-w-4xl space-y-8">
       <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div>
-            <label className="block text-sm font-medium text-gray-700">模块标题</label>
-            <input name="title" required value={formData.title} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border" placeholder="例如：最新洞察" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">模块类型</label>
-            <select name="type" value={formData.type} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border">
-              <option value="hero">首屏 (Hero)</option>
-              <option value="featured_resources">精选资源 (Featured Resources)</option>
-              <option value="value_points">价值主张 (Value Points)</option>
-              <option value="cta">行动号召 (CTA)</option>
-            </select>
-          </div>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700">副标题 (可选)</label>
-          <input name="subtitle" value={formData.subtitle} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border" placeholder="简短的描述性文字" />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700">内容 (Markdown)</label>
-          <p className="text-xs text-gray-400 mb-2">用于 Hero 的介绍文案，或 CTA 的引导语。</p>
-          <textarea name="content" value={formData.content} onChange={handleChange} rows={6} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm px-3 py-2 border font-mono text-sm" />
-        </div>
-
-        {formData.type === 'featured_resources' && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">关联资源内容</label>
-            <div className="border border-gray-200 rounded-md max-h-60 overflow-y-auto p-2 grid gap-1 bg-gray-50">
-              {contentItems.map(item => (
-                <label key={item.id} className="flex items-center gap-2 p-2 hover:bg-white rounded cursor-pointer">
-                  <input 
-                    type="checkbox" 
-                    checked={formData.linked_resources.includes(item.id)}
-                    onChange={() => handleResourceToggle(item.id)}
-                  />
-                  <span className="text-sm text-gray-700">{item.title}</span>
-                </label>
-              ))}
-              {contentItems.length === 0 && <p className="text-gray-400 text-sm p-2">暂无已发布的内容</p>}
-            </div>
-            <p className="text-xs text-gray-400 mt-1">勾选的内容将展示在此模块中。</p>
-          </div>
-        )}
-
-        <div className="flex items-center gap-2">
-          <input 
-            type="checkbox" 
-            id="is_active"
-            checked={formData.is_active} 
-            onChange={(e) => setFormData(prev => ({ ...prev, is_active: e.target.checked }))}
-            className="rounded border-gray-300"
-          />
-          <label htmlFor="is_active" className="text-sm font-medium text-gray-700">立即启用此模块</label>
-        </div>
+        {renderFormFields()}
       </div>
-
       <div className="flex gap-4">
-        <button 
-          type="button" 
-          onClick={() => router.back()}
-          className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition"
-        >
-          取消
-        </button>
-        <button 
-          type="submit" 
-          disabled={loading}
-          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition disabled:opacity-50"
-        >
+        <button type="button" onClick={() => router.back()} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition">取消</button>
+        <button type="submit" disabled={loading} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition disabled:opacity-50">
           {loading && <Loader2 className="animate-spin" size={16} />}
-          保存模块
+          保存配置
         </button>
       </div>
     </form>

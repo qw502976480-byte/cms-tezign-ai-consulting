@@ -1,1 +1,0 @@
-// This file should be deleted. It is not used in Next.js App Router.

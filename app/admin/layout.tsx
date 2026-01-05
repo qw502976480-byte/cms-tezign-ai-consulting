@@ -1,3 +1,5 @@
+// FIX: Import React to use React.ReactNode
+import React from 'react';
 import AdminLayoutClient from './AdminLayoutClient';
 
 export const dynamic = 'force-dynamic';

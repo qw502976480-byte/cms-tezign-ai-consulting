@@ -1,4 +1,6 @@
 'use client';
+// FIX: Import React to use React.ReactNode
+import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { LayoutDashboard, FileText, LayoutTemplate, Users, Calendar, LogOut } from 'lucide-react';
