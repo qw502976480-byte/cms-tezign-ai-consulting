@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
     .from('resources')
     .select('id, title, slug, category, summary, content, status, published_at')
     .eq('status', 'published')
-    .order('published_at', { ascending: false, nullsLast: true })
+    .order('published_at', { ascending: false })
     .range(offset, offset + limit - 1);
 
   if (category) {
