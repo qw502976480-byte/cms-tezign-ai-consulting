@@ -1,7 +1,16 @@
 import Link from 'next/link';
 import { createClient } from '@/utils/supabase/server';
 import { Plus, Edit2 } from 'lucide-react';
-import { Resource } from '@/types';
+
+// 1. Define local type for list display
+interface ResourceRow {
+  id: string;
+  title: string;
+  slug: string;
+  category: string;
+  summary: string | null;
+  created_at: string;
+}
 
 export const dynamic = 'force-dynamic';
 
@@ -48,28 +57,32 @@ export default async function ResourcesListPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {resources?.map((item: Resource) => (
-              <tr key={item.id} className="hover:bg-gray-50 transition-colors">
-                <td className="px-6 py-4 font-medium text-gray-900">{item.title}</td>
-                <td className="px-6 py-4">
-                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 border border-gray-200">
-                    {item.category}
-                  </span>
-                </td>
-                <td className="px-6 py-4 text-gray-500 font-mono text-xs">{item.slug}</td>
-                <td className="px-6 py-4 text-gray-500">
-                  <div className="line-clamp-1 max-w-xs">{item.summary || '-'}</div>
-                </td>
-                <td className="px-6 py-4 text-right">
-                  <Link
-                    href={`/admin/resources/${item.id}/edit`}
-                    className="inline-flex items-center justify-center p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                  >
-                    <Edit2 size={16} />
-                  </Link>
-                </td>
-              </tr>
-            ))}
+            {/* 2. Update map to use local ResourceRow type */}
+            {resources?.map((item: any) => {
+              const resource = item as ResourceRow;
+              return (
+                <tr key={resource.id} className="hover:bg-gray-50 transition-colors">
+                  <td className="px-6 py-4 font-medium text-gray-900">{resource.title}</td>
+                  <td className="px-6 py-4">
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 border border-gray-200">
+                      {resource.category}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 text-gray-500 font-mono text-xs">{resource.slug}</td>
+                  <td className="px-6 py-4 text-gray-500">
+                    <div className="line-clamp-1 max-w-xs">{resource.summary || '-'}</div>
+                  </td>
+                  <td className="px-6 py-4 text-right">
+                    <Link
+                      href={`/admin/resources/${resource.id}/edit`}
+                      className="inline-flex items-center justify-center p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                    >
+                      <Edit2 size={16} />
+                    </Link>
+                  </td>
+                </tr>
+              );
+            })}
             {(!resources || resources.length === 0) && (
               <tr>
                 <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
