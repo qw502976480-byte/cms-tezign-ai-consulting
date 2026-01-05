@@ -9,6 +9,8 @@ interface ResourceRow {
   slug: string;
   category: string;
   summary: string | null;
+  published: boolean;
+  published_at: string | null;
   created_at: string;
 }
 
@@ -19,8 +21,8 @@ export default async function ResourcesListPage() {
 
   const { data: resources, error } = await supabase
     .from('resources')
-    .select('id, title, slug, category, summary, created_at')
-    .order('created_at', { ascending: false });
+    .select('id, title, slug, category, summary, published, published_at, created_at')
+    .order('published_at', { ascending: false, nullsFirst: false });
 
   if (error) {
     return (
@@ -50,8 +52,9 @@ export default async function ResourcesListPage() {
           <thead className="text-gray-500 font-medium border-b border-gray-200 bg-gray-50">
             <tr>
               <th className="px-6 py-4">Title</th>
+              <th className="px-6 py-4">Status</th>
+              <th className="px-6 py-4">Date</th>
               <th className="px-6 py-4">Category</th>
-              <th className="px-6 py-4">Slug</th>
               <th className="px-6 py-4">Summary</th>
               <th className="px-6 py-4 text-right">Action</th>
             </tr>
@@ -60,15 +63,29 @@ export default async function ResourcesListPage() {
             {/* 2. Update map to use local ResourceRow type */}
             {resources?.map((item: any) => {
               const resource = item as ResourceRow;
+              const displayDate = resource.published_at || resource.created_at;
               return (
                 <tr key={resource.id} className="hover:bg-gray-50 transition-colors">
                   <td className="px-6 py-4 font-medium text-gray-900">{resource.title}</td>
                   <td className="px-6 py-4">
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 border border-gray-200">
-                      {resource.category}
+                     {resource.published ? (
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 border border-green-200">
+                          Published
+                        </span>
+                     ) : (
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 border border-gray-200">
+                          Draft
+                        </span>
+                     )}
+                  </td>
+                  <td className="px-6 py-4 text-gray-500 text-xs">
+                    {displayDate ? new Date(displayDate).toLocaleDateString() : '-'}
+                  </td>
+                  <td className="px-6 py-4">
+                    <span className="capitalize text-gray-600">
+                      {resource.category.replace(/_/g, ' ')}
                     </span>
                   </td>
-                  <td className="px-6 py-4 text-gray-500 font-mono text-xs">{resource.slug}</td>
                   <td className="px-6 py-4 text-gray-500">
                     <div className="line-clamp-1 max-w-xs">{resource.summary || '-'}</div>
                   </td>
@@ -85,7 +102,7 @@ export default async function ResourcesListPage() {
             })}
             {(!resources || resources.length === 0) && (
               <tr>
-                <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
+                <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
                   No resources found.
                 </td>
               </tr>

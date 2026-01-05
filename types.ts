@@ -10,6 +10,7 @@ export interface Resource {
   summary: string | null;
   content: string | null;
   published: boolean;
+  published_at: string | null;
   created_at: string;
 }
 
