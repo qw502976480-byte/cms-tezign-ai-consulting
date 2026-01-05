@@ -38,7 +38,7 @@ export default async function EditSectionPage({
 
   const supabase = await createClient();
   const { data, error } = await supabase
-    .from('homepage_modules') // ⚠️ 注意：你现在用的是这个表
+    .from('homepage_config') // Reverted to homepage_config
     .select('*')
     .eq('type', type)
     .single();
@@ -63,29 +63,7 @@ export default async function EditSectionPage({
     );
   }
 
-  // 3️⃣ 正常编辑态
-  if (!data || !data.data) {
-  return (
-    <div className="p-8 text-center">
-      <h2 className="text-lg font-bold text-gray-900">
-        模块已创建，但尚未填写内容
-      </h2>
-      <p className="mt-2 text-sm text-gray-500">
-        当前模块：<strong>{type}</strong>
-      </p>
-      <p className="mt-2 text-sm text-gray-500">
-        请在后台为该模块填写配置数据。
-      </p>
-      <Link
-        href="/admin/homepage"
-        className="mt-4 inline-block text-blue-600 hover:underline text-sm"
-      >
-        返回模块列表
-      </Link>
-    </div>
-  );
-}
- const configData = data.data as HomepageConfig;
+  const configData = data as HomepageConfig;
 
   return (
     <div className="space-y-6">

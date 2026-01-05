@@ -23,9 +23,7 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
     category: initialData?.category || 'report',
     summary: initialData?.summary || '',
     content: initialData?.content || '',
-    // Status is now controlled by the toggle
     status: initialData?.status || 'draft',
-    // Published date logic: default to today if publishing, or use existing
     published_at: initialData?.published_at 
       ? new Date(initialData.published_at).toISOString().split('T')[0] 
       : new Date().toISOString().split('T')[0],
@@ -42,11 +40,17 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
     if (!initialData?.id) return;
 
     const fetchHomepageSlots = async () => {
-      const { data } = await supabase
+      // 使用 maybeSingle 避免 406/PGRST116 错误，但由于我们要查多行，这里用 select 返回数组即可
+      const { data, error } = await supabase
         .from('homepage_modules')
         .select('section_key, content_item_ids')
         .in('section_key', ['latest_updates_featured', 'latest_updates_fixed']);
       
+      if (error) {
+        console.error("Error fetching homepage slots:", error);
+        return;
+      }
+
       const flags = { featured: false, latest: false };
       
       if (data) {
@@ -76,7 +80,6 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
         .replace(/\-\-+/g, '-');  
     };
     
-    // Auto-generate for new items only
     if (!initialData?.id && formData.title) {
        setFormData(prev => ({ ...prev, slug: generateSlug(prev.title) }));
     }
@@ -114,12 +117,17 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
 
   // Helper to update homepage_modules array
   const updateHomepageSlot = async (sectionKey: string, shouldBeIn: boolean, resourceId: string) => {
-    // 1. Fetch current list
-    const { data: currentData } = await supabase
+    // 1. Fetch current list using maybeSingle to handle non-existent rows gracefully
+    const { data: currentData, error: fetchError } = await supabase
       .from('homepage_modules')
       .select('content_item_ids')
       .eq('section_key', sectionKey)
-      .single();
+      .maybeSingle();
+    
+    if (fetchError) {
+        console.error(`Error fetching ${sectionKey}:`, fetchError);
+        throw fetchError;
+    }
     
     let ids: string[] = [];
     if (currentData?.content_item_ids && Array.isArray(currentData.content_item_ids)) {
@@ -129,17 +137,25 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
     const isCurrentlyIn = ids.includes(resourceId);
 
     // 2. Determine if update is needed
+    let needsUpdate = false;
+
     if (shouldBeIn && !isCurrentlyIn) {
         // Add to front (Latest)
         ids.unshift(resourceId);
+        needsUpdate = true;
     } else if (!shouldBeIn && isCurrentlyIn) {
         // Remove
         ids = ids.filter(id => id !== resourceId);
-    } else if (currentData) {
-        // If data existed and no change needed, return early
+        needsUpdate = true;
+    } else if (!currentData && shouldBeIn) {
+        // Row doesn't exist, but we want to add it
+        ids = [resourceId];
+        needsUpdate = true;
+    }
+
+    if (!needsUpdate && currentData) {
         return;
-    } 
-    // If !currentData (row doesn't exist yet), we proceed to create it
+    }
 
     // 3. Upsert
     const { error: upsertError } = await supabase
@@ -150,7 +166,10 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
             updated_at: new Date().toISOString()
         }, { onConflict: 'section_key' });
 
-    if (upsertError) throw upsertError;
+    if (upsertError) {
+        console.error(`Error updating ${sectionKey}:`, upsertError);
+        throw upsertError;
+    }
   };
 
   const handleSave = async () => {
@@ -212,7 +231,8 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
       router.push('/admin/resources');
       router.refresh();
     } catch (error: any) {
-      alert(`保存失败: ${error.message}`);
+      console.error(error);
+      alert(`保存失败: ${error.message || 'Unknown error'}`);
     } finally {
       setLoading(false);
     }
