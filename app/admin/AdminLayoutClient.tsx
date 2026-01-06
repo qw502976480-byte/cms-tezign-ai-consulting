@@ -24,7 +24,6 @@ export default function AdminLayoutClient({ children }: { children: React.ReactN
   if (isLoginPage) return <>{children}</>;
 
   // Navigation Items Config
-  // Using Chinese + English for key sections as requested
   const overviewItem = { 
     label: '概览 (Dashboard)', 
     href: '/admin', 
@@ -42,8 +41,8 @@ export default function AdminLayoutClient({ children }: { children: React.ReactN
       title: '官网内容',
       items: [
         { label: '内容资源 (Resources)', href: '/admin/resources', icon: FileText },
-        // "Content Distribution" is non-key/placeholder, kept simple or consistent based on grouping
-        { label: '内容分发', href: '#', icon: Send, comingSoon: true },
+        // Added English translation
+        { label: '内容分发 (Content Distribution)', href: '#', icon: Send, comingSoon: true },
       ]
     },
     {
@@ -64,12 +63,10 @@ export default function AdminLayoutClient({ children }: { children: React.ReactN
     <div className="flex min-h-screen bg-gray-50/50">
       {/* Sidebar - Fixed Width, Always Expanded */}
       <aside className="w-[280px] bg-white border-r border-gray-200 fixed h-full z-10 flex flex-col">
-        {/* Header - Text Only, ~56px height */}
-        <div className="h-14 px-6 flex items-center border-b border-gray-100/50">
-           <div className="flex items-baseline gap-2 overflow-hidden whitespace-nowrap">
-              <span className="font-semibold text-base text-gray-900 tracking-tight">Web Platform</span>
-              <span className="text-sm text-gray-500 font-normal truncate">· Tezign AI Consulting</span>
-           </div>
+        {/* Header - Split into two lines */}
+        <div className="h-16 px-6 flex flex-col justify-center border-b border-gray-100/50">
+           <span className="font-semibold text-sm text-gray-900 tracking-tight leading-snug">Web Platform</span>
+           <span className="text-[11px] text-gray-500 font-normal mt-0.5 leading-snug">Tezign AI Consulting</span>
         </div>
 
         {/* Navigation */}
@@ -150,7 +147,7 @@ export default function AdminLayoutClient({ children }: { children: React.ReactN
             className="flex items-center gap-3 w-full px-4 h-11 rounded-full text-sm font-medium text-gray-500 hover:bg-gray-50 hover:text-gray-900 transition-colors"
           >
             <LogOut size={20} strokeWidth={1.5} />
-            <span>退出登录</span>
+            <span>退出登录 (Sign Out)</span>
           </button>
         </div>
       </aside>
