@@ -1,17 +1,16 @@
 import { createClient } from '@/utils/supabase/server';
-import { DemoRequest, DemoAppointment } from '@/types';
+import { DemoRequest, DemoAppointment, DemoRequestStatus } from '@/types';
 import { format } from 'date-fns';
 import { subDays, startOfDay, endOfDay } from 'date-fns';
 import Filters from './Filters';
-import UpdateRequestStatusButton from './UpdateRequestStatusButton';
+import RequestActions from './UpdateRequestStatusButton';
 import AppointmentCell from './AppointmentCell';
 import Countdown from './Countdown';
-import AppointmentActions from './AppointmentActions';
 
 export const dynamic = 'force-dynamic';
 
 interface SearchParams {
-  status?: 'pending' | 'processed' | 'all';
+  status?: 'pending' | 'completed' | 'cancelled' | 'all';
   range?: '7d' | '30d' | 'custom';
   start?: string;
   end?: string;
@@ -111,6 +110,19 @@ export default async function DemoRequestsPage({ searchParams }: { searchParams:
     }
   });
 
+  const getStatusBadge = (status: DemoRequestStatus) => {
+    switch (status) {
+      case 'pending':
+        return { text: '待处理', className: 'bg-yellow-100 text-yellow-800 border-yellow-200' };
+      case 'completed':
+        return { text: '已完成', className: 'bg-green-100 text-green-800 border-green-200' };
+      case 'cancelled':
+        return { text: '已取消', className: 'bg-gray-100 text-gray-600 border-gray-200' };
+      default:
+        return { text: status, className: 'bg-gray-100 text-gray-800 border-gray-200' };
+    }
+  };
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-gray-900">演示申请管理</h1>
@@ -131,7 +143,7 @@ export default async function DemoRequestsPage({ searchParams }: { searchParams:
           <tbody className="divide-y divide-gray-100">
             {filteredRequests.map((req: DemoRequest) => {
               const appointment = currentAppointmentMap.get(req.id);
-              const isAppointmentScheduled = appointment && appointment.status === 'scheduled';
+              const statusBadge = getStatusBadge(req.status);
               return (
                 <tr key={req.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 text-gray-500">
@@ -145,12 +157,8 @@ export default async function DemoRequestsPage({ searchParams }: { searchParams:
                     {req.phone && <p className="text-gray-500 text-xs mt-1">{req.phone}</p>}
                   </td>
                   <td className="px-6 py-4">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${
-                        req.status === 'processed' 
-                          ? 'bg-green-100 text-green-800 border-green-200' 
-                          : 'bg-yellow-100 text-yellow-800 border-yellow-200'
-                    }`}>
-                      {req.status === 'processed' ? '已处理' : '待处理'}
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${statusBadge.className}`}>
+                      {statusBadge.text}
                     </span>
                   </td>
                   <td className="px-6 py-4">
@@ -160,12 +168,7 @@ export default async function DemoRequestsPage({ searchParams }: { searchParams:
                      <Countdown appointment={appointment} />
                   </td>
                   <td className="px-6 py-4">
-                    <div className="flex justify-end items-center gap-2">
-                        <AppointmentActions appointment={appointment} />
-                        {!isAppointmentScheduled && (
-                          <UpdateRequestStatusButton id={req.id} status={req.status} />
-                        )}
-                    </div>
+                    <RequestActions request={req} />
                   </td>
                 </tr>
               );

@@ -1,5 +1,5 @@
 export type ResourceCategory = 'report' | 'announcement' | 'case_study' | 'methodology';
-export type DemoRequestStatus = 'pending' | 'processed';
+export type DemoRequestStatus = 'pending' | 'completed' | 'cancelled';
 export type HomepageModuleType = 'hero' | 'gpt_search' | 'latest_news' | 'core_capabilities' | 'product_claim' | 'primary_cta';
 export type ResourceStatus = 'draft' | 'published' | 'archived';
 export type DemoAppointmentStatus = 'scheduled' | 'completed' | 'no_show' | 'canceled';

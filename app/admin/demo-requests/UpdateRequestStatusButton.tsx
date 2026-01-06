@@ -1,55 +1,53 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { createClient } from '@/utils/supabase/client';
+import { useTransition } from 'react';
+import { DemoRequest } from '@/types';
+import { updateDemoRequestStatus } from './actions';
 import { Loader2 } from 'lucide-react';
-import { DemoRequestStatus } from '@/types';
 
 interface Props {
-  id: string;
-  status: DemoRequestStatus;
+  request: DemoRequest;
 }
 
-export default function UpdateRequestStatusButton({ id, status }: Props) {
-  const router = useRouter();
-  const supabase = createClient();
-  const [loading, setLoading] = useState(false);
+export default function RequestActions({ request }: Props) {
+  const [isPending, startTransition] = useTransition();
 
-  const handleClick = async () => {
-    setLoading(true);
-    const isPending = status === 'pending';
-    const newStatus: DemoRequestStatus = isPending ? 'processed' : 'pending';
-    const newProcessedAt = isPending ? new Date().toISOString() : null;
+  if (request.status !== 'pending') {
+    return <span className="text-gray-500">—</span>;
+  }
 
-    const { error } = await supabase
-      .from('demo_requests')
-      .update({ status: newStatus, processed_at: newProcessedAt })
-      .eq('id', id);
-    
-    if (error) {
-      alert(`Error updating status: ${error.message}`);
-    } else {
-      router.refresh();
-    }
-    
-    setLoading(false);
+  const handleUpdate = (newStatus: 'completed' | 'cancelled') => {
+    startTransition(async () => {
+      await updateDemoRequestStatus(request.id, newStatus);
+    });
   };
 
-  const isPending = status === 'pending';
-  const buttonText = isPending ? '标记已处理' : '回退为待处理';
-  const buttonClass = isPending 
-    ? "bg-gray-900 text-white hover:bg-black"
-    : "bg-gray-100 text-gray-700 hover:bg-gray-200";
-
   return (
-    <button
-      onClick={handleClick}
-      disabled={loading}
-      className={`flex items-center justify-center text-xs font-medium px-3 py-1.5 rounded-md transition disabled:opacity-50 ${buttonClass}`}
-      style={{ minWidth: '90px' }}
-    >
-      {loading ? <Loader2 className="animate-spin" size={14} /> : buttonText}
-    </button>
+    <div className="flex items-center justify-end gap-2">
+      {isPending ? (
+        <div className="flex justify-center items-center h-[30px] w-[116px]">
+          <Loader2 className="animate-spin text-gray-500" size={16} />
+        </div>
+      ) : (
+        <>
+          <button
+            onClick={() => handleUpdate('cancelled')}
+            title="标记为已取消"
+            aria-label="标记为已取消"
+            className="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+          >
+            取消
+          </button>
+          <button
+            onClick={() => handleUpdate('completed')}
+            title="标记为已完成"
+            aria-label="标记为已完成"
+            className="px-3 py-1.5 text-xs font-medium text-white bg-gray-900 border border-gray-900 rounded-md hover:bg-black transition-colors"
+          >
+            完成
+          </button>
+        </>
+      )}
+    </div>
   );
 }
