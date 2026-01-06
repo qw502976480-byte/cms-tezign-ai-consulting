@@ -31,7 +31,7 @@ export default function RequestDetailDialog({ isOpen, onClose, request, appointm
     // Requirement 1: Construct an absolute URL.
     const url = `/api/demo-requests/${encodeURIComponent(demoRequestId)}/logs`;
 
-    // Requirement 2: Log URL before fetching.
+    // Step 4: Add explicit logging
     console.log("[logs] url =", url);
 
     try {
@@ -39,9 +39,9 @@ export default function RequestDetailDialog({ isOpen, onClose, request, appointm
       const res = await fetch(url, { method: "GET" });
       
       if (!res.ok) {
-        // Requirement 4: Handle non-ok responses.
+        // Step 4: Log detailed error info
         const text = await res.text();
-        console.error("[logs] failed", res.status, text);
+        console.warn("[logs] failed", res.status, text.slice(0, 200));
         throw new Error(`操作记录加载失败（状态码：${res.status}）详情：${text}`);
       }
 
