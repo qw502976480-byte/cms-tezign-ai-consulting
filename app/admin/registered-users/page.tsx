@@ -2,6 +2,7 @@ import React from 'react';
 import { createClient } from '@/utils/supabase/server';
 import RegisteredUsersClientView from './client-view';
 import { subDays, startOfDay, endOfDay } from 'date-fns';
+import { RegisteredUser } from '@/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,21 +21,37 @@ export default async function RegisteredUsersPage({ searchParams }: PageProps) {
 
   const keyword = (searchParams.q as string) || '';
   const userType = (searchParams.type as string) || 'all';
-  const marketing = (searchParams.marketing as string) || 'all';
-  const locale = (searchParams.locale as string) || 'all';
+  const regionLang = (searchParams.region as string) || 'all'; // Renamed to region for clarity
   const timeRange = (searchParams.range as string) || 'all';
+  const commStatus = (searchParams.comm as string) || 'all'; // Communication Status: 'communicated' | 'not_communicated' | 'all'
   const customStart = (searchParams.start as string) || '';
   const customEnd = (searchParams.end as string) || '';
 
-  // 2. Build Query
+  // 2. Pre-process "Online Communication" Filter
+  // Since we can't do complex Joins easily, we fetch emails that have communicated first.
+  let communicatedEmails: string[] = [];
+  const shouldFilterByComm = commStatus !== 'all';
+
+  // We always need to know who communicated to show the badge, but we only strictly filter query if param is set.
+  // Optimization: Fetch all 'communicated' emails (outcome = completed/cancelled)
+  // In a massive DB this should be paginated or indexed, but for Admin CMS it's fine.
+  const { data: demoRequests } = await supabase
+    .from('demo_requests')
+    .select('email')
+    .in('outcome', ['completed', 'cancelled']); // Key logic: outcome is completed or cancelled
+
+  const communicatedEmailSet = new Set((demoRequests || []).map(r => r.email).filter(Boolean));
+  communicatedEmails = Array.from(communicatedEmailSet) as string[];
+
+  // 3. Build Main Query
   let query = supabase
     .from('registered_users')
-    .select('*', { count: 'exact' });
+    .select('id, name, email, phone, created_at, user_type, company_name, title, use_case_tags, interest_tags, pain_points, country, region, city, language, locale', { count: 'exact' });
 
   // Filter: Keyword
   if (keyword) {
     const pattern = `%${keyword}%`;
-    query = query.or(`name.ilike.${pattern},email.ilike.${pattern},phone.ilike.${pattern},company_name.ilike.${pattern}`);
+    query = query.or(`name.ilike.${pattern},email.ilike.${pattern},phone.ilike.${pattern}`);
   }
 
   // Filter: User Type
@@ -42,14 +59,11 @@ export default async function RegisteredUsersPage({ searchParams }: PageProps) {
     query = query.eq('user_type', userType);
   }
 
-  // Filter: Marketing
-  if (marketing !== 'all') {
-    query = query.eq('marketing_opt_in', marketing === 'true');
-  }
-
-  // Filter: Locale
-  if (locale !== 'all') {
-    query = query.eq('locale', locale);
+  // Filter: Region/Language (Matches any of the location fields)
+  if (regionLang !== 'all') {
+    // Simple exact match logic based on what availableLocales returns (usually 'zh-CN', 'en-US' etc from locale field)
+    // OR we can make it search country/region/language
+    query = query.or(`locale.eq.${regionLang},language.eq.${regionLang},country.eq.${regionLang}`);
   }
 
   // Filter: Time Range
@@ -64,43 +78,67 @@ export default async function RegisteredUsersPage({ searchParams }: PageProps) {
       .lte('created_at', endOfDay(new Date(customEnd)).toISOString());
   }
 
-  // 3. Execute Query (Sort & Paginate)
-  const { data: users, count, error } = await query
+  // Filter: Communication Status (The complex one)
+  if (commStatus === 'communicated') {
+    if (communicatedEmails.length > 0) {
+      query = query.in('email', communicatedEmails);
+    } else {
+      // User wants communicated, but no one has communicated. Return empty.
+      query = query.eq('id', '00000000-0000-0000-0000-000000000000'); // Impossible ID
+    }
+  } else if (commStatus === 'not_communicated') {
+    if (communicatedEmails.length > 0) {
+      // Note: Supabase JS .not('email', 'in', array) works for smaller arrays. 
+      // If array is huge, this might break URL length limits. 
+      // Fallback: Fetch page then filter in memory? No, that breaks pagination.
+      // Assuming manageable size for CMS.
+      query = query.not('email', 'in', `(${communicatedEmails.map(e => `"${e}"`).join(',')})`);
+    }
+  }
+
+  // 4. Execute Query (Sort & Paginate)
+  const { data: rawUsers, count, error } = await query
     .order('created_at', { ascending: false })
     .range(from, to);
 
-  // 4. Fetch Locales for Filter (Distinct) - Simple approach: fetch all locales (lightweight usually)
-  // Or use a separate RPC if data is huge. Here we assume distinct on client or separate small query.
-  // For robustness, we'll extract distinct locales from a lightweight column query (limited to last 1000 to avoid perf issues)
+  // 5. Post-process: Enrich data with communication status
+  const users: RegisteredUser[] = (rawUsers || []).map((u: any) => ({
+    ...u,
+    // Add computed field
+    communication_status: communicatedEmailSet.has(u.email) ? 'communicated' : 'not_communicated'
+  }));
+
+  // 6. Fetch Distinct Regions/Locales for Filter
+  // Try to get unique values from locale column
   const { data: localeData } = await supabase
     .from('registered_users')
     .select('locale')
     .order('created_at', { ascending: false })
-    .limit(1000);
+    .limit(1000); // Sample last 1000 users for filter options
     
-  const uniqueLocales = Array.from(new Set((localeData || []).map(row => row.locale).filter(Boolean))).sort() as string[];
+  const uniqueLocales = Array.from(new Set((localeData || []).map((row: any) => row.locale).filter(Boolean))).sort() as string[];
 
-  // 5. Handle Error / Empty State gracefully
+  // Handle errors gracefully (e.g. table doesn't exist yet)
   if (error) {
-    console.error('Supabase Error:', error);
+    console.error('Supabase Error:', error.message);
   }
 
   return (
     <RegisteredUsersClientView
-      initialUsers={users || []}
+      initialUsers={users}
       totalCount={count || 0}
-      availableLocales={uniqueLocales}
+      availableRegions={uniqueLocales}
       searchParams={{
         q: keyword,
         type: userType,
-        marketing,
-        locale,
+        comm: commStatus,
+        region: regionLang,
         range: timeRange,
         start: customStart,
         end: customEnd,
         page,
       }}
-      error={error ? `数据加载失败: ${error.message}` : null}
+      error={error ? `数据加载失败 (可能是数据库字段未同步): ${error.message}` : null}
     />
   );
 }

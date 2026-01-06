@@ -53,11 +53,22 @@ export interface RegisteredUser {
   user_type: 'personal' | 'company';
   company_name: string | null;
   title: string | null;
+  
+  // Location info
+  country?: string | null;
+  region?: string | null;
+  city?: string | null;
+  language?: string | null;
+  locale?: string | null; // Keep for backward compatibility
+
   use_case_tags: string[];
   interest_tags: string[];
   pain_points: string | null;
-  locale: string | null;
+  
   marketing_opt_in: boolean;
+  
+  // Enriched field (not in DB, computed on server)
+  communication_status?: 'communicated' | 'not_communicated';
 }
 
 export interface RegisteredUserResponse {

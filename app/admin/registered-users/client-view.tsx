@@ -4,8 +4,9 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { RegisteredUser } from '@/types';
 import { 
-    Search, Calendar, Filter, ChevronDown, Check, RefreshCw, 
-    Eye, Users, UserCheck, UserX, ChevronLeft, ChevronRight, AlertTriangle
+    Search, Calendar, Filter, ChevronDown, Check, 
+    Eye, Users, ChevronLeft, ChevronRight, AlertTriangle,
+    MapPin, Globe, MessageSquare, Monitor, Building2
 } from 'lucide-react';
 import { format } from 'date-fns';
 import UserDetailModal from './UserDetailModal';
@@ -54,7 +55,7 @@ function FilterDropdown({ label, value, options, onChange, icon: Icon }: any) {
 interface Props {
   initialUsers: RegisteredUser[];
   totalCount: number;
-  availableLocales: string[];
+  availableRegions: string[];
   searchParams: any;
   error: string | null;
 }
@@ -62,29 +63,27 @@ interface Props {
 export default function RegisteredUsersClientView({ 
   initialUsers, 
   totalCount, 
-  availableLocales,
+  availableRegions,
   searchParams,
   error 
 }: Props) {
     const router = useRouter();
     const pathname = usePathname();
-    const currentSearchParams = useSearchParams(); // Read-only access to current URL
+    const currentSearchParams = useSearchParams(); 
     
     // UI State
     const [selectedUser, setSelectedUser] = useState<RegisteredUser | null>(null);
     const [showDatePicker, setShowDatePicker] = useState(false);
     
-    // Local Filter State (synced with props initially)
+    // Local Filter State
     const [tempKeyword, setTempKeyword] = useState(searchParams.q || '');
     const [customDates, setCustomDates] = useState({ start: searchParams.start || '', end: searchParams.end || '' });
 
-    // Sync input when URL changes (if user navigates back/forward)
     useEffect(() => {
         setTempKeyword(searchParams.q || '');
         setCustomDates({ start: searchParams.start || '', end: searchParams.end || '' });
     }, [searchParams]);
 
-    // Update URL Helper
     const updateFilter = (key: string, value: string, extras?: Record<string, string>) => {
         const params = new URLSearchParams(currentSearchParams.toString());
         
@@ -100,7 +99,6 @@ export default function RegisteredUsersClientView({
             });
         }
         
-        // Reset page on filter change
         if (key !== 'page') {
             params.set('page', '1');
         }
@@ -110,6 +108,12 @@ export default function RegisteredUsersClientView({
 
     const handleSearch = () => {
         updateFilter('q', tempKeyword);
+    };
+
+    // Helper to format location
+    const formatLocation = (u: RegisteredUser) => {
+        const parts = [u.country, u.region, u.city].filter(Boolean);
+        return parts.length > 0 ? parts.join(' / ') : (u.locale || '—');
     };
 
     return (
@@ -130,14 +134,14 @@ export default function RegisteredUsersClientView({
             )}
 
             {/* 1. Filters */}
-            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col md:flex-row gap-4 justify-between">
-                <div className="flex flex-col md:flex-row gap-3 w-full">
+            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col xl:flex-row gap-4 justify-between">
+                <div className="flex flex-col md:flex-row flex-wrap gap-3 w-full">
                     {/* Search */}
-                    <div className="relative w-full md:w-80">
+                    <div className="relative w-full md:w-64">
                         <Search className="absolute left-3 top-2.5 text-gray-400" size={18} />
                         <input 
                             type="text" 
-                            placeholder="搜索姓名 / 邮箱 / 手机 / 公司" 
+                            placeholder="搜索姓名/邮箱/手机" 
                             className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900 transition-all"
                             value={tempKeyword}
                             onChange={(e) => setTempKeyword(e.target.value)}
@@ -146,18 +150,8 @@ export default function RegisteredUsersClientView({
                         />
                     </div>
                     
-                    {/* Dropdowns */}
+                    {/* Filter Group */}
                     <div className="flex flex-wrap gap-2">
-                        <FilterDropdown 
-                            label="地区/语言" 
-                            value={searchParams.locale}
-                            options={[
-                                { label: '全部地区', value: 'all' },
-                                ...availableLocales.map(l => ({ label: l, value: l }))
-                            ]}
-                            onChange={(v: string) => updateFilter('locale', v)}
-                        />
-
                         <FilterDropdown 
                             label="用户类型" 
                             value={searchParams.type}
@@ -170,14 +164,25 @@ export default function RegisteredUsersClientView({
                         />
 
                         <FilterDropdown 
-                            label="营销许可" 
-                            value={searchParams.marketing}
+                            label="地区/语言" 
+                            value={searchParams.region}
+                            options={[
+                                { label: '全部地区', value: 'all' },
+                                ...availableRegions.map(l => ({ label: l, value: l }))
+                            ]}
+                            onChange={(v: string) => updateFilter('region', v)}
+                        />
+
+                        <FilterDropdown 
+                            label="线上沟通" 
+                            value={searchParams.comm}
+                            icon={MessageSquare}
                             options={[
                                 { label: '全部', value: 'all' },
-                                { label: '已同意', value: 'true' },
-                                { label: '未同意', value: 'false' },
+                                { label: '已沟通', value: 'communicated' },
+                                { label: '未沟通', value: 'not_communicated' },
                             ]}
-                            onChange={(v: string) => updateFilter('marketing', v)}
+                            onChange={(v: string) => updateFilter('comm', v)}
                         />
 
                         {/* Date Picker */}
@@ -192,14 +197,13 @@ export default function RegisteredUsersClientView({
                             </button>
                             
                             {showDatePicker && (
-                                <div className="absolute top-full left-0 mt-2 w-72 bg-white border border-gray-200 rounded-xl shadow-xl p-4 z-30">
+                                <div className="absolute top-full left-0 mt-2 w-72 bg-white border border-gray-200 rounded-xl shadow-xl p-4 z-30 animate-in fade-in zoom-in-95">
                                     <div className="space-y-2">
                                         <button onClick={() => { updateFilter('range', 'all'); setShowDatePicker(false); }} className="w-full text-left px-2 py-1.5 text-sm hover:bg-gray-50 rounded">全部时间</button>
                                         <button onClick={() => { updateFilter('range', '7d'); setShowDatePicker(false); }} className="w-full text-left px-2 py-1.5 text-sm hover:bg-gray-50 rounded">最近 7 天</button>
                                         <button onClick={() => { updateFilter('range', '30d'); setShowDatePicker(false); }} className="w-full text-left px-2 py-1.5 text-sm hover:bg-gray-50 rounded">最近 30 天</button>
                                         <hr className="border-gray-100" />
-                                        <p className="text-xs text-gray-500 font-medium px-2 mt-2">自定义范围</p>
-                                        <div className="grid grid-cols-2 gap-2">
+                                        <div className="grid grid-cols-2 gap-2 mt-2">
                                             <input type="date" className="text-xs border rounded p-1" value={customDates.start} onChange={(e) => setCustomDates(d => ({...d, start: e.target.value}))} />
                                             <input type="date" className="text-xs border rounded p-1" value={customDates.end} onChange={(e) => setCustomDates(d => ({...d, end: e.target.value}))} />
                                         </div>
@@ -227,79 +231,82 @@ export default function RegisteredUsersClientView({
                     <table className="w-full text-sm text-left">
                         <thead className="text-gray-500 font-medium border-b border-gray-200 bg-gray-50">
                             <tr>
-                                <th className="px-6 py-4">姓名</th>
-                                <th className="px-6 py-4">联系方式</th>
-                                <th className="px-6 py-4">类型/公司</th>
-                                <th className="px-6 py-4">标签 (场景)</th>
-                                <th className="px-6 py-4">营销许可</th>
-                                <th className="px-6 py-4">注册时间</th>
+                                <th className="px-6 py-4 w-[200px]">用户基本信息</th>
+                                <th className="px-6 py-4 w-[200px]">联系方式</th>
+                                <th className="px-6 py-4 w-[180px]">地区/语言</th>
+                                <th className="px-6 py-4 w-[200px]">类型/公司</th>
+                                <th className="px-6 py-4 w-[120px]">沟通状态</th>
+                                <th className="px-6 py-4 w-[150px]">注册时间</th>
                                 <th className="px-6 py-4 text-right">操作</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
                             {initialUsers.map((user) => (
                                 <tr key={user.id} className="hover:bg-gray-50 transition-colors group">
-                                    <td className="px-6 py-4">
+                                    <td className="px-6 py-4 align-top">
                                         <div 
                                             onClick={() => setSelectedUser(user)}
-                                            className="font-medium text-gray-900 cursor-pointer hover:text-blue-600 hover:underline"
+                                            className="font-medium text-gray-900 cursor-pointer hover:text-blue-600 hover:underline flex items-center gap-1.5"
                                         >
+                                            <Users size={16} className="text-gray-400" />
                                             {user.name || '未命名'}
                                         </div>
-                                        <div className="text-xs text-gray-400 mt-0.5">{user.locale || '—'}</div>
+                                        <div className="text-xs text-gray-400 mt-1 pl-5">ID: {user.id.substring(0, 8)}...</div>
                                     </td>
-                                    <td className="px-6 py-4">
+                                    <td className="px-6 py-4 align-top">
                                         <div className="text-gray-900">{user.email}</div>
-                                        <div className="text-xs text-gray-500 mt-0.5">{user.phone || '—'}</div>
+                                        <div className="text-xs text-gray-500 mt-1">{user.phone || '-'}</div>
                                     </td>
-                                    <td className="px-6 py-4">
-                                        {user.user_type === 'company' ? (
-                                            <div>
-                                                <div className="font-medium text-gray-800">{user.company_name || '—'}</div>
-                                                <div className="text-xs text-gray-500">{user.title || '职位未知'}</div>
-                                            </div>
-                                        ) : (
-                                            <span className="text-gray-500 italic">个人用户</span>
-                                        )}
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        <div className="flex flex-wrap gap-1 max-w-[150px]">
-                                            {user.use_case_tags && user.use_case_tags.length > 0 ? (
-                                                user.use_case_tags.slice(0, 2).map((tag, i) => (
-                                                    <span key={i} className="px-1.5 py-0.5 bg-gray-100 text-gray-600 text-xs rounded border border-gray-200">
-                                                        {tag}
-                                                    </span>
-                                                ))
-                                            ) : (
-                                                <span className="text-gray-300">-</span>
-                                            )}
-                                            {user.use_case_tags && user.use_case_tags.length > 2 && (
-                                                <span className="text-xs text-gray-400">+{user.use_case_tags.length - 2}</span>
-                                            )}
+                                    <td className="px-6 py-4 align-top">
+                                        <div className="flex items-center gap-1.5 text-gray-700">
+                                            <MapPin size={14} className="text-gray-400" />
+                                            <span className="truncate max-w-[140px]" title={formatLocation(user)}>
+                                                {formatLocation(user)}
+                                            </span>
+                                        </div>
+                                        <div className="flex items-center gap-1.5 text-xs text-gray-400 mt-1">
+                                            <Globe size={12} />
+                                            {user.language || '未知语言'}
                                         </div>
                                     </td>
-                                    <td className="px-6 py-4">
-                                        {user.marketing_opt_in ? (
-                                            <span className="inline-flex items-center gap-1 text-xs text-green-700 bg-green-50 px-2 py-0.5 rounded-full border border-green-100">
-                                                <Check size={10} /> 已同意
+                                    <td className="px-6 py-4 align-top">
+                                        {user.user_type === 'company' ? (
+                                            <div>
+                                                <div className="flex items-center gap-1.5 text-gray-900 font-medium">
+                                                    <Building2 size={14} className="text-indigo-500" />
+                                                    {user.company_name || '公司未知'}
+                                                </div>
+                                                <div className="text-xs text-gray-500 mt-1 pl-5">{user.title || '职位未知'}</div>
+                                            </div>
+                                        ) : (
+                                            <div className="flex items-center gap-1.5 text-gray-500 italic">
+                                                <Users size={14} />
+                                                个人用户
+                                            </div>
+                                        )}
+                                    </td>
+                                    <td className="px-6 py-4 align-top">
+                                        {user.communication_status === 'communicated' ? (
+                                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-green-50 text-green-700 border border-green-200">
+                                                <MessageSquare size={12} className="fill-green-700" />
+                                                已沟通
                                             </span>
                                         ) : (
-                                            <span className="inline-flex items-center gap-1 text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full border border-gray-200">
-                                                未同意
+                                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-500 border border-gray-200">
+                                                <Monitor size={12} />
+                                                未沟通
                                             </span>
                                         )}
                                     </td>
-                                    <td className="px-6 py-4 text-gray-500">
-                                        {format(new Date(user.created_at), 'yyyy-MM-dd')}
-                                        <span className="block text-xs text-gray-400">{format(new Date(user.created_at), 'HH:mm')}</span>
+                                    <td className="px-6 py-4 text-gray-500 align-top text-xs">
+                                        {format(new Date(user.created_at), 'yyyy-MM-dd HH:mm')}
                                     </td>
-                                    <td className="px-6 py-4 text-right">
+                                    <td className="px-6 py-4 text-right align-top">
                                         <button 
                                             onClick={() => setSelectedUser(user)}
-                                            className="text-gray-400 hover:text-blue-600 hover:bg-blue-50 p-2 rounded-lg transition-colors flex items-center gap-1 ml-auto"
+                                            className="text-gray-400 hover:text-blue-600 hover:bg-blue-50 p-2 rounded-lg transition-colors inline-flex items-center justify-center"
                                         >
-                                            <Eye size={16} />
-                                            <span className="hidden group-hover:inline text-xs font-medium">详情</span>
+                                            <Eye size={18} />
                                         </button>
                                     </td>
                                 </tr>
@@ -330,7 +337,7 @@ export default function RegisteredUsersClientView({
                         </button>
                         <button 
                             onClick={() => updateFilter('page', String((parseInt(searchParams.page) || 1) + 1))}
-                            disabled={initialUsers.length < 20} // Simple check: if current page full, likely next page exists. Exact count is in props if needed.
+                            disabled={initialUsers.length < 20}
                             className="p-2 hover:bg-gray-50 disabled:opacity-50"
                         >
                             <ChevronRight size={16} />
@@ -344,10 +351,7 @@ export default function RegisteredUsersClientView({
                 user={selectedUser} 
                 isOpen={!!selectedUser} 
                 onClose={() => setSelectedUser(null)}
-                onNoteSaved={() => {
-                    // Trigger a server refresh to get updated data if note changes list view (unlikely but good practice)
-                    router.refresh(); 
-                }}
+                onNoteSaved={() => router.refresh()}
             />
         </div>
     );

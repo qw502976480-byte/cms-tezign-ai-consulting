@@ -1,7 +1,7 @@
 'use client';
 
 import { RegisteredUser } from '@/types';
-import { X, User, Building2, Mail, Phone, MapPin, Tag, FileText, CheckCircle2, XCircle, Save, Loader2, AlertCircle } from 'lucide-react';
+import { X, User, Building2, Mail, Phone, MapPin, Tag, FileText, CheckCircle2, XCircle, Save, Loader2, AlertCircle, Globe, MessageSquare } from 'lucide-react';
 import { format } from 'date-fns';
 import { useState, useEffect } from 'react';
 import { createClient } from '@/utils/supabase/client';
@@ -14,20 +14,11 @@ interface Props {
 }
 
 export default function UserDetailModal({ user, isOpen, onClose, onNoteSaved }: Props) {
-  // Using 'note' from the user object if it exists on the type, 
-  // currently types.ts might not have 'note' on RegisteredUser if it was strictly following the migration content.
-  // We will assume it might be there or add it if needed. 
-  // Migration didn't explicitly add 'note', but previous context did. 
-  // We will conditionally render the note section only if the field technically exists or we add it.
-  // For now, we'll keep the UI but gracefully handle if Supabase fails to update it.
-  
-  const [note, setNote] = useState(''); // If note field exists in DB
+  const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
   const supabase = createClient();
 
   useEffect(() => {
-    // If 'note' is not in RegisteredUser type, we might need to cast or ignore.
-    // Assuming for CMS we usually want a note.
     if (user) {
       setNote((user as any).note || '');
     }
@@ -38,15 +29,12 @@ export default function UserDetailModal({ user, isOpen, onClose, onNoteSaved }: 
   const handleSaveNote = async () => {
     setSaving(true);
     try {
-      // Check if column exists by trying update. 
-      // If column doesn't exist, Supabase will throw error.
       const { error } = await supabase
         .from('registered_users')
-        .update({ note: note } as any) // Cast to any to bypass TS if type missing
+        .update({ note: note } as any)
         .eq('id', user.id);
 
       if (error) throw error;
-      
       onNoteSaved();
     } catch (err) {
       console.error('Failed to save note:', err);
@@ -68,7 +56,11 @@ export default function UserDetailModal({ user, isOpen, onClose, onNoteSaved }: 
              </div>
              <div>
                 <h3 className="font-semibold text-gray-900">{user.name || '未命名用户'}</h3>
-                <p className="text-xs text-gray-500 font-mono">ID: {user.id}</p>
+                <div className="flex items-center gap-2 text-xs text-gray-500">
+                    <span className="font-mono">{user.id}</span>
+                    <span>•</span>
+                    <span>注册于 {format(new Date(user.created_at), 'yyyy-MM-dd')}</span>
+                </div>
              </div>
           </div>
           <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-900 rounded-lg hover:bg-gray-200 transition-colors">
@@ -79,52 +71,55 @@ export default function UserDetailModal({ user, isOpen, onClose, onNoteSaved }: 
         {/* Scrollable Content */}
         <div className="p-6 overflow-y-auto space-y-6">
           
-          {/* Key Metrics / Status */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-             <div className="p-3 bg-gray-50 rounded-lg border border-gray-100">
-                <span className="text-xs text-gray-500 block mb-1">注册时间</span>
-                <span className="text-sm font-medium text-gray-900">
-                    {format(new Date(user.created_at), 'yyyy-MM-dd HH:mm')}
-                </span>
-             </div>
-             <div className="p-3 bg-gray-50 rounded-lg border border-gray-100">
-                <span className="text-xs text-gray-500 block mb-1">营销许可</span>
-                {user.marketing_opt_in ? (
-                    <span className="inline-flex items-center gap-1 text-xs font-medium text-green-700 bg-green-100 px-2 py-0.5 rounded-full">
-                        <CheckCircle2 size={12} /> 已同意
-                    </span>
-                ) : (
-                    <span className="inline-flex items-center gap-1 text-xs font-medium text-gray-600 bg-gray-200 px-2 py-0.5 rounded-full">
-                        <XCircle size={12} /> 未同意
-                    </span>
-                )}
-             </div>
-             <div className="p-3 bg-gray-50 rounded-lg border border-gray-100">
-                <span className="text-xs text-gray-500 block mb-1">用户类型</span>
-                <span className="text-sm font-medium text-gray-900 capitalize">
-                    {user.user_type === 'company' ? '企业用户' : '个人用户'}
-                </span>
-             </div>
-             <div className="p-3 bg-gray-50 rounded-lg border border-gray-100">
-                <span className="text-xs text-gray-500 block mb-1">地区/语言</span>
-                <span className="text-sm font-medium text-gray-900">{user.locale || '—'}</span>
-             </div>
+          {/* Status Bar */}
+          <div className="flex items-center gap-4 bg-gray-50 p-4 rounded-xl border border-gray-100">
+                <div className="flex-1">
+                    <span className="text-xs text-gray-500 uppercase tracking-wider block mb-1">沟通状态</span>
+                    {user.communication_status === 'communicated' ? (
+                        <div className="flex items-center gap-1.5 text-sm font-bold text-green-700">
+                            <CheckCircle2 size={16} /> 已进行线上沟通
+                        </div>
+                    ) : (
+                        <div className="flex items-center gap-1.5 text-sm font-bold text-gray-500">
+                             <MessageSquare size={16} /> 暂未沟通
+                        </div>
+                    )}
+                </div>
+                <div className="h-8 w-px bg-gray-200"></div>
+                <div className="flex-1">
+                    <span className="text-xs text-gray-500 uppercase tracking-wider block mb-1">营销许可</span>
+                    <div className="text-sm font-medium text-gray-800">
+                        {user.marketing_opt_in ? '已同意接收' : '未同意'}
+                    </div>
+                </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Contact Info */}
               <div className="space-y-3">
                 <h4 className="text-sm font-bold text-gray-900 flex items-center gap-2 pb-2 border-b border-gray-100">
-                    <User size={16} /> 联系方式
+                    <User size={16} /> 基础信息
                 </h4>
-                <div className="space-y-3">
+                <div className="space-y-3 p-3 border border-gray-100 rounded-lg">
                     <div className="flex items-center gap-3 text-sm">
                         <Mail size={16} className="text-gray-400" />
                         <span className="text-gray-900 select-all">{user.email}</span>
                     </div>
                     <div className="flex items-center gap-3 text-sm">
                         <Phone size={16} className="text-gray-400" />
-                        <span className="text-gray-900 select-all">{user.phone || '—'}</span>
+                        <span className="text-gray-900 select-all">{user.phone || '未填写'}</span>
+                    </div>
+                    <div className="flex items-center gap-3 text-sm">
+                        <MapPin size={16} className="text-gray-400" />
+                        <span className="text-gray-900">
+                             {[user.country, user.region, user.city].filter(Boolean).join(' / ') || '未知位置'}
+                        </span>
+                    </div>
+                    <div className="flex items-center gap-3 text-sm">
+                        <Globe size={16} className="text-gray-400" />
+                        <span className="text-gray-900">
+                             {user.language || '未知语言'}
+                        </span>
                     </div>
                 </div>
               </div>
@@ -132,9 +127,15 @@ export default function UserDetailModal({ user, isOpen, onClose, onNoteSaved }: 
               {/* Professional Info */}
               <div className="space-y-3">
                 <h4 className="text-sm font-bold text-gray-900 flex items-center gap-2 pb-2 border-b border-gray-100">
-                    <Building2 size={16} /> 企业信息
+                    <Building2 size={16} /> 职业信息
                 </h4>
-                 <div className="space-y-3">
+                 <div className="space-y-3 p-3 border border-gray-100 rounded-lg">
+                    <div className="grid grid-cols-3 text-sm gap-2">
+                        <span className="text-gray-500">类型:</span>
+                        <span className="col-span-2 font-medium text-gray-900 capitalize">
+                             {user.user_type === 'company' ? '企业用户' : '个人用户'}
+                        </span>
+                    </div>
                     <div className="grid grid-cols-3 text-sm gap-2">
                         <span className="text-gray-500">公司:</span>
                         <span className="col-span-2 font-medium text-gray-900">{user.company_name || '—'}</span>
@@ -150,10 +151,10 @@ export default function UserDetailModal({ user, isOpen, onClose, onNoteSaved }: 
           {/* Tags */}
           <div className="space-y-3">
              <h4 className="text-sm font-bold text-gray-900 flex items-center gap-2 pb-2 border-b border-gray-100">
-                <Tag size={16} /> 标签信息
+                <Tag size={16} /> 标签画像
             </h4>
             
-            <div className="space-y-2">
+            <div className="space-y-3">
                 <div>
                     <span className="text-xs text-gray-500 block mb-1">使用场景 (Use Case):</span>
                     <div className="flex flex-wrap gap-2">
@@ -186,12 +187,12 @@ export default function UserDetailModal({ user, isOpen, onClose, onNoteSaved }: 
              <h4 className="text-sm font-bold text-gray-900 flex items-center gap-2 pb-2 border-b border-gray-100">
                 <AlertCircle size={16} /> 业务痛点
             </h4>
-            <div className="bg-gray-50 p-3 rounded-lg border border-gray-100 text-sm text-gray-700">
-                {user.pain_points || '未填写'}
+            <div className="bg-gray-50 p-3 rounded-lg border border-gray-100 text-sm text-gray-700 leading-relaxed">
+                {user.pain_points || '用户未填写业务痛点。'}
             </div>
           </div>
 
-          {/* Notes (Editable) - Optional feature */}
+          {/* Notes (Editable) */}
           <div className="space-y-3 bg-yellow-50/50 p-4 rounded-xl border border-yellow-100">
              <div className="flex items-center justify-between">
                 <h4 className="text-sm font-bold text-gray-900 flex items-center gap-2">
@@ -211,7 +212,7 @@ export default function UserDetailModal({ user, isOpen, onClose, onNoteSaved }: 
                 onChange={(e) => setNote(e.target.value)}
                 rows={3}
                 className="w-full text-sm border border-yellow-200 rounded-lg p-3 bg-white focus:outline-none focus:ring-2 focus:ring-yellow-400 placeholder-gray-400"
-                placeholder="记录关于该用户的跟进情况..."
+                placeholder="在此记录关于该用户的跟进情况、潜在需求或其他内部信息..."
              />
           </div>
 
