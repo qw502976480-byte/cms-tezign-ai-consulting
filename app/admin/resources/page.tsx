@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { createClient } from '@/utils/supabase/server';
 import { Plus, Edit2, Star, Pin } from 'lucide-react';
-import { ResourceStatus, HomepageLatestNewsConfig } from '@/types';
+import { ResourceStatus } from '@/types';
 
 interface ResourceRow {
   id: string;
@@ -19,39 +19,36 @@ export const dynamic = 'force-dynamic';
 export default async function ResourcesListPage() {
   const supabase = await createClient();
 
-  // Fetch resources and homepage config in parallel
+  // Fetch resources and homepage modules in parallel
   const [resourcesResult, modulesResult] = await Promise.all([
     supabase
       .from('resources')
       .select('id, title, slug, category, summary, status, published_at, created_at')
       .order('created_at', { ascending: false }),
     supabase
-      .from('homepage_config')
-      .select('config')
-      .eq('type', 'latest_news')
-      .maybeSingle() // Use maybeSingle to avoid errors if the config row doesn't exist
+      .from('homepage_modules')
+      .select('type, content_item_ids')
+      .in('type', ['latest_updates_carousel', 'latest_updates_fixed'])
   ]);
 
   const resources = resourcesResult.data;
-  const error = resourcesResult.error;
+  const error = resourcesResult.error || modulesResult.error;
 
   if (error) {
     return (
       <div className="p-8 text-red-600">
-        Error loading resources: {error.message}
+        Error loading data: {error.message}
       </div>
     );
   }
 
   // Process homepage slots into Sets for O(1) lookup
-  const featuredIds = new Set<string>(); // latest_news.featured_items (carousel)
-  const fixedIds = new Set<string>();    // latest_news.list_items (fixed list)
+  const modules = modulesResult.data || [];
+  const carouselModule = modules.find(m => m.type === 'latest_updates_carousel');
+  const fixedModule = modules.find(m => m.type === 'latest_updates_fixed');
 
-  if (modulesResult.data?.config) {
-    const newsConfig = modulesResult.data.config as HomepageLatestNewsConfig;
-    (newsConfig.featured_items || []).forEach((id: string) => featuredIds.add(id));
-    (newsConfig.list_items || []).forEach((id: string) => fixedIds.add(id));
-  }
+  const featuredIds = new Set<string>(carouselModule?.content_item_ids || []);
+  const fixedIds = new Set<string>(fixedModule?.content_item_ids || []);
 
   return (
     <div className="space-y-6">

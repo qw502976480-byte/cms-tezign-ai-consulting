@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { createClient } from '@/utils/supabase/client';
 import { useRouter } from 'next/navigation';
 import { Loader2, ArrowLeft, Save, Globe, Layout, FileText, RefreshCw, Calendar as CalendarIcon } from 'lucide-react';
-import { Resource, HomepageLatestNewsConfig } from '@/types';
+import { Resource } from '@/types';
 import Link from 'next/link';
 
 interface ResourceFormProps {
@@ -31,38 +31,32 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
 
   // Homepage Slots State
   const [homepageFlags, setHomepageFlags] = useState({
-    carousel: false, // Corresponds to latest_news.featured_items
-    sidebar: false,  // Corresponds to latest_news.list_items
+    carousel: false, // Corresponds to latest_updates_carousel
+    sidebar: false,  // Corresponds to latest_updates_fixed
   });
 
-  // Load Homepage Config from homepage_config
+  // Load Homepage Config from homepage_modules
   useEffect(() => {
     if (!initialData?.id) return;
 
     const fetchHomepageSlots = async () => {
-      const { data, error } = await supabase
-        .from('homepage_config')
-        .select('config')
-        .eq('type', 'latest_news')
-        .single();
+      const { data: modules, error } = await supabase
+        .from('homepage_modules')
+        .select('type, content_item_ids')
+        .in('type', ['latest_updates_carousel', 'latest_updates_fixed']);
       
       if (error) {
-        console.error("Error fetching homepage config:", error);
+        console.error("Error fetching homepage modules:", error);
         return;
       }
 
-      const flags = { carousel: false, sidebar: false };
-      
-      if (data?.config) {
-        const config = data.config as HomepageLatestNewsConfig;
-        if (config.featured_items && config.featured_items.includes(initialData.id)) {
-          flags.carousel = true;
-        }
-        if (config.list_items && config.list_items.includes(initialData.id)) {
-          flags.sidebar = true;
-        }
-      }
-      setHomepageFlags(flags);
+      const carouselModule = modules.find(m => m.type === 'latest_updates_carousel');
+      const fixedModule = modules.find(m => m.type === 'latest_updates_fixed');
+
+      setHomepageFlags({
+        carousel: carouselModule?.content_item_ids?.includes(initialData.id) || false,
+        sidebar: fixedModule?.content_item_ids?.includes(initialData.id) || false,
+      });
     };
     
     fetchHomepageSlots();
@@ -163,58 +157,44 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
         resourceId = data.id;
       }
 
-      // 3. Update Homepage Slots in homepage_config
+      // 3. Update Homepage Slots in homepage_modules
       if (resourceId) {
-        const { data: newsConfigData, error: fetchError } = await supabase
-          .from('homepage_config')
-          .select('config')
-          .eq('type', 'latest_news')
-          .single();
-
-        if (fetchError) {
-          console.error("Error fetching homepage config:", fetchError);
-          throw fetchError;
-        }
-
-        const currentConfig = (newsConfigData?.config || { featured_items: [], list_items: [] }) as HomepageLatestNewsConfig;
+        const { data: modules, error: fetchError } = await supabase
+          .from('homepage_modules')
+          .select('type, content_item_ids')
+          .in('type', ['latest_updates_carousel', 'latest_updates_fixed']);
         
-        let featured_items = Array.isArray(currentConfig.featured_items) ? [...currentConfig.featured_items] : [];
-        let list_items = Array.isArray(currentConfig.list_items) ? [...currentConfig.list_items] : [];
+        if (fetchError) throw fetchError;
 
-        let changed = false;
+        const carouselModule = modules?.find(m => m.type === 'latest_updates_carousel');
+        const fixedModule = modules?.find(m => m.type === 'latest_updates_fixed');
 
-        // Carousel / featured_items
-        const isFeatured = featured_items.includes(resourceId);
-        if (homepageFlags.carousel && !isFeatured) {
-            featured_items.unshift(resourceId);
-            changed = true;
-        } else if (!homepageFlags.carousel && isFeatured) {
-            featured_items = featured_items.filter(id => id !== resourceId);
-            changed = true;
+        const carouselIds = new Set(carouselModule?.content_item_ids || []);
+        const fixedIds = new Set(fixedModule?.content_item_ids || []);
+
+        // Update carousel set
+        if (homepageFlags.carousel) {
+          carouselIds.add(resourceId);
+        } else {
+          carouselIds.delete(resourceId);
         }
 
-        // Sidebar / list_items
-        const isFixed = list_items.includes(resourceId);
-        if (homepageFlags.sidebar && !isFixed) {
-            list_items.unshift(resourceId);
-            changed = true;
-        } else if (!homepageFlags.sidebar && isFixed) {
-            list_items = list_items.filter(id => id !== resourceId);
-            changed = true;
+        // Update fixed list set
+        if (homepageFlags.sidebar) {
+          fixedIds.add(resourceId);
+        } else {
+          fixedIds.delete(resourceId);
         }
 
-        if (changed) {
-            const newConfig = { ...currentConfig, featured_items, list_items };
-            const { error: updateError } = await supabase
-                .from('homepage_config')
-                .update({ config: newConfig as any, updated_at: new Date().toISOString() })
-                .eq('type', 'latest_news');
-            
-            if (updateError) {
-                console.error("Error updating homepage config:", updateError);
-                throw updateError;
-            }
-        }
+        // Upsert both modules
+        const { error: upsertError } = await supabase
+          .from('homepage_modules')
+          .upsert([
+            { type: 'latest_updates_carousel', content_item_ids: Array.from(carouselIds) },
+            { type: 'latest_updates_fixed', content_item_ids: Array.from(fixedIds) }
+          ], { onConflict: 'type' });
+        
+        if (upsertError) throw upsertError;
       }
 
       router.push('/admin/resources');
