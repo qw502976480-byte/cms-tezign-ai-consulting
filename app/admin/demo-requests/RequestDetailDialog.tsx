@@ -21,54 +21,74 @@ export default function RequestDetailDialog({ isOpen, onClose, request, appointm
   const [loadingLogs, setLoadingLogs] = useState(false);
   const [logError, setLogError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (isOpen && request.id) {
-      loadLogsWithCache();
+  const fetchLogs = async () => {
+    setLoadingLogs(true);
+    setLogError(null);
+    
+    // Requirement 6: Use the ID from the demo_requests record.
+    const demoRequestId = request.id;
+
+    // Requirement 1: Construct an absolute URL.
+    const url = `/api/demo-requests/${encodeURIComponent(demoRequestId)}/logs`;
+
+    // Requirement 2: Log URL before fetching.
+    console.log("[logs] url =", url);
+
+    try {
+      // Requirement 3: Use the constructed URL with an explicit GET method.
+      const res = await fetch(url, { method: "GET" });
+      
+      if (!res.ok) {
+        // Requirement 4: Handle non-ok responses.
+        const text = await res.text();
+        console.error("[logs] failed", res.status, text);
+        throw new Error(`操作记录加载失败（状态码：${res.status}）`);
+      }
+
+      const data = await res.json();
+      
+      // Requirement 5: Validate that the response is an array.
+      if (!Array.isArray(data)) {
+        console.error("[logs] response is not an array:", data);
+        throw new Error('数据格式错误');
+      }
+
+      const logsData: DemoRequestLog[] = data;
+      
+      setLogs(logsData);
+      logCache[request.id] = { ts: Date.now(), data: logsData };
+
+    } catch (e: any) {
+      setLogError(e.message);
+    } finally {
+      setLoadingLogs(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, request.id]);
+  };
 
   const loadLogsWithCache = async () => {
     const cached = logCache[request.id];
     const now = Date.now();
 
-    // Check cache validity
     if (cached && (now - cached.ts < CACHE_DURATION)) {
       setLogs(cached.data);
       setLoadingLogs(false);
       return;
     }
 
-    // Fetch fresh data
     await fetchLogs();
   };
-
-  const fetchLogs = async () => {
-    setLoadingLogs(true);
-    setLogError(null);
-    try {
-      const res = await fetch(`/api/demo-requests/${request.id}/logs`);
-      
-      if (!res.ok) {
-        const errorText = await res.text();
-        console.error('[Logs API Error]', errorText);
-        throw new Error('操作记录加载失败');
-      }
-
-      const data: DemoRequestLog[] = await res.json();
-      
-      // Update State & Cache
-      setLogs(data);
-      logCache[request.id] = { ts: Date.now(), data };
-
-    } catch (e: any) {
-      // console.error is already handled above for API errors, or here for network errors
-      console.error(e);
-      setLogError('操作记录加载失败');
-    } finally {
+  
+  useEffect(() => {
+    if (isOpen && request.id) {
+      loadLogsWithCache();
+    } else {
+      setLogs([]);
       setLoadingLogs(false);
+      setLogError(null);
     }
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, request.id]);
+
 
   if (!isOpen) return null;
 
@@ -86,7 +106,6 @@ export default function RequestDetailDialog({ isOpen, onClose, request, appointm
         </span>
       );
     }
-    // For other actions, display raw action text or map other types if needed
     return <span className="text-gray-700">{log.action}</span>;
   };
 
