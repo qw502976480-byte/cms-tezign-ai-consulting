@@ -107,7 +107,7 @@ export default async function DemoRequestsPage({ searchParams }: { searchParams:
                 <td className="px-6 py-4 text-gray-500">
                     {req.processed_at ? format(new Date(req.processed_at), 'yyyy-MM-dd HH:mm') : '-'}
                 </td>
-                <td className="px-6 py-4 text-right">
+                <td className="px-6 py-4 flex justify-end">
                     <UpdateRequestStatusButton id={req.id} status={req.status} />
                 </td>
               </tr>
