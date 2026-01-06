@@ -18,6 +18,7 @@ export interface Resource {
   created_at: string;
 }
 
+// Deprecated: Use RegisteredUser instead
 export interface Registration {
   id: string;
   name: string;
@@ -25,6 +26,21 @@ export interface Registration {
   interests: string[];
   locale: string;
   consent_marketing: boolean;
+  created_at: string;
+}
+
+export interface RegisteredUser {
+  id: string;
+  name: string | null;
+  email: string;
+  phone: string | null;
+  locale: string | null;
+  marketing_consent: boolean;
+  company: string | null;
+  title: string | null;
+  interests: string[] | null; // Array of tags
+  source: string | null;
+  note: string | null;
   created_at: string;
 }
 
