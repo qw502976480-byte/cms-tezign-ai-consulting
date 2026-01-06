@@ -1,13 +1,10 @@
 'use client';
 
 import { DemoRequest, DemoAppointment, DemoRequestLog } from '@/types';
-import { X, Calendar, Clock, User, Building2, FileText, CheckCircle2, XCircle, History, RefreshCw } from 'lucide-react';
+import { X, Calendar, Clock, User, Building2, FileText, CheckCircle2, XCircle, History, RefreshCw, AlertCircle } from 'lucide-react';
 import { format } from 'date-fns';
-import { useState, useEffect } from 'react';
-
-// Cache store: { requestId: { timestamp, data } }
-const logCache: Record<string, { ts: number; data: DemoRequestLog[] }> = {};
-const CACHE_DURATION = 30 * 1000; // 30 seconds
+import { useState, useEffect, useCallback } from 'react';
+import { createClient } from '@/utils/supabase/client';
 
 interface Props {
   isOpen: boolean;
@@ -20,75 +17,45 @@ export default function RequestDetailDialog({ isOpen, onClose, request, appointm
   const [logs, setLogs] = useState<DemoRequestLog[]>([]);
   const [loadingLogs, setLoadingLogs] = useState(false);
   const [logError, setLogError] = useState<string | null>(null);
+  const supabase = createClient();
 
-  const fetchLogs = async () => {
+  const loadLogs = useCallback(async () => {
+    if (!request?.id) return;
+
     setLoadingLogs(true);
     setLogError(null);
-    
-    // Requirement 6: Use the ID from the demo_requests record.
-    const demoRequestId = request.id;
-
-    // Requirement 1: Construct an absolute URL.
-    const url = `/api/demo-requests/${encodeURIComponent(demoRequestId)}/logs`;
-
-    // Step 4: Add explicit logging
-    console.log("[logs] url =", url);
 
     try {
-      // Requirement 3: Use the constructed URL with an explicit GET method.
-      const res = await fetch(url, { method: "GET" });
-      
-      if (!res.ok) {
-        // Step 4: Log detailed error info
-        const text = await res.text();
-        console.warn("[logs] failed", res.status, text.slice(0, 200));
-        throw new Error(`操作记录加载失败（状态码：${res.status}）详情：${text}`);
+      const { data, error } = await supabase
+        .from('demo_request_logs')
+        .select('*')
+        .eq('demo_request_id', request.id)
+        .order('created_at', { ascending: false })
+        .limit(50);
+
+      if (error) {
+        console.error('[logs] supabase error:', error);
+        throw new Error(error.message);
       }
 
-      const data = await res.json();
-      
-      // Requirement 5: Validate that the response is an array.
-      if (!Array.isArray(data)) {
-        console.error("[logs] response is not an array:", data);
-        throw new Error('数据格式错误');
-      }
-
-      const logsData: DemoRequestLog[] = data;
-      
-      setLogs(logsData);
-      logCache[request.id] = { ts: Date.now(), data: logsData };
-
+      setLogs(data as DemoRequestLog[]);
     } catch (e: any) {
-      console.error("[logs] catch error:", e);
-      setLogError(e.message);
+      console.error('[logs] unexpected error:', e);
+      setLogError(e.message || '加载失败');
     } finally {
       setLoadingLogs(false);
     }
-  };
-
-  const loadLogsWithCache = async () => {
-    const cached = logCache[request.id];
-    const now = Date.now();
-
-    if (cached && (now - cached.ts < CACHE_DURATION)) {
-      setLogs(cached.data);
-      setLoadingLogs(false);
-      return;
-    }
-
-    await fetchLogs();
-  };
+  }, [request?.id, supabase]);
   
   useEffect(() => {
-    if (isOpen && request.id) {
-      loadLogsWithCache();
+    if (isOpen && request?.id) {
+      loadLogs();
     } else {
       setLogs([]);
       setLoadingLogs(false);
       setLogError(null);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, request.id]);
+  }, [isOpen, request?.id, loadLogs]);
 
 
   if (!isOpen) return null;
@@ -99,13 +66,36 @@ export default function RequestDetailDialog({ isOpen, onClose, request, appointm
     return '未设置';
   };
 
+  const translateStatus = (val: string | null) => {
+      if (val === 'pending') return '待处理';
+      if (val === 'processed') return '已处理';
+      return val || '-';
+  };
+
   const renderLogContent = (log: DemoRequestLog) => {
     if (log.action === 'outcome_update') {
-      return (
-        <span className="text-gray-700">
-          沟通结果：{translateOutcome(log.prev_outcome)} → {translateOutcome(log.new_outcome)}
-        </span>
-      );
+      // 优先展示结果变更
+      if (log.new_outcome !== log.prev_outcome) {
+          return (
+            <div className="flex flex-col gap-1">
+                <span className="text-gray-900 font-medium">更新沟通结果</span>
+                <span className="text-gray-600 text-xs">
+                  {translateOutcome(log.prev_outcome)} <span className="text-gray-400">→</span> {translateOutcome(log.new_outcome)}
+                </span>
+            </div>
+          );
+      }
+      // 如果仅状态变更
+      if (log.new_status !== log.prev_status) {
+          return (
+            <div className="flex flex-col gap-1">
+                <span className="text-gray-900 font-medium">状态变更</span>
+                <span className="text-gray-600 text-xs">
+                  {translateStatus(log.prev_status)} <span className="text-gray-400">→</span> {translateStatus(log.new_status)}
+                </span>
+            </div>
+          );
+      }
     }
     return <span className="text-gray-700">{log.action}</span>;
   };
@@ -248,8 +238,17 @@ export default function RequestDetailDialog({ isOpen, onClose, request, appointm
              
              <div className="space-y-3">
                 {logError ? (
-                    <div className="text-xs font-medium text-red-600 bg-red-50 p-2 rounded border border-red-100">
-                      {logError}
+                    <div className="flex items-center justify-between p-3 bg-red-50 rounded-lg border border-red-100 text-red-600">
+                       <div className="flex items-center gap-2">
+                         <AlertCircle size={16} />
+                         <span className="text-xs font-medium">操作记录加载失败</span>
+                       </div>
+                       <button 
+                         onClick={loadLogs}
+                         className="text-xs bg-white border border-red-200 px-2 py-1 rounded hover:bg-red-50 font-medium transition-colors"
+                       >
+                         重试
+                       </button>
                     </div>
                 ) : !loadingLogs && logs.length === 0 ? (
                     <div className="text-xs text-gray-400 italic py-2">暂无操作记录</div>
@@ -259,14 +258,14 @@ export default function RequestDetailDialog({ isOpen, onClose, request, appointm
                            <li key={log.id} className="relative flex items-start gap-4">
                                <div className="absolute left-0 top-1.5 h-3 w-3 rounded-full border-2 border-white bg-gray-300 shadow-sm z-10"></div>
                                <div className="ml-4 flex-1">
-                                   <div className="flex flex-wrap items-center gap-x-2 text-xs text-gray-500 mb-0.5">
+                                   <div className="flex flex-wrap items-center gap-x-2 text-xs text-gray-500 mb-1">
                                       <span className="font-mono text-gray-400">{format(new Date(log.created_at), 'yyyy-MM-dd HH:mm')}</span>
                                       <span className="text-gray-300">|</span>
                                       <span className="font-medium text-gray-600 truncate max-w-[150px]" title={log.actor || 'System'}>
-                                        {log.actor || 'System'}
+                                        {log.actor || '—'}
                                       </span>
                                    </div>
-                                   <div className="text-sm bg-gray-50 p-2 rounded-lg border border-gray-100">
+                                   <div className="text-sm bg-gray-50 p-2.5 rounded-lg border border-gray-100">
                                       {renderLogContent(log)}
                                    </div>
                                </div>

@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { subDays, startOfDay, endOfDay, format } from 'date-fns';
-import { PieChart, Calendar, ChevronDown, RefreshCw, AlertCircle, Phone, CheckCircle2, XCircle, Circle } from 'lucide-react';
+import { subDays, startOfDay, endOfDay } from 'date-fns';
+import { PieChart, Calendar, ChevronDown, RefreshCw, AlertCircle, Phone, CheckCircle2, Circle, Check } from 'lucide-react';
 
 type TimeRange = '3d' | '7d' | '30d' | 'custom';
 
@@ -18,7 +18,11 @@ export default function StatsOverview() {
   const [range, setRange] = useState<TimeRange>('7d');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
+  
+  // UI States
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isCustomOpen, setIsCustomOpen] = useState(false);
+  const dropdownContainerRef = useRef<HTMLDivElement>(null);
   
   const [stats, setStats] = useState<StatsData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -26,6 +30,26 @@ export default function StatsOverview() {
   
   // Ref for updating data without re-triggering effects unnecessarily
   const fetchRef = useRef(0);
+
+  // Close dropdowns when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownContainerRef.current && !dropdownContainerRef.current.contains(event.target as Node)) {
+        setIsDropdownOpen(false);
+        // Only close custom picker if clicking outside, but allow interaction inside it
+        // Note: isCustomOpen logic might need separate handling if it was fully separate, 
+        // but here they share the container parent for simplicity in this view.
+        // If the user clicks completely away, close custom picker too.
+        // However, the custom picker needs to persist while interacting with inputs.
+        // The containerRef includes the picker, so this check works for both.
+        if (!dropdownContainerRef.current.contains(event.target as Node)) {
+            setIsCustomOpen(false); 
+        }
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Calculate dates based on range
   const getDateRange = () => {
@@ -103,12 +127,14 @@ export default function StatsOverview() {
     }
   };
 
-  const rangeLabelMap = {
-    '3d': '最近 3 天',
-    '7d': '最近 7 天',
-    '30d': '最近 30 天',
-    'custom': '自定义范围...'
-  };
+  const options = [
+    { value: '3d', label: '最近 3 天' },
+    { value: '7d', label: '最近 7 天' },
+    { value: '30d', label: '最近 30 天' },
+    { value: 'custom', label: '自定义范围...' },
+  ];
+
+  const currentLabel = options.find(o => o.value === range)?.label || '最近 7 天';
 
   return (
     <div className="bg-white border border-gray-200 px-5 py-4 rounded-xl shadow-sm text-sm space-y-4 md:space-y-0 md:flex md:items-center md:justify-between relative">
@@ -181,29 +207,54 @@ export default function StatsOverview() {
         ) : null}
       </div>
 
-      {/* Right: Time Control */}
-      <div className="relative border-l border-gray-100 md:pl-6">
-        <div className="flex items-center gap-2">
-            <Calendar size={16} className="text-gray-400" />
-            <div className="relative">
-                <select 
-                    value={range} 
-                    onChange={(e) => setRange(e.target.value as TimeRange)}
-                    className="appearance-none bg-gray-50 border border-gray-200 text-gray-900 text-sm rounded-lg focus:ring-gray-900 focus:border-gray-900 block w-36 p-2 pr-8 font-medium cursor-pointer hover:bg-gray-100 transition-colors"
-                >
-                    <option value="3d">最近 3 天</option>
-                    <option value="7d">最近 7 天</option>
-                    <option value="30d">最近 30 天</option>
-                    <option value="custom">自定义范围...</option>
-                </select>
-                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-500">
-                    <ChevronDown size={14} />
-                </div>
+      {/* Right: Time Control (Custom Dropdown) */}
+      <div className="relative border-l border-gray-100 md:pl-6" ref={dropdownContainerRef}>
+        
+        {/* Dropdown Trigger Button */}
+        <button 
+            type="button"
+            onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+            className={`w-full sm:w-auto min-w-[160px] flex items-center justify-between px-3 py-2.5 border rounded-lg shadow-sm text-sm transition-all duration-200
+                ${isDropdownOpen 
+                    ? 'border-gray-900 ring-1 ring-gray-900 bg-white text-gray-900' 
+                    : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300 hover:text-gray-700'}
+            `}
+        >
+            <div className="flex items-center gap-2">
+                <Calendar size={16} className={isDropdownOpen ? 'text-gray-900' : 'text-gray-400'} />
+                <span className={isDropdownOpen ? 'text-gray-900' : 'text-gray-500'}>时间筛选:</span>
+                <span className={`font-medium ${isDropdownOpen ? 'text-gray-900' : 'text-gray-900'}`}>
+                    {currentLabel.replace('自定义范围...', '自定义')}
+                </span>
             </div>
-        </div>
+            <ChevronDown size={14} className={`flex-shrink-0 transition-transform duration-200 ${isDropdownOpen ? 'rotate-180 text-gray-900' : 'text-gray-400'}`} />
+        </button>
+
+        {/* Dropdown Menu */}
+        {isDropdownOpen && (
+            <div className="absolute right-0 top-full mt-1.5 w-48 bg-white border border-gray-100 rounded-xl shadow-xl z-50 p-1 animate-in fade-in zoom-in-95 duration-100 origin-top-right">
+                {options.map((opt) => (
+                    <button
+                        key={opt.value}
+                        onClick={() => {
+                            setRange(opt.value as TimeRange);
+                            setIsDropdownOpen(false);
+                        }}
+                        className={`w-full flex items-center justify-between px-3 py-2 text-sm rounded-lg transition-colors text-left
+                            ${range === opt.value 
+                                ? 'bg-gray-50 text-gray-900 font-medium' 
+                                : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}
+                        `}
+                    >
+                        <span>{opt.label}</span>
+                        {range === opt.value && <Check size={14} className="flex-shrink-0 text-gray-900" />}
+                    </button>
+                ))}
+            </div>
+        )}
 
         {/* Custom Date Picker Popover */}
-        {range === 'custom' && isCustomOpen && (
+        {range === 'custom' && isCustomOpen && !isDropdownOpen && (
              <div className="absolute right-0 top-full mt-2 w-72 bg-white border border-gray-200 rounded-xl shadow-xl p-4 z-50 animate-in fade-in zoom-in-95 origin-top-right">
                 <div className="space-y-3">
                     <h4 className="font-semibold text-gray-900 text-xs uppercase tracking-wide">选择日期范围</h4>
@@ -214,7 +265,7 @@ export default function StatsOverview() {
                                 type="date" 
                                 value={customStart}
                                 onChange={(e) => setCustomStart(e.target.value)}
-                                className="w-full text-sm border border-gray-300 rounded px-2 py-1"
+                                className="w-full text-sm border border-gray-300 rounded px-2 py-1 focus:ring-1 focus:ring-gray-900 focus:border-gray-900 outline-none"
                             />
                         </div>
                         <div>
@@ -223,7 +274,7 @@ export default function StatsOverview() {
                                 type="date" 
                                 value={customEnd}
                                 onChange={(e) => setCustomEnd(e.target.value)}
-                                className="w-full text-sm border border-gray-300 rounded px-2 py-1"
+                                className="w-full text-sm border border-gray-300 rounded px-2 py-1 focus:ring-1 focus:ring-gray-900 focus:border-gray-900 outline-none"
                             />
                         </div>
                     </div>
@@ -233,14 +284,14 @@ export default function StatsOverview() {
                                 setRange('7d'); // Revert to default if cancelled
                                 setIsCustomOpen(false);
                             }}
-                            className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded"
+                            className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded transition-colors"
                         >
                             取消
                         </button>
                         <button 
                             onClick={handleCustomApply}
                             disabled={!customStart || !customEnd}
-                            className="px-3 py-1.5 text-xs bg-gray-900 text-white rounded hover:bg-black disabled:opacity-50"
+                            className="px-3 py-1.5 text-xs bg-gray-900 text-white rounded hover:bg-black disabled:opacity-50 transition-colors"
                         >
                             确认应用
                         </button>
