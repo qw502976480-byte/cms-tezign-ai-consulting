@@ -1,7 +1,8 @@
 import { createClient } from '@/utils/supabase/server';
 import Link from 'next/link';
 import { Star, Pin, Edit2 } from 'lucide-react';
-import { Resource } from '@/types';
+// FIX: Import ResourceStatus to strongly type data from Supabase
+import { Resource, ResourceStatus } from '@/types';
 // FIX: Import React to correctly type the component and resolve the 'key' prop error.
 import React from 'react';
 
@@ -24,10 +25,11 @@ async function getHomepageSlotsData() {
     if (modulesResult.error) throw modulesResult.error;
     if (resourcesResult.error) throw resourcesResult.error;
     
-    const modules = modulesResult.data || [];
-    const allResources = resourcesResult.data || [];
+    // FIX: Add explicit types for data coming from Supabase to prevent `any` propagation.
+    const modules: { type: string; content_item_ids: string[] }[] = modulesResult.data || [];
+    const allResources: { id: string; title: string; status: ResourceStatus; slug: string }[] = resourcesResult.data || [];
     
-    const resourceMap = new Map(allResources.map(r => [r.id, r as Resource]));
+    const resourceMap = new Map(allResources.map(r => [r.id, r]));
 
     const carouselModule = modules.find(m => m.type === 'latest_updates_carousel');
     const fixedModule = modules.find(m => m.type === 'latest_updates_fixed');
@@ -36,6 +38,7 @@ async function getHomepageSlotsData() {
     const fixedIds = fixedModule?.content_item_ids || [];
     
     // Resolve IDs to full resource objects, handling cases where a resource might be deleted
+    // With strong types above, casts are no longer needed here.
     const carouselItems = carouselIds.map(id => resourceMap.get(id) || { id, title: 'Resource not found or deleted', status: 'unknown', slug: '' });
     const fixedItems = fixedIds.map(id => resourceMap.get(id) || { id, title: 'Resource not found or deleted', status: 'unknown', slug: '' });
 
