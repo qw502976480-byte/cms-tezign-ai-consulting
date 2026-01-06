@@ -6,6 +6,7 @@ import Filters from './Filters';
 import UpdateRequestStatusButton from './UpdateRequestStatusButton';
 import AppointmentCell from './AppointmentCell';
 import Countdown from './Countdown';
+import AppointmentActions from './AppointmentActions';
 
 export const dynamic = 'force-dynamic';
 
@@ -79,10 +80,10 @@ export default async function DemoRequestsPage({ searchParams }: { searchParams:
         if (scheduledApp) {
           currentAppointmentMap.set(requestId, scheduledApp);
         } else {
-          // Already sorted by created_at desc, so the first completed one is the latest
-          const completedApp = apps.find((a: DemoAppointment) => a.status === 'completed');
-          if (completedApp) {
-            currentAppointmentMap.set(requestId, completedApp);
+          // Find the most recent non-scheduled appointment
+          const latestTerminalApp = apps.find((a: DemoAppointment) => ['completed', 'canceled', 'no_show'].includes(a.status));
+          if (latestTerminalApp) {
+            currentAppointmentMap.set(requestId, latestTerminalApp);
           }
         }
       }
@@ -152,19 +153,16 @@ export default async function DemoRequestsPage({ searchParams }: { searchParams:
                     </span>
                   </td>
                   <td className="px-6 py-4">
-                    <AppointmentCell request={req} appointment={appointment} />
+                    <AppointmentCell appointment={appointment} />
                   </td>
                   <td className="px-6 py-4">
-                    {appointment?.status === 'scheduled' ? (
-                        <Countdown scheduledAt={appointment.scheduled_at} />
-                    ) : appointment?.status === 'completed' ? (
-                        <span className="text-sm text-green-700 font-medium">已完成</span>
-                    ) : (
-                        <span className="text-gray-400">—</span>
-                    )}
+                     <Countdown appointment={appointment} />
                   </td>
-                  <td className="px-6 py-4 flex justify-end">
-                      <UpdateRequestStatusButton id={req.id} status={req.status} />
+                  <td className="px-6 py-4">
+                    <div className="flex justify-end items-center gap-2">
+                        <AppointmentActions appointment={appointment} />
+                        <UpdateRequestStatusButton id={req.id} status={req.status} />
+                    </div>
                   </td>
                 </tr>
               );

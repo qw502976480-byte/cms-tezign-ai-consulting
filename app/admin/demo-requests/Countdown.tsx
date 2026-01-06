@@ -2,9 +2,10 @@
 
 import { useState, useEffect } from 'react';
 import { differenceInSeconds, parseISO } from 'date-fns';
+import { DemoAppointment } from '@/types';
 
 interface Props {
-  scheduledAt: string;
+  appointment: DemoAppointment | undefined;
 }
 
 function formatDuration(totalSeconds: number): { text: string; isOverdue: boolean } {
@@ -27,9 +28,22 @@ function formatDuration(totalSeconds: number): { text: string; isOverdue: boolea
   return { text: `${prefix} ${parts.join(' ')}`, isOverdue };
 }
 
-export default function Countdown({ scheduledAt }: Props) {
+export default function Countdown({ appointment }: Props) {
+  if (!appointment) {
+    return <span className="text-gray-400">—</span>;
+  }
+  
+  if (appointment.status !== 'scheduled') {
+    switch (appointment.status) {
+        case 'completed': return <span className="text-sm text-green-700 font-medium">已完成</span>;
+        case 'no_show': return <span className="text-sm text-yellow-700 font-medium">未到场</span>;
+        case 'canceled': return <span className="text-sm text-red-700 font-medium">已取消</span>;
+        default: return <span className="text-gray-400">—</span>;
+    }
+  }
+
   const calculateTime = () => {
-    const targetDate = parseISO(scheduledAt);
+    const targetDate = parseISO(appointment.scheduled_at);
     const now = new Date();
     const secondsDiff = differenceInSeconds(targetDate, now);
     return formatDuration(secondsDiff);
@@ -38,14 +52,13 @@ export default function Countdown({ scheduledAt }: Props) {
   const [displayTime, setDisplayTime] = useState(calculateTime);
 
   useEffect(() => {
-    // Update every minute
     const timer = setInterval(() => {
       setDisplayTime(calculateTime());
     }, 60000); 
 
     return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scheduledAt]);
+  }, [appointment.scheduled_at]);
 
   const textColor = displayTime.isOverdue ? 'text-red-600' : 'text-blue-600';
 
