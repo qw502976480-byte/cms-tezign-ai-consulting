@@ -19,8 +19,7 @@ export default function Filters({ searchParams }: { searchParams: SearchParams }
   const [customEnd, setCustomEnd] = useState(searchParams.end || '');
 
   const handleFilterChange = (key: string, value: string) => {
-    // FIX: Correctly create a mutable copy of URLSearchParams to avoid a type error.
-    const current = new URLSearchParams(currentSearchParams);
+    const current = new URLSearchParams(currentSearchParams.toString());
     current.set(key, value);
 
     // If changing range to non-custom, clear custom dates and navigate
@@ -48,8 +47,7 @@ export default function Filters({ searchParams }: { searchParams: SearchParams }
       alert('Please select both a start and end date.');
       return;
     }
-    // FIX: Correctly create a mutable copy of URLSearchParams to avoid a type error.
-    const current = new URLSearchParams(currentSearchParams);
+    const current = new URLSearchParams(currentSearchParams.toString());
     current.set('start', customStart);
     current.set('end', customEnd);
     current.set('range', 'custom');
