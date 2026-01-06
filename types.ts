@@ -50,6 +50,18 @@ export interface DemoAppointment {
   created_at: string;
 }
 
+export interface DemoRequestLog {
+  id: string;
+  demo_request_id: string;
+  action: string;
+  prev_outcome: string | null;
+  new_outcome: string | null;
+  prev_status: string | null;
+  new_status: string | null;
+  actor: string | null;
+  created_at: string;
+}
+
 
 // --- Homepage Configuration Types ---
 
