@@ -1,3 +1,4 @@
+
 import { createClient } from '@/utils/supabase/server';
 import Link from 'next/link';
 import { Star, Pin, Edit2 } from 'lucide-react';
@@ -81,7 +82,7 @@ export default async function HomepageSlotsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
+      <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">首页配置 (Homepage)</h1>
         <p className="text-sm text-gray-500 mt-1">
           此页面仅用于展示「最新动态」模块的当前配置。如需修改，请前往
@@ -97,7 +98,7 @@ export default async function HomepageSlotsPage() {
             <Star size={18} className="text-indigo-600" />
             <h2 className="text-lg font-semibold text-gray-900">最新动态 · 轮播位</h2>
           </div>
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="bg-white rounded-xl border border-gray-200/75 overflow-hidden">
             <ul className="divide-y divide-gray-100">
               {carouselItems.length > 0 ? (
                 carouselItems.map((item) => <ResourceListItem key={item.id} item={item} />)
@@ -116,7 +117,7 @@ export default async function HomepageSlotsPage() {
             <Pin size={18} className="text-slate-600" />
             <h2 className="text-lg font-semibold text-gray-900">最新动态 · 固定位</h2>
           </div>
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="bg-white rounded-xl border border-gray-200/75 overflow-hidden">
             <ul className="divide-y divide-gray-100">
                {fixedItems.length > 0 ? (
                 fixedItems.map((item) => <ResourceListItem key={item.id} item={item} />)

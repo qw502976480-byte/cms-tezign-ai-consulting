@@ -74,7 +74,7 @@ async function getDashboardData() {
 
 function KpiCard({ title, value, icon: Icon, description }: { title: string, value: string | number, icon: React.ElementType, description: string }) {
   return (
-    <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow group">
+    <div className="bg-white p-6 rounded-xl border border-gray-200/75 hover:border-gray-200 transition-colors group">
       <div className="flex items-start justify-between">
         <div className="space-y-1">
           <p className="text-sm text-gray-500 font-medium">{title}</p>
@@ -94,7 +94,7 @@ export default async function AdminDashboard() {
 
   return (
     <div className="space-y-8">
-      <h1 className="text-2xl font-bold text-gray-900">概览 (Dashboard)</h1>
+      <h1 className="text-2xl font-bold text-gray-900 mb-6">概览 (Dashboard)</h1>
       
       {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -110,7 +110,7 @@ export default async function AdminDashboard() {
           <Calendar size={20} />
           即将到期的演示申请
         </h2>
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="bg-white rounded-xl border border-gray-200/75 overflow-hidden">
           {upcomingAppointments.length > 0 ? (
             <ul className="divide-y divide-gray-100">
               {upcomingAppointments.map(({ scheduled_at, demo_requests }) => {

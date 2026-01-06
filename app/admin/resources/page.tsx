@@ -1,3 +1,4 @@
+
 import Link from 'next/link';
 import { createClient } from '@/utils/supabase/server';
 import { Plus, Edit2, Star, Pin } from 'lucide-react';
@@ -52,7 +53,7 @@ export default async function ResourcesListPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex justify-between items-center mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">内容资源 (Resources)</h1>
           <p className="text-sm text-gray-500 mt-1">Single source of truth for all content.</p>
@@ -65,15 +66,15 @@ export default async function ResourcesListPage() {
         </Link>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-xl border border-gray-200/75 overflow-hidden">
         <table className="w-full text-sm text-left">
           <thead className="text-gray-500 font-medium border-b border-gray-200 bg-gray-50">
             <tr>
-              <th className="px-6 py-4 w-1/4">Title</th>
-              <th className="px-6 py-4">Status</th>
-              <th className="px-6 py-4">Homepage</th>
-              <th className="px-6 py-4">Published At</th>
-              <th className="px-6 py-4">Category</th>
+              <th className="px-6 py-4 text-left w-1/4">Title</th>
+              <th className="px-6 py-4 text-left">Status</th>
+              <th className="px-6 py-4 text-left">Homepage</th>
+              <th className="px-6 py-4 text-left">Published At</th>
+              <th className="px-6 py-4 text-left">Category</th>
               <th className="px-6 py-4 text-right">Action</th>
             </tr>
           </thead>
@@ -90,11 +91,11 @@ export default async function ResourcesListPage() {
                   </td>
                   <td className="px-6 py-4">
                      {isPublished ? (
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 border border-green-200">
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 border border-green-200 whitespace-nowrap">
                           Published
                         </span>
                      ) : (
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 border border-gray-200 uppercase">
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 border border-gray-200 uppercase whitespace-nowrap">
                           {resource.status || 'Draft'}
                         </span>
                      )}
@@ -102,12 +103,12 @@ export default async function ResourcesListPage() {
                   <td className="px-6 py-4">
                     <div className="flex flex-col gap-1.5 items-start">
                       {isFeatured && (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100 whitespace-nowrap">
                           <Star size={10} fill="currentColor" /> Featured
                         </span>
                       )}
                       {isFixed && (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-700 border border-slate-200">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-700 border border-slate-200 whitespace-nowrap">
                           <Pin size={10} /> Fixed List
                         </span>
                       )}
@@ -120,7 +121,7 @@ export default async function ResourcesListPage() {
                     {resource.published_at ? new Date(resource.published_at).toLocaleDateString() : '-'}
                   </td>
                   <td className="px-6 py-4">
-                    <span className="capitalize text-gray-600 bg-gray-50 px-2 py-1 rounded border border-gray-100">
+                    <span className="capitalize text-gray-600 bg-gray-50 px-2 py-1 rounded border border-gray-100 whitespace-nowrap">
                       {resource.category?.replace(/_/g, ' ') || 'Uncategorized'}
                     </span>
                   </td>

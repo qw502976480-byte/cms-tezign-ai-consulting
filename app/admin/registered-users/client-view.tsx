@@ -86,7 +86,7 @@ export default function RegisteredUsersClientView({
 
     return (
         <div className="space-y-6">
-            <div className="flex justify-between items-end">
+            <div className="flex justify-between items-end mb-6">
                 <h1 className="text-2xl font-bold text-gray-900">注册用户 (User Profiles)</h1>
                 <div className="text-sm text-gray-500">共 {totalCount} 位用户</div>
             </div>
@@ -99,7 +99,7 @@ export default function RegisteredUsersClientView({
             )}
 
             {/* Filters */}
-            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm space-y-4">
+            <div className="bg-white p-4 rounded-xl border border-gray-200/75 space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
                      <div className="relative">
                         <Search className="absolute left-3 top-2.5 text-gray-400" size={18} />
@@ -162,16 +162,16 @@ export default function RegisteredUsersClientView({
             </div>
 
             {/* Table */}
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden min-h-[400px]">
+            <div className="bg-white rounded-xl border border-gray-200/75 overflow-hidden min-h-[400px]">
                 <table className="w-full text-sm text-left">
                     <thead className="text-gray-500 font-medium border-b border-gray-200 bg-gray-50">
                         <tr>
-                            <th className="px-6 py-4 w-[200px]">用户信息</th>
-                            <th className="px-6 py-4 w-[200px]">公司/职位</th>
-                            <th className="px-6 py-4 w-[180px]">国家/城市</th>
-                            <th className="px-6 py-4 w-[120px]">线上沟通</th>
-                            <th className="px-6 py-4 w-[150px]">注册时间</th>
-                            <th className="px-6 py-4 w-[150px]">最近登录</th>
+                            <th className="px-6 py-4 text-left w-[200px]">用户信息</th>
+                            <th className="px-6 py-4 text-left w-[200px]">公司/职位</th>
+                            <th className="px-6 py-4 text-left w-[180px]">国家/城市</th>
+                            <th className="px-6 py-4 text-left w-[120px]">线上沟通</th>
+                            <th className="px-6 py-4 text-left w-[150px]">注册时间</th>
+                            <th className="px-6 py-4 text-left w-[150px]">最近登录</th>
                             <th className="px-6 py-4 text-right"></th>
                         </tr>
                     </thead>

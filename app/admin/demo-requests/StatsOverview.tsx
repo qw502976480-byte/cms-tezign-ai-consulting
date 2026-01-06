@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
@@ -137,7 +138,7 @@ export default function StatsOverview() {
   const currentLabel = options.find(o => o.value === range)?.label || '最近 7 天';
 
   return (
-    <div className="bg-white border border-gray-200 px-5 py-4 rounded-xl shadow-sm text-sm space-y-4 md:space-y-0 md:flex md:items-center md:justify-between relative">
+    <div className="bg-white border border-gray-200/75 px-5 py-4 rounded-xl text-sm space-y-4 md:space-y-0 md:flex md:items-center md:justify-between relative">
       
       {/* Left: Title & Stats */}
       <div className="flex flex-col md:flex-row md:items-center gap-6 flex-1">
@@ -214,7 +215,7 @@ export default function StatsOverview() {
         <button 
             type="button"
             onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-            className={`w-full sm:w-auto min-w-[160px] flex items-center justify-between px-3 py-2.5 border rounded-lg shadow-sm text-sm transition-all duration-200
+            className={`w-full sm:w-auto min-w-[160px] flex items-center justify-between px-3 py-2.5 border rounded-lg text-sm transition-all duration-200
                 ${isDropdownOpen 
                     ? 'border-gray-900 ring-1 ring-gray-900 bg-white text-gray-900' 
                     : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300 hover:text-gray-700'}

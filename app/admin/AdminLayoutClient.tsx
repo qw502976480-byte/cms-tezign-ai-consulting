@@ -61,15 +61,12 @@ export default function AdminLayoutClient({ children }: { children: React.ReactN
       <aside 
         onMouseEnter={() => setIsSidebarExpanded(true)}
         onMouseLeave={() => setIsSidebarExpanded(false)}
-        className={`fixed h-full z-10 hidden md:flex flex-col bg-white border-r border-gray-200 transition-all duration-200 ease-out ${isSidebarExpanded ? 'w-64' : 'w-20'}`}
+        className={`fixed h-full z-10 hidden md:flex flex-col bg-white border-r border-gray-200/75 transition-all duration-200 ease-out ${isSidebarExpanded ? 'w-64' : 'w-20'}`}
       >
-        <div className={`p-6 border-b border-gray-100 flex items-center h-20 overflow-hidden`}>
-            <div className={`p-1 bg-gray-900 text-white rounded-lg`}>
-                <LayoutDashboard size={24}/>
-            </div>
-            <div className={`flex flex-col ml-3 overflow-hidden transition-all duration-150 ${isSidebarExpanded ? 'opacity-100 w-auto' : 'opacity-0 w-0'}`}>
-                <span className="font-bold text-xl text-gray-900 tracking-tight whitespace-nowrap">Web Platform</span>
-                <span className="text-sm text-gray-500 font-medium whitespace-nowrap">Tezign AI</span>
+        <div className={`px-6 py-4 border-b border-gray-100 flex items-center h-16 overflow-hidden`}>
+            <div className={`flex flex-col ml-0 overflow-hidden`}>
+                <span className="font-bold text-lg text-gray-900 tracking-tight whitespace-nowrap">Web Platform</span>
+                <span className={`text-sm text-gray-500 font-medium whitespace-nowrap transition-all duration-150 ${isSidebarExpanded ? 'opacity-100' : 'opacity-0'}`}>Tezign AI Consulting</span>
             </div>
         </div>
 
@@ -94,8 +91,8 @@ export default function AdminLayoutClient({ children }: { children: React.ReactN
           {/* Render item groups */}
           {navGroups.map((group) => (
             <div key={group.title} className="pt-4 mt-4 border-t border-gray-100">
-              <span className={`px-3 mb-2 block text-xs font-semibold text-gray-500 sr-only transition-opacity ${isSidebarExpanded ? 'not-sr-only opacity-100' : 'opacity-0'}`}>
-                {group.title}
+              <span className={`px-3 mb-2 block text-xs font-semibold text-gray-500 transition-opacity ${isSidebarExpanded ? 'opacity-100' : 'opacity-0'}`}>
+                {isSidebarExpanded ? group.title : ''}
               </span>
               <div className="space-y-1">
                 {group.items.map((item, index) => {

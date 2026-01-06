@@ -95,16 +95,16 @@ export default function RequestListClient({ initialItems }: Props) {
     <div className="space-y-6">
       <StatsOverview />
 
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden min-h-[400px]">
+      <div className="bg-white rounded-xl border border-gray-200/75 overflow-hidden min-h-[400px]">
         <table className="w-full text-sm text-left">
           <thead className="text-gray-500 font-medium border-b border-gray-200 bg-gray-50">
             <tr>
-              <th className="px-6 py-4 w-[200px]">申请时间/公司</th>
-              <th className="px-6 py-4 w-[240px]">联系人 (UserProfile)</th>
-              <th className="px-6 py-4 w-[120px]">状态</th>
-              <th className="px-6 py-4 w-[180px]">预约时间</th>
-              <th className="px-6 py-4 w-[150px]">倒计时</th>
-              <th className="px-6 py-4">沟通结果</th>
+              <th className="px-6 py-4 text-left w-[200px]">申请时间/公司</th>
+              <th className="px-6 py-4 text-left w-[240px]">联系人 (UserProfile)</th>
+              <th className="px-6 py-4 text-left w-[120px]">状态</th>
+              <th className="px-6 py-4 text-left w-[180px]">预约时间</th>
+              <th className="px-6 py-4 text-left w-[150px]">倒计时</th>
+              <th className="px-6 py-4 text-left">沟通结果</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
