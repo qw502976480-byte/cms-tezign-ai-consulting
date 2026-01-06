@@ -21,7 +21,8 @@ export async function PATCH(
 
     console.log(`[API] Updating Request ${id}: status=${status}, outcome=${outcome}`);
 
-    // Validate status against valid DB values (Strict)
+    // Validate status against valid DB values
+    // Rule A: Both 'Complete' and 'Cancel' actions result in status='processed'
     if (!status || !['pending', 'processed'].includes(status)) {
       return NextResponse.json({ error: 'Invalid status provided. Must be pending or processed.' }, { status: 400 });
     }
@@ -34,12 +35,11 @@ export async function PATCH(
     // Prepare payload
     const payload: { status: DemoRequestStatus; outcome?: DemoRequestOutcome; processed_at?: string } = {
       status: status as DemoRequestStatus,
-      // Only set processed_at if status is processed
+      // Rule A: If status becomes processed, set the timestamp
       processed_at: status === 'processed' ? new Date().toISOString() : undefined,
     };
 
     // Explicitly add outcome if it exists in the request body
-    // This allows clearing outcome if we passed null, or setting it
     if (outcome !== undefined) {
         payload.outcome = outcome as DemoRequestOutcome;
     }
