@@ -48,3 +48,4 @@ EMAIL_TO_INTERNAL=your_email@example.com
 2. **Create Content:** Go to `/admin/content/new` and publish a "Case Study".
 3. **Public API:** Visit `/api/resources` to see the JSON output of published content.
 4. **Homepage API:** Visit `/api/homepage` to see the new structured homepage config.
+<!-- git-probe: logs-route-v2 -->
