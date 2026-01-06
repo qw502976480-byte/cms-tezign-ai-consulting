@@ -38,9 +38,7 @@ export default async function HomepageManager() {
           {MODULE_DEFINITIONS.map(({ type, name, description }) => {
             const config = configs.get(type);
             const isInitialized = !!config;
-
-            // 构建编辑链接，确保使用 type 作为路径参数
-            const editHref = `/admin/homepage/${type}/edit`;
+            const isLatestNews = type === 'latest_news';
 
             return (
               <li key={type} className="flex items-center justify-between p-4 sm:p-6 hover:bg-gray-50 transition-colors">
@@ -67,13 +65,22 @@ export default async function HomepageManager() {
                   {isInitialized ? (
                     <>
                       <ToggleActiveButton type={type} isActive={config.is_active} />
-                      <Link
-                        href={editHref}
-                        className="flex items-center gap-2 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium transition shadow-sm"
-                      >
-                        <Edit2 size={14} />
-                        配置
-                      </Link>
+                      {isLatestNews ? (
+                        <Link
+                          href="/admin/homepage/latest-news"
+                          className="flex items-center gap-2 bg-gray-800 hover:bg-black text-white px-4 py-2 rounded-lg text-sm font-medium transition"
+                        >
+                          配置最新消息
+                        </Link>
+                      ) : (
+                        <Link
+                          href={`/admin/homepage/${type}/edit`}
+                          className="flex items-center gap-2 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium transition shadow-sm"
+                        >
+                          <Edit2 size={14} />
+                          配置
+                        </Link>
+                      )}
                     </>
                   ) : (
                     <div className="text-xs text-gray-400 italic">
