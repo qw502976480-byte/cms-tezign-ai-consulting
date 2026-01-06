@@ -74,12 +74,13 @@ export default async function DemoRequestsPage({ searchParams }: { searchParams:
         appointmentsByRequestId.set(app.demo_request_id, list);
       });
 
-      for (const [requestId, apps] of appointmentsByRequestId.entries()) {
-        const scheduledApp = apps.find(a => a.status === 'scheduled');
+      for (const [requestId, apps] of Array.from(appointmentsByRequestId.entries())) {
+        const scheduledApp = apps.find((a: DemoAppointment) => a.status === 'scheduled');
         if (scheduledApp) {
           currentAppointmentMap.set(requestId, scheduledApp);
         } else {
-          const completedApp = apps.find(a => a.status === 'completed'); // Already sorted by created_at desc
+          // Already sorted by created_at desc, so the first completed one is the latest
+          const completedApp = apps.find((a: DemoAppointment) => a.status === 'completed');
           if (completedApp) {
             currentAppointmentMap.set(requestId, completedApp);
           }
