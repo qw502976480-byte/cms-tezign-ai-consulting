@@ -131,6 +131,7 @@ export default async function DemoRequestsPage({ searchParams }: { searchParams:
           <tbody className="divide-y divide-gray-100">
             {filteredRequests.map((req: DemoRequest) => {
               const appointment = currentAppointmentMap.get(req.id);
+              const isAppointmentScheduled = appointment && appointment.status === 'scheduled';
               return (
                 <tr key={req.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 text-gray-500">
@@ -161,7 +162,9 @@ export default async function DemoRequestsPage({ searchParams }: { searchParams:
                   <td className="px-6 py-4">
                     <div className="flex justify-end items-center gap-2">
                         <AppointmentActions appointment={appointment} />
-                        <UpdateRequestStatusButton id={req.id} status={req.status} />
+                        {!isAppointmentScheduled && (
+                          <UpdateRequestStatusButton id={req.id} status={req.status} />
+                        )}
                     </div>
                   </td>
                 </tr>
