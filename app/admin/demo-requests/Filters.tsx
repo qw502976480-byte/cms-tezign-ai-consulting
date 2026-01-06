@@ -1,8 +1,8 @@
 'use client';
 
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
-import { useState, useEffect } from 'react';
-import { ListFilter, Calendar, Clock, ChevronDown, ArrowRight, Search } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { ListFilter, Calendar, Clock, ChevronDown, ArrowRight, Search, Check } from 'lucide-react';
 
 interface SearchParams {
   status?: 'pending' | 'processed' | 'all';
@@ -10,6 +10,79 @@ interface SearchParams {
   start?: string;
   end?: string;
   appointment_status?: 'all' | 'none' | 'scheduled' | 'overdue' | 'completed';
+}
+
+// --- Reusable Custom Dropdown Component ---
+function FilterDropdown({ 
+  icon: Icon, 
+  label,
+  value, 
+  onChange, 
+  options 
+}: { 
+  icon: any, 
+  label: string,
+  value: string, 
+  onChange: (val: string) => void, 
+  options: { label: string, value: string }[] 
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const selectedLabel = options.find(o => o.value === value)?.label || options[0].label;
+
+  return (
+    <div className="relative w-full sm:w-48" ref={containerRef}>
+        <button
+            type="button"
+            onClick={() => setIsOpen(!isOpen)}
+            className={`w-full flex items-center justify-between px-3 py-2.5 bg-white border rounded-lg shadow-sm text-sm transition-all duration-200 group
+                ${isOpen ? 'border-gray-900 ring-1 ring-gray-900' : 'border-gray-200 hover:border-gray-300'}
+            `}
+        >
+            <div className="flex items-center gap-2 truncate">
+                <Icon size={16} className={`flex-shrink-0 transition-colors ${isOpen ? 'text-gray-900' : 'text-gray-500 group-hover:text-gray-700'}`} />
+                <span className="text-gray-500">{label}:</span>
+                <span className="font-medium text-gray-900 truncate">{selectedLabel}</span>
+            </div>
+            <ChevronDown size={14} className={`text-gray-400 transition-transform duration-200 flex-shrink-0 ${isOpen ? 'rotate-180 text-gray-900' : ''}`} />
+        </button>
+
+        {isOpen && (
+            <div className="absolute top-full left-0 mt-1.5 w-full bg-white border border-gray-100 rounded-xl shadow-xl z-50 p-1 animate-in fade-in zoom-in-95 duration-100 origin-top">
+                {options.map((opt) => (
+                    <button
+                        type="button"
+                        key={opt.value}
+                        onClick={() => {
+                            onChange(opt.value);
+                            setIsOpen(false);
+                        }}
+                        className={`w-full flex items-center justify-between px-3 py-2 text-sm rounded-lg transition-colors text-left
+                            ${opt.value === value 
+                                ? 'bg-gray-50 text-gray-900 font-medium' 
+                                : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}
+                        `}
+                    >
+                        <span className="truncate">{opt.label}</span>
+                        {opt.value === value && <Check size={14} className="flex-shrink-0 ml-2" />}
+                    </button>
+                ))}
+            </div>
+        )}
+    </div>
+  )
 }
 
 export default function Filters({ searchParams }: { searchParams: SearchParams }) {
@@ -60,86 +133,52 @@ export default function Filters({ searchParams }: { searchParams: SearchParams }
   const range = searchParams.range || '30d';
   const appointmentStatus = searchParams.appointment_status || 'all';
 
-  // Helper component for styled select
-  const SelectWrapper = ({ 
-    icon: Icon, 
-    value, 
-    onChange, 
-    options 
-  }: { 
-    icon: any, 
-    value: string, 
-    onChange: (val: string) => void, 
-    options: { label: string, value: string }[] 
-  }) => (
-    <div className="relative">
-      <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
-        <Icon size={16} />
-      </div>
-      <select 
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="appearance-none w-full pl-10 pr-10 py-2.5 bg-white border border-gray-200 text-gray-700 text-sm rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent hover:border-gray-300 transition-all cursor-pointer"
-      >
-        {options.map(opt => (
-          <option key={opt.value} value={opt.value}>{opt.label}</option>
-        ))}
-      </select>
-      <div className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
-        <ChevronDown size={14} />
-      </div>
-    </div>
-  );
-
   return (
     <div className="flex flex-col sm:flex-row flex-wrap items-start sm:items-center gap-4 bg-white p-1 rounded-none">
       
       {/* Filters Group */}
-      <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
+      <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto z-10">
         
         {/* Status Filter */}
-        <div className="w-full sm:w-48">
-          <SelectWrapper 
+        <FilterDropdown 
             icon={ListFilter}
+            label="状态"
             value={status}
             onChange={(val) => handleFilterChange('status', val)}
             options={[
-              { label: '状态：全部', value: 'all' },
-              { label: '状态：待处理', value: 'pending' },
-              { label: '状态：已处理', value: 'processed' },
+              { label: '全部', value: 'all' },
+              { label: '待处理', value: 'pending' },
+              { label: '已处理', value: 'processed' },
             ]}
-          />
-        </div>
+        />
 
         {/* Appointment Status Filter */}
-        <div className="w-full sm:w-48">
-           <SelectWrapper 
+        <FilterDropdown 
             icon={Clock}
+            label="预约"
             value={appointmentStatus}
             onChange={(val) => handleFilterChange('appointment_status', val)}
             options={[
-              { label: '预约：全部', value: 'all' },
-              { label: '预约：未安排', value: 'none' },
-              { label: '预约：已安排', value: 'scheduled' },
-              { label: '预约：已逾期', value: 'overdue' },
-              { label: '预约：已完成', value: 'completed' },
+              { label: '全部', value: 'all' },
+              { label: '未安排', value: 'none' },
+              { label: '已安排', value: 'scheduled' },
+              { label: '已逾期', value: 'overdue' },
+              { label: '已完成', value: 'completed' },
             ]}
-          />
-        </div>
+        />
 
         {/* Date Range Filter */}
-        <div className="w-full sm:w-48">
-          <SelectWrapper 
+        <FilterDropdown 
             icon={Calendar}
+            label="时间"
             value={range}
             onChange={(val) => handleFilterChange('range', val)}
             options={[
-              { label: '时间：最近7天', value: '7d' },
-              { label: '时间：最近30天', value: '30d' },
-              { label: '时间：自定义', value: 'custom' },
+              { label: '最近7天', value: '7d' },
+              { label: '最近30天', value: '30d' },
+              { label: '自定义', value: 'custom' },
             ]}
-          />
-        </div>
+        />
       </div>
       
       {/* Custom Date Inputs (Conditional) */}
