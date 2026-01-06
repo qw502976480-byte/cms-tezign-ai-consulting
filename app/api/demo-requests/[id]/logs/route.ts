@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/utils/supabase/server";
+import { createClient } from "@/utils/supabase/server";
 
 export async function GET(
   _req: Request,
@@ -11,7 +11,7 @@ export async function GET(
     return new NextResponse("Missing id", { status: 400 });
   }
 
-  const supabase = createSupabaseServerClient();
+  const supabase = await createClient();
 
   const { data, error } = await supabase
     .from("demo_request_logs")
@@ -22,10 +22,8 @@ export async function GET(
     .order("created_at", { ascending: false });
 
   if (error) {
-    console.error("[logs] supabase error:", error);
-    return new NextResponse(`Failed to load logs: ${error.message}`, {
-      status: 500,
-    });
+    console.error("[demo-request-logs] error:", error);
+    return new NextResponse(error.message, { status: 500 });
   }
 
   return NextResponse.json(data ?? []);
