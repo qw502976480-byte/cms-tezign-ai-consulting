@@ -1,4 +1,5 @@
 
+
 export type ResourceCategory = 'report' | 'announcement' | 'case_study' | 'methodology';
 export type DemoRequestStatus = 'pending' | 'processed';
 export type DemoRequestOutcome = 'completed' | 'cancelled' | null;
@@ -53,6 +54,7 @@ export interface UserProfile {
   
   // Computed/Enriched fields
   has_communicated?: boolean; // Derived from existence of demo_requests
+  last_login_at?: string | null; // From auth.users.last_sign_in_at
 }
 
 // Alias for backward compatibility if needed, but we try to use UserProfile

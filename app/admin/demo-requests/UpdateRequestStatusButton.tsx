@@ -1,9 +1,9 @@
 
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState } from 'react';
 import { DemoRequest, DemoRequestOutcome } from '@/types';
-import { Loader2, ChevronDown, CheckCircle2, XCircle, Minus, Check, Circle } from 'lucide-react';
+import { Loader2, Check, X } from 'lucide-react';
 
 interface Props {
   request: DemoRequest;
@@ -11,118 +11,67 @@ interface Props {
 }
 
 export default function RequestActions({ request, onUpdate }: Props) {
-  const [isOpen, setIsOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
+  // State to track which button is loading, if any
+  const [loadingOutcome, setLoadingOutcome] = useState<DemoRequestOutcome | null>(null);
 
-  // Current value logic
-  const currentOutcome = request.outcome; // 'completed' | 'cancelled' | null
+  const handleSelect = async (targetOutcome: DemoRequestOutcome) => {
+    // Do nothing if already loading or if clicking the currently active state
+    if (loadingOutcome || request.outcome === targetOutcome) return;
 
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  const handleSelect = async (val: string) => {
-    const targetOutcome = val as DemoRequestOutcome;
-    setIsOpen(false);
-    if (targetOutcome === request.outcome) return;
-
-    setLoading(true);
+    setLoadingOutcome(targetOutcome);
     try {
       await onUpdate(request.id, targetOutcome);
     } catch (e) {
       console.error(e);
+      // Optional: Add user feedback for error
     } finally {
-      setLoading(false);
+      setLoadingOutcome(null);
     }
   };
 
-  // Visual Styles based on state (Trigger Button)
-  const getTriggerStyle = () => {
-    if (loading) return 'bg-gray-50 border-gray-200 text-gray-400 cursor-not-allowed';
-    if (isOpen) return 'ring-1 ring-gray-900 border-gray-900 bg-white text-gray-900';
-
-    if (currentOutcome === 'completed') {
-        return 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:border-emerald-300 hover:bg-emerald-100';
-    }
-    if (currentOutcome === 'cancelled') {
-        return 'bg-rose-50 border-rose-200 text-rose-700 hover:border-rose-300 hover:bg-rose-100';
-    }
-    
-    // Default / NULL state
-    return 'bg-white border-gray-200 text-gray-500 hover:border-gray-300 hover:text-gray-900';
-  };
-
-  const getIcon = () => {
-      if (loading) return <Loader2 className="animate-spin" size={14} />;
-      if (currentOutcome === 'completed') return <CheckCircle2 size={14} className="shrink-0" />;
-      if (currentOutcome === 'cancelled') return <XCircle size={14} className="shrink-0" />;
-      return <Circle size={14} className={`shrink-0 ${isOpen ? 'text-gray-900' : 'text-gray-400'}`} />;
-  };
-
-  const getLabel = () => {
-      if (loading) return '处理中...';
-      if (currentOutcome === 'completed') return '已完成';
-      if (currentOutcome === 'cancelled') return '已取消';
-      return '选择结果'; 
-  }
-
-  // Options configuration
-  const options = [
-      { value: 'completed', label: '已完成', icon: CheckCircle2, colorClass: 'text-emerald-600' },
-      { value: 'cancelled', label: '已取消', icon: XCircle, colorClass: 'text-rose-600' },
-  ];
+  const isCompleted = request.outcome === 'completed';
+  const isCancelled = request.outcome === 'cancelled';
+  const isLoading = !!loadingOutcome;
 
   return (
-    <div className="relative inline-block w-[120px]" ref={containerRef}>
-      {/* Trigger Button */}
+    <div className="flex items-center justify-end gap-2">
+      {/* Completed Button */}
       <button
         type="button"
-        disabled={loading}
-        onClick={() => setIsOpen(!isOpen)}
-        className={`flex items-center justify-between w-full px-3 py-1.5 border rounded-md text-xs font-medium transition-all duration-200 ${getTriggerStyle()}`}
+        disabled={isLoading}
+        onClick={() => handleSelect('completed')}
+        className={`flex items-center justify-center gap-1.5 w-[88px] px-3 py-1.5 border rounded-md text-xs font-medium transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed
+          ${isCompleted
+            ? 'bg-emerald-500 border-emerald-500 text-white shadow-sm'
+            : 'bg-white border-gray-200 text-gray-500 hover:border-emerald-400 hover:text-emerald-600'
+          }
+        `}
       >
-         <div className="flex items-center gap-2 truncate">
-            {getIcon()}
-            <span>{getLabel()}</span>
-         </div>
-         <ChevronDown size={12} className={`transition-transform duration-200 ${isOpen ? 'rotate-180' : 'opacity-50'}`} />
+        {loadingOutcome === 'completed' 
+            ? <Loader2 className="animate-spin" size={12} /> 
+            : <Check size={12} />
+        }
+        <span>已完成</span>
       </button>
 
-      {/* Custom Dropdown Panel */}
-      {isOpen && (
-        <div className="absolute right-0 top-full mt-1.5 w-36 bg-white border border-gray-100 rounded-xl shadow-xl z-50 p-1 animate-in fade-in zoom-in-95 duration-100 origin-top-right">
-            {options.map((opt) => {
-                const isSelected = String(currentOutcome) === opt.value;
-                const Icon = opt.icon;
-                return (
-                    <button
-                        key={opt.value}
-                        type="button"
-                        onClick={() => handleSelect(opt.value)}
-                        className={`w-full flex items-center justify-between px-3 py-2 text-xs rounded-lg transition-colors text-left mb-0.5 last:mb-0
-                            ${isSelected 
-                                ? 'bg-gray-50 text-gray-900 font-medium' 
-                                : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}
-                        `}
-                    >
-                        <div className="flex items-center gap-2">
-                            <Icon size={14} className={opt.colorClass} />
-                            <span>{opt.label}</span>
-                        </div>
-                        {isSelected && <Check size={12} className="text-gray-900" />}
-                    </button>
-                );
-            })}
-        </div>
-      )}
+      {/* Cancelled Button */}
+      <button
+        type="button"
+        disabled={isLoading}
+        onClick={() => handleSelect('cancelled')}
+        className={`flex items-center justify-center gap-1.5 w-[88px] px-3 py-1.5 border rounded-md text-xs font-medium transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed
+          ${isCancelled
+            ? 'bg-rose-500 border-rose-500 text-white shadow-sm'
+            : 'bg-white border-gray-200 text-gray-500 hover:border-rose-400 hover:text-rose-600'
+          }
+        `}
+      >
+        {loadingOutcome === 'cancelled' 
+            ? <Loader2 className="animate-spin" size={12} /> 
+            : <X size={12} />
+        }
+        <span>已取消</span>
+      </button>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 
+
 import React from 'react';
-import { createClient } from '@/utils/supabase/server';
+import { createClient, createServiceClient } from '@/utils/supabase/server';
 import RegisteredUsersClientView from './client-view';
 import { subDays, startOfDay, endOfDay } from 'date-fns';
 import { UserProfile } from '@/types';
@@ -13,107 +14,102 @@ interface PageProps {
 
 export default async function RegisteredUsersPage({ searchParams }: PageProps) {
   const supabase = await createClient();
+  const serviceSupabase = createServiceClient(); // For auth.users access
 
-  // 1. Parse Search Params
-  const page = parseInt((searchParams.page as string) || '1');
+  // 1. Parse and Sanitize Search Params
+  const page = parseInt(searchParams.page as string || '1');
   const pageSize = 20;
   const from = (page - 1) * pageSize;
   const to = from + pageSize - 1;
 
   const keyword = (searchParams.q as string) || '';
   const userType = (searchParams.type as string) || 'all';
-  const regionLang = (searchParams.region as string) || 'all';
-  const timeRange = (searchParams.range as string) || 'all';
-  const commStatus = (searchParams.comm as string) || 'all'; // 'communicated' | 'not_communicated' | 'all'
-  const customStart = (searchParams.start as string) || '';
-  const customEnd = (searchParams.end as string) || '';
+  const country = (searchParams.country as string) || '';
+  const city = (searchParams.city as string) || '';
+  const reg_from = (searchParams.reg_from as string) || '';
+  const reg_to = (searchParams.reg_to as string) || '';
+  const login_from = (searchParams.login_from as string) || '';
+  const login_to = (searchParams.login_to as string) || '';
+  const onlineStatus = (searchParams.online as string) || 'all';
+  
+  // 2. Pre-filter: Get user IDs based on communication status (from demo_requests)
+  const { data: demoRequests } = await supabase.from('demo_requests').select('user_id');
+  const communicatedUserIdSet = new Set((demoRequests || []).map(r => r.user_id).filter(Boolean));
+  
+  // 3. Pre-filter: Get auth user IDs based on last login time
+  let loginFilteredAuthIds: string[] | undefined = undefined;
+  if (login_from || login_to) {
+    let authQuery = serviceSupabase.from('users').select('id');
+    if (login_from) authQuery = authQuery.gte('last_sign_in_at', startOfDay(new Date(login_from)).toISOString());
+    if (login_to) authQuery = authQuery.lte('last_sign_in_at', endOfDay(new Date(login_to)).toISOString());
+    
+    const { data: authUsers, error: authErr } = await authQuery;
+    if (authErr) console.error("Auth user query failed:", authErr);
+    loginFilteredAuthIds = (authUsers || []).map(u => u.id);
+  }
 
-  // 2. Determine Communication Status (Rule: has at least one demo_request)
-  // Fetch distinct user_ids from demo_requests
-  let communicatedUserIds: string[] = [];
-  const { data: demoRequests } = await supabase
-    .from('demo_requests')
-    .select('user_id'); // We just need existence
+  // 4. Build Main Query against `user_profiles`
+  let query = supabase.from('user_profiles').select('*, auth_user_id', { count: 'exact' });
 
-  // Safe mapping and filtering with type assertion
-  const demoRequestsData = demoRequests as { user_id: string }[] | null;
-  const communicatedUserIdSet = new Set((demoRequestsData || []).map(r => r.user_id).filter(Boolean));
-  communicatedUserIds = Array.from(communicatedUserIdSet);
-
-  // 3. Build Main Query against `user_profiles`
-  let query = supabase
-    .from('user_profiles')
-    .select('*', { count: 'exact' });
-
-  // Filter: Keyword
   if (keyword) {
     const pattern = `%${keyword}%`;
-    query = query.or(`name.ilike.${pattern},email.ilike.${pattern},phone.ilike.${pattern},company_name.ilike.${pattern}`);
+    query = query.or(`name.ilike.${pattern},email.ilike.${pattern},phone.ilike.${pattern},company_name.ilike.${pattern},title.ilike.${pattern}`);
+  }
+  if (userType !== 'all') query = query.eq('user_type', userType);
+  if (country) query = query.ilike('country', `%${country}%`);
+  if (city) query = query.ilike('city', `%${city}%`);
+  if (reg_from) query = query.gte('created_at', startOfDay(new Date(reg_from)).toISOString());
+  if (reg_to) query = query.lte('created_at', endOfDay(new Date(reg_to)).toISOString());
+
+  // Apply pre-filtered login IDs
+  if (loginFilteredAuthIds) {
+    if (loginFilteredAuthIds.length > 0) {
+      query = query.in('auth_user_id', loginFilteredAuthIds);
+    } else {
+      query = query.eq('id', '00000000-0000-0000-0000-000000000000'); // No matches
+    }
   }
 
-  // Filter: User Type
-  if (userType !== 'all') {
-    query = query.eq('user_type', userType);
-  }
-
-  // Filter: Region/Location
-  if (regionLang !== 'all') {
-    query = query.or(`country.eq.${regionLang},city.eq.${regionLang},region.eq.${regionLang}`);
-  }
-
-  // Filter: Time Range
-  const now = new Date();
-  if (timeRange === '7d') {
-    query = query.gte('created_at', subDays(now, 7).toISOString());
-  } else if (timeRange === '30d') {
-    query = query.gte('created_at', subDays(now, 30).toISOString());
-  } else if (timeRange === 'custom' && customStart && customEnd) {
-    query = query
-      .gte('created_at', startOfDay(new Date(customStart)).toISOString())
-      .lte('created_at', endOfDay(new Date(customEnd)).toISOString());
-  }
-
-  // Filter: Communication Status
-  if (commStatus === 'communicated') {
+  // Apply communication status filter
+  if (onlineStatus === 'yes') {
+    const communicatedUserIds = Array.from(communicatedUserIdSet);
     if (communicatedUserIds.length > 0) {
       query = query.in('id', communicatedUserIds);
     } else {
       query = query.eq('id', '00000000-0000-0000-0000-000000000000'); // No matches
     }
-  } else if (commStatus === 'not_communicated') {
+  } else if (onlineStatus === 'no') {
+    const communicatedUserIds = Array.from(communicatedUserIdSet);
     if (communicatedUserIds.length > 0) {
-        // Safe check for empty array to avoid syntax error in supabase query
-        const idsString = `(${communicatedUserIds.map(id => `"${id}"`).join(',')})`;
-        query = query.not('id', 'in', idsString);
+      const idsString = `(${communicatedUserIds.map(id => `"${id}"`).join(',')})`;
+      query = query.not('id', 'in', idsString);
     }
   }
 
-  // 4. Execute Query
+  // 5. Execute Query
   const { data: rawUsers, count, error } = await query
     .order('created_at', { ascending: false })
     .range(from, to);
 
-  // 5. Post-process: Enrich data
+  // 6. Enrich with `last_login_at` for display
+  const authUserIds = (rawUsers || []).map(u => u.auth_user_id).filter(Boolean);
+  const lastLoginMap = new Map<string, string>();
+  if (authUserIds.length > 0) {
+    const { data: authUsersData } = await serviceSupabase
+      .from('users')
+      .select('id, last_sign_in_at')
+      .in('id', authUserIds);
+    if (authUsersData) {
+      authUsersData.forEach(u => lastLoginMap.set(u.id, u.last_sign_in_at));
+    }
+  }
+  
   const users: UserProfile[] = (rawUsers || []).map((u: any) => ({
     ...u,
-    has_communicated: communicatedUserIdSet.has(u.id)
+    has_communicated: communicatedUserIdSet.has(u.id),
+    last_login_at: u.auth_user_id ? lastLoginMap.get(u.auth_user_id) : null,
   }));
-
-  // 6. Fetch Distinct Countries/Cities for Filter
-  // Simple approximation: fetch latest 1000 and extract distinct countries
-  const { data: locationData } = await supabase
-    .from('user_profiles')
-    .select('country, city')
-    .order('created_at', { ascending: false })
-    .limit(1000);
-    
-  const locations = new Set<string>();
-  (locationData || []).forEach((row: any) => {
-      if (row.country) locations.add(row.country);
-      if (row.city) locations.add(row.city);
-  });
-  const uniqueLocations = Array.from(locations).sort();
-
+  
   if (error) {
     console.error('Supabase Error (user_profiles):', error.message);
   }
@@ -122,17 +118,7 @@ export default async function RegisteredUsersPage({ searchParams }: PageProps) {
     <RegisteredUsersClientView
       initialUsers={users}
       totalCount={count || 0}
-      availableRegions={uniqueLocations}
-      searchParams={{
-        q: keyword,
-        type: userType,
-        comm: commStatus,
-        region: regionLang,
-        range: timeRange,
-        start: customStart,
-        end: customEnd,
-        page,
-      }}
+      searchParams={{ ...searchParams, page }}
       error={error ? `加载失败: ${error.message}` : null}
     />
   );

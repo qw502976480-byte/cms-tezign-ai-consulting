@@ -148,9 +148,9 @@ export default function RequestListClient({ initialItems }: Props) {
                     />
                   </td>
                   <td className="px-6 py-4 align-top">
-                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${statusBadge.className}`}>
+                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border whitespace-nowrap ${statusBadge.className}`}>
                       <statusBadge.icon size={12} className="shrink-0" />
-                      {statusBadge.text}
+                      <span>{statusBadge.text}</span>
                     </span>
                   </td>
                   <td className="px-6 py-4 align-top">
