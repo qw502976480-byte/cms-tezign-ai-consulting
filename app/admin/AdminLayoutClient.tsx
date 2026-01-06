@@ -36,7 +36,7 @@ export default function AdminLayoutClient({ children }: { children: React.ReactN
       <aside className="w-64 bg-white border-r border-gray-200 fixed h-full z-10 hidden md:flex flex-col">
         <div className="p-6 border-b border-gray-100">
           <div className="flex flex-col">
-            <span className="font-bold text-xl text-gray-900 tracking-tight">CMS</span>
+            <span className="font-bold text-xl text-gray-900 tracking-tight">Web Platform</span>
             <span className="text-sm text-gray-500 font-medium">Tezign AI Consulting</span>
           </div>
         </div>

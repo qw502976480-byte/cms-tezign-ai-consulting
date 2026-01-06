@@ -4,12 +4,12 @@ import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { DemoRequest, DemoAppointment, DemoRequestStatus, DemoRequestOutcome } from '@/types';
 import { format } from 'date-fns';
-import { PieChart, CheckCircle2, Circle, XCircle, Phone } from 'lucide-react';
 import AppointmentCell from './AppointmentCell';
 import Countdown from './Countdown';
 import RequestActions from './UpdateRequestStatusButton';
 import ContactCell from './ContactCell';
 import RequestDetailDialog from './RequestDetailDialog';
+import StatsOverview from './StatsOverview';
 
 interface CombinedItem {
   request: DemoRequest;
@@ -91,16 +91,6 @@ export default function RequestListClient({ initialItems }: Props) {
     });
   }, [items]);
 
-  // --- Stats Calculation ---
-  const stats = useMemo(() => {
-    const total = items.length;
-    const pending = items.filter(i => i.request.status === 'pending').length;
-    const processed = items.filter(i => i.request.status === 'processed').length;
-    const completed = items.filter(i => i.request.outcome === 'completed').length;
-    const cancelled = items.filter(i => i.request.outcome === 'cancelled').length;
-    return { total, pending, processed, completed, cancelled };
-  }, [items]);
-
   const getStatusBadge = (status: DemoRequestStatus) => {
     if (status === 'pending') {
         return { text: '待处理', className: 'bg-yellow-100 text-yellow-800 border-yellow-200' };
@@ -110,51 +100,8 @@ export default function RequestListClient({ initialItems }: Props) {
 
   return (
     <div className="space-y-6">
-      {/* Stats Bar */}
-      <div className="flex flex-col md:flex-row gap-6 bg-white border border-gray-200 px-5 py-4 rounded-xl shadow-sm text-sm">
-        <div className="flex items-center gap-4">
-           <div className="flex items-center gap-2 font-semibold text-gray-900">
-               <PieChart size={16} />
-               当前筛选
-           </div>
-           <div className="h-4 w-px bg-gray-200"></div>
-           <div className="flex items-center gap-2">
-                <Circle size={10} className="fill-yellow-400 text-yellow-400" />
-                <span className="text-gray-600">待处理</span>
-                <span className="font-medium text-gray-900">{stats.pending}</span>
-           </div>
-           <div className="flex items-center gap-2">
-                <CheckCircle2 size={12} className="text-gray-400" />
-                <span className="text-gray-600">已处理</span>
-                <span className="font-medium text-gray-900">{stats.processed}</span>
-           </div>
-           <div className="h-4 w-px bg-gray-200"></div>
-           <div className="text-gray-500">
-                共 {stats.total} 条
-           </div>
-        </div>
-        
-        <div className="h-px w-full bg-gray-100 md:hidden"></div>
-        <div className="hidden md:block h-auto w-px bg-gray-200"></div>
-
-        <div className="flex items-center gap-4">
-           <div className="flex items-center gap-2 font-semibold text-gray-900">
-               <Phone size={16} />
-               沟通结果
-           </div>
-           <div className="h-4 w-px bg-gray-200"></div>
-           <div className="flex items-center gap-2">
-                <CheckCircle2 size={12} className="text-green-600" />
-                <span className="text-gray-600">已完成</span>
-                <span className="font-medium text-gray-900">{stats.completed}</span>
-           </div>
-           <div className="flex items-center gap-2">
-                <XCircle size={12} className="text-gray-400" />
-                <span className="text-gray-600">已取消</span>
-                <span className="font-medium text-gray-900">{stats.cancelled}</span>
-           </div>
-        </div>
-      </div>
+      {/* New Global Stats Overview */}
+      <StatsOverview />
 
       {/* Table */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden min-h-[400px]">
