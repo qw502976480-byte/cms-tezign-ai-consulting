@@ -1,8 +1,9 @@
+
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
 import { DemoRequest, DemoRequestOutcome } from '@/types';
-import { Loader2, ChevronDown, CheckCircle2, XCircle, Minus, Check } from 'lucide-react';
+import { Loader2, ChevronDown, CheckCircle2, XCircle, Minus, Check, Circle } from 'lucide-react';
 
 interface Props {
   request: DemoRequest;
@@ -29,14 +30,8 @@ export default function RequestActions({ request, onUpdate }: Props) {
   }, []);
 
   const handleSelect = async (val: string) => {
-    // Convert string value back to DemoRequestOutcome
-    // We only accept 'completed' or 'cancelled' here based on options
     const targetOutcome = val as DemoRequestOutcome;
-    
-    // Close dropdown immediately
     setIsOpen(false);
-
-    // Prevent redundant updates
     if (targetOutcome === request.outcome) return;
 
     setLoading(true);
@@ -44,7 +39,6 @@ export default function RequestActions({ request, onUpdate }: Props) {
       await onUpdate(request.id, targetOutcome);
     } catch (e) {
       console.error(e);
-      // Error handling is done in parent
     } finally {
       setLoading(false);
     }
@@ -53,34 +47,37 @@ export default function RequestActions({ request, onUpdate }: Props) {
   // Visual Styles based on state (Trigger Button)
   const getTriggerStyle = () => {
     if (loading) return 'bg-gray-50 border-gray-200 text-gray-400 cursor-not-allowed';
-    
     if (isOpen) return 'ring-1 ring-gray-900 border-gray-900 bg-white text-gray-900';
 
-    if (currentOutcome === 'completed') return 'bg-green-50 border-green-200 text-green-700 hover:border-green-300';
-    if (currentOutcome === 'cancelled') return 'bg-gray-100 border-gray-200 text-gray-500 hover:border-gray-300';
+    if (currentOutcome === 'completed') {
+        return 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:border-emerald-300 hover:bg-emerald-100';
+    }
+    if (currentOutcome === 'cancelled') {
+        return 'bg-rose-50 border-rose-200 text-rose-700 hover:border-rose-300 hover:bg-rose-100';
+    }
     
     // Default / NULL state
-    return 'bg-white border-gray-300 text-gray-500 hover:border-gray-400 hover:text-gray-900';
+    return 'bg-white border-gray-200 text-gray-500 hover:border-gray-300 hover:text-gray-900';
   };
 
   const getIcon = () => {
       if (loading) return <Loader2 className="animate-spin" size={14} />;
-      if (currentOutcome === 'completed') return <CheckCircle2 size={14} />;
-      if (currentOutcome === 'cancelled') return <XCircle size={14} />;
-      return <Minus size={14} className={isOpen ? 'text-gray-900' : 'text-gray-400'} />;
+      if (currentOutcome === 'completed') return <CheckCircle2 size={14} className="shrink-0" />;
+      if (currentOutcome === 'cancelled') return <XCircle size={14} className="shrink-0" />;
+      return <Circle size={14} className={`shrink-0 ${isOpen ? 'text-gray-900' : 'text-gray-400'}`} />;
   };
 
   const getLabel = () => {
       if (loading) return '处理中...';
       if (currentOutcome === 'completed') return '已完成';
       if (currentOutcome === 'cancelled') return '已取消';
-      return '选择结果'; // When NULL
+      return '选择结果'; 
   }
 
-  // Options configuration - ONLY TWO OPTIONS allowed
+  // Options configuration
   const options = [
-      { value: 'completed', label: '已完成', icon: CheckCircle2, colorClass: 'text-green-600' },
-      { value: 'cancelled', label: '已取消', icon: XCircle, colorClass: 'text-gray-500' },
+      { value: 'completed', label: '已完成', icon: CheckCircle2, colorClass: 'text-emerald-600' },
+      { value: 'cancelled', label: '已取消', icon: XCircle, colorClass: 'text-rose-600' },
   ];
 
   return (
@@ -117,7 +114,7 @@ export default function RequestActions({ request, onUpdate }: Props) {
                         `}
                     >
                         <div className="flex items-center gap-2">
-                            <Icon size={14} className={isSelected ? opt.colorClass : 'text-gray-400'} />
+                            <Icon size={14} className={opt.colorClass} />
                             <span>{opt.label}</span>
                         </div>
                         {isSelected && <Check size={12} className="text-gray-900" />}

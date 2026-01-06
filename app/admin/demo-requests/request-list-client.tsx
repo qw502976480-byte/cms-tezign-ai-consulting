@@ -13,6 +13,7 @@ import RequestDetailDialog from './RequestDetailDialog';
 import StatsOverview from './StatsOverview';
 // Import User Detail Modal from registered-users
 import UserDetailModal from '../registered-users/UserDetailModal';
+import { Clock, CheckCircle2, CircleDashed } from 'lucide-react';
 
 interface CombinedItem {
   request: DemoRequest;
@@ -79,9 +80,17 @@ export default function RequestListClient({ initialItems }: Props) {
 
   const getStatusBadge = (status: DemoRequestStatus) => {
     if (status === 'pending') {
-        return { text: '待处理', className: 'bg-yellow-100 text-yellow-800 border-yellow-200' };
+        return { 
+          text: '待处理', 
+          icon: CircleDashed,
+          className: 'bg-amber-50 text-amber-700 border-amber-200' 
+        };
     }
-    return { text: '已处理', className: 'bg-green-100 text-green-800 border-green-200' };
+    return { 
+      text: '已处理', 
+      icon: CheckCircle2,
+      className: 'bg-indigo-50 text-indigo-700 border-indigo-200' 
+    };
   };
 
   return (
@@ -94,7 +103,7 @@ export default function RequestListClient({ initialItems }: Props) {
             <tr>
               <th className="px-6 py-4 w-[200px]">申请时间/公司</th>
               <th className="px-6 py-4 w-[240px]">联系人 (UserProfile)</th>
-              <th className="px-6 py-4 w-[100px]">状态</th>
+              <th className="px-6 py-4 w-[120px]">状态</th>
               <th className="px-6 py-4 w-[180px]">预约时间</th>
               <th className="px-6 py-4 w-[150px]">倒计时</th>
               <th className="px-6 py-4 text-right">沟通结果</th>
@@ -139,7 +148,8 @@ export default function RequestListClient({ initialItems }: Props) {
                     />
                   </td>
                   <td className="px-6 py-4 align-top">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${statusBadge.className}`}>
+                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${statusBadge.className}`}>
+                      <statusBadge.icon size={12} className="shrink-0" />
                       {statusBadge.text}
                     </span>
                   </td>
