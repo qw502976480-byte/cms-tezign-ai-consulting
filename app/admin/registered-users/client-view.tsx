@@ -87,7 +87,7 @@ export default function RegisteredUsersClientView({
     return (
         <div className="space-y-6">
             <div className="flex justify-between items-end">
-                <h1 className="text-2xl font-bold text-gray-900">用户管理 (User Profiles)</h1>
+                <h1 className="text-2xl font-bold text-gray-900">注册用户 (User Profiles)</h1>
                 <div className="text-sm text-gray-500">共 {totalCount} 位用户</div>
             </div>
 
@@ -206,11 +206,11 @@ export default function RegisteredUsersClientView({
                                 </td>
                                 <td className="px-6 py-4 align-top">
                                     {user.has_communicated ? (
-                                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-green-50 text-green-700 border border-green-200">
+                                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-green-50 text-green-700 border border-green-200 whitespace-nowrap">
                                             <MessageSquare size={12} /> 已发生
                                         </span>
                                     ) : (
-                                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-500 border border-gray-200">
+                                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-500 border border-gray-200 whitespace-nowrap">
                                             <Monitor size={12} /> 未发生
                                         </span>
                                     )}

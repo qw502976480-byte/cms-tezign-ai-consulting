@@ -110,7 +110,7 @@ export default async function DemoRequestsPage({ searchParams }: { searchParams:
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-end">
-          <h1 className="text-2xl font-bold text-gray-900">演示申请</h1>
+          <h1 className="text-2xl font-bold text-gray-900">演示申请 (Demo Requests)</h1>
       </div>
       
       {reqError && (

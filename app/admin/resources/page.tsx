@@ -54,7 +54,7 @@ export default async function ResourcesListPage() {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">资源管理 (Resources)</h1>
+          <h1 className="text-2xl font-bold text-gray-900">内容资源 (Resources)</h1>
           <p className="text-sm text-gray-500 mt-1">Single source of truth for all content.</p>
         </div>
         <Link 

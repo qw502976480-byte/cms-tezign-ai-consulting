@@ -59,7 +59,7 @@ const ResourceListItem: React.FC<ResourceListItemProps> = ({ item }) => (
     </div>
     <div className="flex items-center gap-4">
       {item.status !== 'unknown' && (
-         <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${
+         <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border whitespace-nowrap ${
             item.status === 'published' 
               ? 'bg-green-50 text-green-700 border-green-200' 
               : 'bg-gray-50 text-gray-600 border-gray-200'
@@ -82,10 +82,10 @@ export default async function HomepageSlotsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">运营位 (Operational Slots)</h1>
+        <h1 className="text-2xl font-bold text-gray-900">首页配置 (Homepage)</h1>
         <p className="text-sm text-gray-500 mt-1">
           此页面仅用于展示「最新动态」模块的当前配置。如需修改，请前往
-          <Link href="/admin/resources" className="text-gray-900 font-medium underline hover:text-black">资源管理</Link>
+          <Link href="/admin/resources" className="text-gray-900 font-medium underline hover:text-black">内容资源</Link>
           进行操作。
         </p>
       </div>

@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { useState, useMemo } from 'react';
@@ -103,7 +104,7 @@ export default function RequestListClient({ initialItems }: Props) {
               <th className="px-6 py-4 w-[120px]">状态</th>
               <th className="px-6 py-4 w-[180px]">预约时间</th>
               <th className="px-6 py-4 w-[150px]">倒计时</th>
-              <th className="px-6 py-4 text-right">沟通结果</th>
+              <th className="px-6 py-4">沟通结果</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -155,7 +156,7 @@ export default function RequestListClient({ initialItems }: Props) {
                   <td className="px-6 py-4 align-top">
                      <Countdown appointment={appointment} />
                   </td>
-                  <td className="px-6 py-4 text-right align-top">
+                  <td className="px-6 py-4 align-top">
                     <RequestActions 
                       request={req} 
                       onUpdate={handleUpdate} 

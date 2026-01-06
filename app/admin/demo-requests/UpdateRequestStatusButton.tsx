@@ -71,7 +71,7 @@ export default function RequestActions({ request, onUpdate }: Props) {
   const CurrentIcon = currentOutcome.icon;
 
   return (
-    <div className="relative w-32 text-right flex justify-end" ref={dropdownRef}>
+    <div className="relative w-32" ref={dropdownRef}>
       {isLoading ? (
         <div className="flex items-center justify-center px-3 py-1.5 text-gray-500 h-[30px]">
           <Loader2 className="animate-spin" size={16} />
@@ -93,7 +93,7 @@ export default function RequestActions({ request, onUpdate }: Props) {
 
           {/* Dropdown Menu */}
           {isOpen && (
-            <div className="absolute top-full right-0 mt-1 w-36 bg-white border border-gray-100 rounded-xl shadow-lg z-10 p-1 animate-in fade-in zoom-in-95 origin-top-right">
+            <div className="absolute top-full left-0 mt-1 w-36 bg-white border border-gray-100 rounded-xl shadow-lg z-10 p-1 animate-in fade-in zoom-in-95 origin-top">
               <button
                 onClick={() => handleSelect('completed')}
                 className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-emerald-50 hover:text-emerald-800 rounded-md transition-colors"
