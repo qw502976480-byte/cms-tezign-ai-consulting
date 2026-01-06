@@ -41,8 +41,13 @@ async function getLatestNewsData(): Promise<{ carouselItems: Resource[], fixedIt
     // 4. Map resources and re-order them to match the exact order from the CMS config
     const resourceMap = new Map(resources.map(r => [r.id, r as Resource]));
     
-    const orderedCarouselItems = carouselIds.map(id => resourceMap.get(id)).filter(Boolean) as Resource[];
-    const orderedFixedItems = fixedIds.map(id => resourceMap.get(id)).filter(Boolean) as Resource[];
+    const orderedCarouselItems = (carouselIds as string[])
+      .map((id: string) => resourceMap.get(id))
+      .filter((x): x is Resource => Boolean(x));
+
+    const orderedFixedItems = (fixedIds as string[])
+      .map((id: string) => resourceMap.get(id))
+      .filter((x): x is Resource => Boolean(x));
 
     return { carouselItems: orderedCarouselItems, fixedItems: orderedFixedItems };
 
