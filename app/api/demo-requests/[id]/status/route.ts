@@ -1,6 +1,6 @@
 import { createServiceClient } from '@/utils/supabase/server';
 import { NextRequest, NextResponse } from 'next/server';
-import { DemoRequestStatus } from '@/types';
+import { DemoRequestStatus, DemoRequestOutcome } from '@/types';
 
 export const runtime = 'nodejs';
 
@@ -17,18 +17,28 @@ export async function PATCH(
 
   try {
     const body = await request.json();
-    const { status } = body;
+    const { status, outcome } = body;
 
     // Validate status against valid DB values
     if (!status || !['pending', 'processed'].includes(status)) {
       return NextResponse.json({ error: 'Invalid status provided. Must be pending or processed.' }, { status: 400 });
     }
 
-    const payload: { status: DemoRequestStatus; processed_at?: string } = {
+    // Validate outcome if provided
+    if (outcome && !['completed', 'cancelled'].includes(outcome)) {
+       return NextResponse.json({ error: 'Invalid outcome provided.' }, { status: 400 });
+    }
+
+    const payload: { status: DemoRequestStatus; outcome?: DemoRequestOutcome; processed_at?: string } = {
       status: status as DemoRequestStatus,
       // Only set processed_at if status is processed
       processed_at: status === 'processed' ? new Date().toISOString() : undefined,
     };
+
+    // Add outcome to payload if it exists in the request
+    if (outcome) {
+        payload.outcome = outcome as DemoRequestOutcome;
+    }
 
     const { error } = await supabase
       .from('demo_requests')

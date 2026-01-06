@@ -2,8 +2,8 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { DemoRequest, DemoRequestStatus } from '@/types';
-import { Loader2 } from 'lucide-react';
+import { DemoRequest, DemoRequestStatus, DemoRequestOutcome } from '@/types';
+import { Loader2, Check, X } from 'lucide-react';
 
 interface Props {
   request: DemoRequest;
@@ -13,15 +13,13 @@ export default function RequestActions({ request }: Props) {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
-  // If status is not pending, we usually hide buttons. 
-  // However, since we might want to revert 'processed' to 'pending' via Cancel, 
-  // we could theoretically show Cancel here. 
-  // But based on current requirements, we focus on the pending state.
-  if (request.status !== 'pending') {
-    return <span className="text-gray-500">—</span>;
-  }
+  // Determine if we should show buttons or the outcome state
+  // If an outcome is set, we show that instead of buttons
+  const isCompleted = request.outcome === 'completed';
+  const isCancelled = request.outcome === 'cancelled';
+  const hasOutcome = isCompleted || isCancelled;
 
-  const handleUpdate = async (newStatus: DemoRequestStatus) => {
+  const handleUpdate = async (status: DemoRequestStatus, outcome: DemoRequestOutcome) => {
     setLoading(true);
     try {
       const response = await fetch(`/api/demo-requests/${request.id}/status`, {
@@ -29,7 +27,7 @@ export default function RequestActions({ request }: Props) {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ status: newStatus }),
+        body: JSON.stringify({ status, outcome }),
       });
 
       if (!response.ok) {
@@ -41,7 +39,6 @@ export default function RequestActions({ request }: Props) {
           const json = JSON.parse(errorText);
           if (json.error) errorMessage = json.error;
         } catch (e) {
-          // If not JSON, use the text
           if (errorText) errorMessage = errorText;
         }
         
@@ -57,32 +54,41 @@ export default function RequestActions({ request }: Props) {
     }
   };
 
-  return (
-    <div className="flex items-center justify-end gap-2">
-      {loading ? (
-        <div className="flex justify-center items-center h-[30px] w-[116px]">
+  if (loading) {
+     return (
+        <div className="flex justify-end items-center h-[30px] w-full">
           <Loader2 className="animate-spin text-gray-500" size={16} />
         </div>
-      ) : (
-        <>
-          <button
-            onClick={() => handleUpdate('pending')}
-            title="标记为未处理 (Cancel)"
-            aria-label="标记为未处理"
-            className="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
-          >
-            取消
-          </button>
-          <button
-            onClick={() => handleUpdate('processed')}
-            title="标记为已处理 (Complete)"
-            aria-label="标记为已处理"
-            className="px-3 py-1.5 text-xs font-medium text-white bg-gray-900 border border-gray-900 rounded-md hover:bg-black transition-colors"
-          >
-            完成
-          </button>
-        </>
-      )}
+     );
+  }
+
+  // If already has an outcome, display it
+  if (hasOutcome) {
+      if (isCompleted) {
+          return <span className="flex items-center justify-end gap-1 text-xs font-medium text-green-700"><Check size={12}/> 已完成</span>;
+      }
+      if (isCancelled) {
+          return <span className="flex items-center justify-end gap-1 text-xs font-medium text-gray-400"><X size={12}/> 已取消</span>;
+      }
+  }
+
+  // Default actions for items without an outcome (usually Pending, but could be Processed without outcome)
+  return (
+    <div className="flex items-center justify-end gap-2">
+      <button
+        onClick={() => handleUpdate('pending', 'cancelled')}
+        title="标记为取消 (未发生沟通)"
+        className="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+      >
+        取消
+      </button>
+      <button
+        onClick={() => handleUpdate('processed', 'completed')}
+        title="标记为完成 (已发生沟通)"
+        className="px-3 py-1.5 text-xs font-medium text-white bg-gray-900 border border-gray-900 rounded-md hover:bg-black transition-colors"
+      >
+        完成
+      </button>
     </div>
   );
 }
