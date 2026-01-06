@@ -25,7 +25,7 @@ export default function AdminLayoutClient({ children }: { children: React.ReactN
   const navItems = [
     { label: '概览仪表盘', href: '/admin', icon: LayoutDashboard },
     { label: '资源管理', href: '/admin/resources', icon: FileText },
-    { label: '首页模块', href: '/admin/homepage', icon: LayoutTemplate },
+    { label: '运营位', href: '/admin/homepage', icon: LayoutTemplate },
     { label: '注册用户', href: '/admin/registrations', icon: Users },
     { label: '演示申请', href: '/admin/demo-requests', icon: Calendar },
   ];
