@@ -7,6 +7,36 @@ import { Loader2, ArrowLeft, Save, Globe, Layout, FileText, RefreshCw, Calendar 
 import { Resource } from '@/types';
 import Link from 'next/link';
 
+/**
+ * Reusable function to update a homepage module's content IDs.
+ * It handles upserting, deduplication, and ensures required fields are set.
+ * @param supabase The Supabase client instance.
+ * @param type The type of the module to update (e.g., 'latest_updates_carousel').
+ * @param ids The full array of resource IDs for the module.
+ */
+async function updateHomepageModuleIds(
+  supabase: ReturnType<typeof createClient>,
+  type: string,
+  ids: string[]
+) {
+  // Ensure IDs are unique
+  const uniqueIds = Array.from(new Set(ids));
+  
+  const { error } = await supabase
+    .from('homepage_modules')
+    .upsert({
+      type: type,
+      content_item_ids: uniqueIds,
+      status: 'draft', // Always write status, default to 'draft'
+    }, { onConflict: 'type' });
+
+  if (error) {
+    console.error(`Error updating homepage module ${type}:`, error);
+    throw error;
+  }
+}
+
+
 interface ResourceFormProps {
   initialData?: Resource;
 }
@@ -172,29 +202,25 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
         const carouselIds = new Set(carouselModule?.content_item_ids || []);
         const fixedIds = new Set(fixedModule?.content_item_ids || []);
 
-        // Update carousel set
+        // Update carousel set based on the current resource's flag
         if (homepageFlags.carousel) {
           carouselIds.add(resourceId);
         } else {
           carouselIds.delete(resourceId);
         }
 
-        // Update fixed list set
+        // Update fixed list set based on the current resource's flag
         if (homepageFlags.sidebar) {
           fixedIds.add(resourceId);
         } else {
           fixedIds.delete(resourceId);
         }
-
-        // Upsert both modules
-        const { error: upsertError } = await supabase
-          .from('homepage_modules')
-          .upsert([
-            { type: 'latest_updates_carousel', content_item_ids: Array.from(carouselIds) },
-            { type: 'latest_updates_fixed', content_item_ids: Array.from(fixedIds) }
-          ], { onConflict: 'type' });
         
-        if (upsertError) throw upsertError;
+        // Use the new reusable function to save the updated lists
+        // FIX: Cast array from Set to string[] to satisfy the function's type requirement.
+        // Supabase data can be inferred as `any` or `unknown`, so an explicit cast is needed.
+        await updateHomepageModuleIds(supabase, 'latest_updates_carousel', Array.from(carouselIds) as string[]);
+        await updateHomepageModuleIds(supabase, 'latest_updates_fixed', Array.from(fixedIds) as string[]);
       }
 
       router.push('/admin/resources');

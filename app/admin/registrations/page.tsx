@@ -1,10 +1,12 @@
 import { createClient } from '@/utils/supabase/server';
+import { Registration } from '@/types';
 
 export const dynamic = 'force-dynamic';
 
 export default async function RegistrationsPage() {
   const supabase = await createClient();
-  const { data: regs } = await supabase.from('registrations').select('*').order('created_at', { ascending: false });
+  const { data: regsData } = await supabase.from('registrations').select('*').order('created_at', { ascending: false });
+  const regs = regsData as Registration[] | null;
 
   return (
     <div className="space-y-6">
@@ -21,7 +23,7 @@ export default async function RegistrationsPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {regs?.map((reg: any) => (
+            {regs?.map((reg) => (
               <tr key={reg.id} className="hover:bg-gray-50">
                 <td className="px-6 py-4 font-medium text-gray-900">{reg.name}</td>
                 <td className="px-6 py-4 text-gray-500">{reg.email}</td>

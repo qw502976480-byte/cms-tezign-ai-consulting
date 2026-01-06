@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { createClient } from '@/utils/supabase/server';
+import { Resource } from '@/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,6 +23,8 @@ export default async function LibraryPage() {
     );
   }
 
+  const typedResources = resources as Partial<Resource>[] | null;
+
   return (
     <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto">
@@ -33,7 +36,7 @@ export default async function LibraryPage() {
         </div>
 
         <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-          {resources?.map((item: any) => (
+          {typedResources?.map((item) => (
             <Link 
               key={item.id} 
               href={`/library/${item.slug}`}

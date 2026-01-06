@@ -1,10 +1,11 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { createClient } from '@/utils/supabase/client';
+import { DemoRequest } from '@/types';
 
 export default function DemoRequestsPage() {
   const supabase = createClient();
-  const [requests, setRequests] = useState<any[]>([]);
+  const [requests, setRequests] = useState<DemoRequest[]>([]);
 
   useEffect(() => {
     loadRequests();
@@ -12,7 +13,7 @@ export default function DemoRequestsPage() {
 
   const loadRequests = async () => {
     const { data } = await supabase.from('demo_requests').select('*').order('created_at', { ascending: false });
-    setRequests(data || []);
+    setRequests(data as DemoRequest[] || []);
   };
 
   const updateStatus = async (id: string, status: string) => {

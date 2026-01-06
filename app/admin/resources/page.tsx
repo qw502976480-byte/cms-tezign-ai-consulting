@@ -31,7 +31,7 @@ export default async function ResourcesListPage() {
       .in('type', ['latest_updates_carousel', 'latest_updates_fixed'])
   ]);
 
-  const resources = resourcesResult.data;
+  const resources = resourcesResult.data as ResourceRow[] | null;
   const error = resourcesResult.error || modulesResult.error;
 
   if (error) {
@@ -78,8 +78,7 @@ export default async function ResourcesListPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {resources?.map((item: any) => {
-              const resource = item as ResourceRow;
+            {resources?.map((resource) => {
               const isPublished = resource.status === 'published';
               const isFeatured = featuredIds.has(resource.id);
               const isFixed = fixedIds.has(resource.id);

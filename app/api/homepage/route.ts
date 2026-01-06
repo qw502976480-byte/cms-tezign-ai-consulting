@@ -1,6 +1,6 @@
 import { createClient } from '@/utils/supabase/server';
 import { NextResponse } from 'next/server';
-import { HomepageModuleType, HomepageLatestNewsConfig } from '@/types';
+import { HomepageModuleType, HomepageLatestNewsConfig, Resource } from '@/types';
 
 export const runtime = 'nodejs';
 
@@ -28,15 +28,16 @@ export async function GET() {
   }
   
   // 3. Fetch associated resources
-  let resourceMap = new Map();
+  let resourceMap = new Map<string, Resource>();
   if (allResourceIds.length > 0) {
     const { data: resources, error: resourceError } = await supabase
         .from('resources')
-        .select('id, title, slug, category, summary')
-        .in('id', allResourceIds);
+        .select('id, title, slug, category, summary, published_at')
+        .in('id', allResourceIds)
+        .eq('status', 'published');
 
     if (!resourceError && resources) {
-        resourceMap = new Map(resources.map((c: any) => [c.id, c]));
+        resourceMap = new Map(resources.map((c: Resource) => [c.id, c]));
     }
   }
 
@@ -50,10 +51,10 @@ export async function GET() {
       const resolvedConfig = {
         featured_items: (newsModuleConfig.featured_items || [])
           .map((id: string) => resourceMap.get(id))
-          .filter(Boolean),
+          .filter((item): item is Resource => !!item),
         list_items: (newsModuleConfig.list_items || [])
           .map((id: string) => resourceMap.get(id))
-          .filter(Boolean),
+          .filter((item): item is Resource => !!item),
       };
       response.latest_news = resolvedConfig;
     } else {
