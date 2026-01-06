@@ -14,7 +14,6 @@ export default function RequestActions({ request }: Props) {
   const router = useRouter();
 
   // Determine if we should show buttons or the outcome state
-  // If an outcome is set, we show that instead of buttons
   const isCompleted = request.outcome === 'completed';
   const isCancelled = request.outcome === 'cancelled';
   const hasOutcome = isCompleted || isCancelled;
@@ -32,23 +31,25 @@ export default function RequestActions({ request }: Props) {
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('API Error Response:', errorText);
+        console.error(`Update failed. Status: ${response.status}. Response: ${errorText}`);
         
-        let errorMessage = 'Failed to update status';
+        let errorMessage = `更新失败 (Status: ${response.status})`;
         try {
           const json = JSON.parse(errorText);
-          if (json.error) errorMessage = json.error;
+          if (json.error) errorMessage += `: ${json.error}`;
         } catch (e) {
-          if (errorText) errorMessage = errorText;
+          if (errorText) errorMessage += `: ${errorText}`;
         }
         
         throw new Error(errorMessage);
       }
 
+      // Success - refresh UI immediately
       router.refresh();
+      
     } catch (error: any) {
       console.error('Failed to update request status:', error);
-      alert(`An error occurred: ${error.message}`);
+      alert(`${error.message}\n请检查控制台获取详细信息。`);
     } finally {
       setLoading(false);
     }
@@ -62,7 +63,7 @@ export default function RequestActions({ request }: Props) {
      );
   }
 
-  // If already has an outcome, display it
+  // If already has an outcome, display it with status indicator
   if (hasOutcome) {
       if (isCompleted) {
           return <span className="flex items-center justify-end gap-1 text-xs font-medium text-green-700"><Check size={12}/> 已完成</span>;
@@ -72,10 +73,11 @@ export default function RequestActions({ request }: Props) {
       }
   }
 
-  // Default actions for items without an outcome (usually Pending, but could be Processed without outcome)
+  // Action Buttons
   return (
     <div className="flex items-center justify-end gap-2">
       <button
+        // Cancel logic: status -> pending, outcome -> cancelled
         onClick={() => handleUpdate('pending', 'cancelled')}
         title="标记为取消 (未发生沟通)"
         className="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
@@ -83,6 +85,7 @@ export default function RequestActions({ request }: Props) {
         取消
       </button>
       <button
+        // Complete logic: status -> processed, outcome -> completed
         onClick={() => handleUpdate('processed', 'completed')}
         title="标记为完成 (已发生沟通)"
         className="px-3 py-1.5 text-xs font-medium text-white bg-gray-900 border border-gray-900 rounded-md hover:bg-black transition-colors"

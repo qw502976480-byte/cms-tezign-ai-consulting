@@ -19,24 +19,28 @@ export async function PATCH(
     const body = await request.json();
     const { status, outcome } = body;
 
-    // Validate status against valid DB values
+    console.log(`[API] Updating Request ${id}: status=${status}, outcome=${outcome}`);
+
+    // Validate status against valid DB values (Strict)
     if (!status || !['pending', 'processed'].includes(status)) {
       return NextResponse.json({ error: 'Invalid status provided. Must be pending or processed.' }, { status: 400 });
     }
 
     // Validate outcome if provided
     if (outcome && !['completed', 'cancelled'].includes(outcome)) {
-       return NextResponse.json({ error: 'Invalid outcome provided.' }, { status: 400 });
+       return NextResponse.json({ error: `Invalid outcome provided: ${outcome}` }, { status: 400 });
     }
 
+    // Prepare payload
     const payload: { status: DemoRequestStatus; outcome?: DemoRequestOutcome; processed_at?: string } = {
       status: status as DemoRequestStatus,
       // Only set processed_at if status is processed
       processed_at: status === 'processed' ? new Date().toISOString() : undefined,
     };
 
-    // Add outcome to payload if it exists in the request
-    if (outcome) {
+    // Explicitly add outcome if it exists in the request body
+    // This allows clearing outcome if we passed null, or setting it
+    if (outcome !== undefined) {
         payload.outcome = outcome as DemoRequestOutcome;
     }
 
@@ -45,12 +49,18 @@ export async function PATCH(
       .update(payload)
       .eq('id', id);
 
-    if (error) throw error;
+    if (error) {
+      console.error('[API] Supabase Update Error:', error);
+      throw error;
+    }
 
     return NextResponse.json({ success: true });
 
   } catch (err: any) {
-    console.error('Update Demo Request Status API Error:', err);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    console.error('[API] Update Demo Request Status Failed:', err);
+    return NextResponse.json({ 
+      error: err.message || 'Internal Server Error',
+      details: err.details || ''
+    }, { status: 500 });
   }
 }
