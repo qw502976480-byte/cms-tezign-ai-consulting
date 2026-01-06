@@ -22,7 +22,7 @@ async function getLatestNewsData(): Promise<{ carouselItems: Resource[], fixedIt
     const fixedIds = fixedModule?.content_item_ids?.slice(0, 3) || [];
     
     // Combine IDs and remove duplicates for a single efficient fetch
-    const allIds = [...new Set([...carouselIds, ...fixedIds])];
+    const allIds = [...carouselIds, ...fixedIds].filter((id, i, arr) => arr.indexOf(id) === i);
 
     if (allIds.length === 0) {
       return { carouselItems: [], fixedItems: [] };

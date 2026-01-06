@@ -2,6 +2,8 @@ import Link from 'next/link';
 import { Resource } from '@/types';
 import { format } from 'date-fns';
 import { ArrowRight } from 'lucide-react';
+// FIX: Import React to use React.FC for correct component typing.
+import React from 'react';
 
 interface LatestNewsProps {
   carouselItems: Resource[];
@@ -16,7 +18,10 @@ interface ResourceCardProps {
   large?: boolean;
 }
 
-function ResourceCard({ resource, large = false }: ResourceCardProps) {
+// FIX: The function is now typed as a React.FC (Functional Component).
+// This tells TypeScript that it's a React component, which correctly handles
+// special props like 'key' and prevents assignment errors when used in a list.
+const ResourceCard: React.FC<ResourceCardProps> = ({ resource, large = false }) => {
   return (
     <Link href={`/library/${resource.slug}`} className="group block">
       <article className="h-full flex flex-col bg-white p-6 rounded-2xl border border-gray-200 hover:shadow-lg transition-shadow duration-300">
