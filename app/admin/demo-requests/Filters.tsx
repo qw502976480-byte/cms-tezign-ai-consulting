@@ -4,7 +4,7 @@ import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { useState, useEffect } from 'react';
 
 interface SearchParams {
-  status?: 'pending' | 'completed' | 'cancelled' | 'all';
+  status?: 'pending' | 'processed' | 'all';
   range?: '7d' | '30d' | 'custom';
   start?: string;
   end?: string;
@@ -73,8 +73,7 @@ export default function Filters({ searchParams }: { searchParams: SearchParams }
           >
             <option value="all">全部</option>
             <option value="pending">待处理</option>
-            <option value="completed">已完成</option>
-            <option value="cancelled">已取消</option>
+            <option value="processed">已处理</option>
           </select>
         </div>
 

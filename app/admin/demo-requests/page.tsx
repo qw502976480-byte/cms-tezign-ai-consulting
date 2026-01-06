@@ -10,7 +10,7 @@ import Countdown from './Countdown';
 export const dynamic = 'force-dynamic';
 
 interface SearchParams {
-  status?: 'pending' | 'completed' | 'cancelled' | 'all';
+  status?: 'pending' | 'processed' | 'all';
   range?: '7d' | '30d' | 'custom';
   start?: string;
   end?: string;
@@ -114,10 +114,8 @@ export default async function DemoRequestsPage({ searchParams }: { searchParams:
     switch (status) {
       case 'pending':
         return { text: '待处理', className: 'bg-yellow-100 text-yellow-800 border-yellow-200' };
-      case 'completed':
-        return { text: '已完成', className: 'bg-green-100 text-green-800 border-green-200' };
-      case 'cancelled':
-        return { text: '已取消', className: 'bg-gray-100 text-gray-600 border-gray-200' };
+      case 'processed':
+        return { text: '已处理', className: 'bg-green-100 text-green-800 border-green-200' };
       default:
         return { text: status, className: 'bg-gray-100 text-gray-800 border-gray-200' };
     }

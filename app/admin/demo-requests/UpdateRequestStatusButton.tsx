@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { DemoRequest } from '@/types';
+import { DemoRequest, DemoRequestStatus } from '@/types';
 import { Loader2 } from 'lucide-react';
 
 interface Props {
@@ -13,11 +13,15 @@ export default function RequestActions({ request }: Props) {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
+  // If status is not pending, we usually hide buttons. 
+  // However, since we might want to revert 'processed' to 'pending' via Cancel, 
+  // we could theoretically show Cancel here. 
+  // But based on current requirements, we focus on the pending state.
   if (request.status !== 'pending') {
     return <span className="text-gray-500">—</span>;
   }
 
-  const handleUpdate = async (newStatus: 'completed' | 'cancelled') => {
+  const handleUpdate = async (newStatus: DemoRequestStatus) => {
     setLoading(true);
     try {
       const response = await fetch(`/api/demo-requests/${request.id}/status`, {
@@ -29,14 +33,25 @@ export default function RequestActions({ request }: Props) {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to update status');
+        const errorText = await response.text();
+        console.error('API Error Response:', errorText);
+        
+        let errorMessage = 'Failed to update status';
+        try {
+          const json = JSON.parse(errorText);
+          if (json.error) errorMessage = json.error;
+        } catch (e) {
+          // If not JSON, use the text
+          if (errorText) errorMessage = errorText;
+        }
+        
+        throw new Error(errorMessage);
       }
 
       router.refresh();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to update request status:', error);
-      alert('An error occurred while updating the status. Please try again.');
+      alert(`An error occurred: ${error.message}`);
     } finally {
       setLoading(false);
     }
@@ -51,17 +66,17 @@ export default function RequestActions({ request }: Props) {
       ) : (
         <>
           <button
-            onClick={() => handleUpdate('cancelled')}
-            title="标记为已取消"
-            aria-label="标记为已取消"
+            onClick={() => handleUpdate('pending')}
+            title="标记为未处理 (Cancel)"
+            aria-label="标记为未处理"
             className="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
           >
             取消
           </button>
           <button
-            onClick={() => handleUpdate('completed')}
-            title="标记为已完成"
-            aria-label="标记为已完成"
+            onClick={() => handleUpdate('processed')}
+            title="标记为已处理 (Complete)"
+            aria-label="标记为已处理"
             className="px-3 py-1.5 text-xs font-medium text-white bg-gray-900 border border-gray-900 rounded-md hover:bg-black transition-colors"
           >
             完成

@@ -19,13 +19,15 @@ export async function PATCH(
     const body = await request.json();
     const { status } = body;
 
-    if (!status || !['completed', 'cancelled'].includes(status)) {
-      return NextResponse.json({ error: 'Invalid status provided' }, { status: 400 });
+    // Validate status against valid DB values
+    if (!status || !['pending', 'processed'].includes(status)) {
+      return NextResponse.json({ error: 'Invalid status provided. Must be pending or processed.' }, { status: 400 });
     }
 
     const payload: { status: DemoRequestStatus; processed_at?: string } = {
       status: status as DemoRequestStatus,
-      processed_at: new Date().toISOString(),
+      // Only set processed_at if status is processed
+      processed_at: status === 'processed' ? new Date().toISOString() : undefined,
     };
 
     const { error } = await supabase
