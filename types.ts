@@ -18,7 +18,7 @@ export interface Resource {
   created_at: string;
 }
 
-// Deprecated: Use RegisteredUser instead
+// Deprecated: Old Registration type, kept for legacy if needed, but RegisteredUser is preferred
 export interface Registration {
   id: string;
   name: string;
@@ -29,19 +29,42 @@ export interface Registration {
   created_at: string;
 }
 
+/**
+ * MAPPING NOTE FOR USER WEBSITE:
+ * - When a user registers on the official website, map fields as follows:
+ * - website.form.username -> name
+ * - website.form.mobile -> phone
+ * - website.form.email -> email
+ * - website.form.type -> user_type ('personal' | 'company')
+ * - website.form.company -> company_name
+ * - website.form.job_title -> title
+ * - website.form.usage_scenario -> use_case_tags (Array)
+ * - website.form.interests -> interest_tags (Array)
+ * - website.form.pain_points -> pain_points
+ * - website.marketing_checkbox -> marketing_opt_in
+ */
 export interface RegisteredUser {
   id: string;
-  name: string | null;
-  email: string;
-  phone: string | null;
-  locale: string | null;
-  marketing_consent: boolean;
-  company: string | null;
-  title: string | null;
-  interests: string[] | null; // Array of tags
-  source: string | null;
-  note: string | null;
   created_at: string;
+  auth_user_id: string | null;
+  name: string;
+  phone: string;
+  email: string;
+  user_type: 'personal' | 'company';
+  company_name: string | null;
+  title: string | null;
+  use_case_tags: string[];
+  interest_tags: string[];
+  pain_points: string | null;
+  locale: string | null;
+  marketing_opt_in: boolean;
+}
+
+export interface RegisteredUserResponse {
+  data: RegisteredUser[];
+  total: number;
+  page: number;
+  page_size: number;
 }
 
 export interface DemoRequest {
