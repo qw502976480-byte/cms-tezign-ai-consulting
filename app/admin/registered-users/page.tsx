@@ -49,7 +49,8 @@ export default async function RegisteredUsersPage({ searchParams }: PageProps) {
   }
 
   // 4. Build Main Query against `user_profiles`
-  let query = supabase.from('user_profiles').select('*, auth_user_id', { count: 'exact' });
+  // FIX: Removed non-existent 'auth_user_id' from select statement. '*' already includes 'id'.
+  let query = supabase.from('user_profiles').select('*', { count: 'exact' });
 
   if (keyword) {
     const pattern = `%${keyword}%`;
@@ -64,7 +65,8 @@ export default async function RegisteredUsersPage({ searchParams }: PageProps) {
   // Apply pre-filtered login IDs
   if (loginFilteredAuthIds) {
     if (loginFilteredAuthIds.length > 0) {
-      query = query.in('auth_user_id', loginFilteredAuthIds);
+      // FIX: Use `id` for matching, as it's the foreign key to auth.users.id
+      query = query.in('id', loginFilteredAuthIds);
     } else {
       query = query.eq('id', '00000000-0000-0000-0000-000000000000'); // No matches
     }
@@ -92,7 +94,8 @@ export default async function RegisteredUsersPage({ searchParams }: PageProps) {
     .range(from, to);
 
   // 6. Enrich with `last_login_at` for display
-  const authUserIds = (rawUsers || []).map(u => u.auth_user_id).filter(Boolean);
+  // FIX: Collect `id` from profiles to fetch matching auth users.
+  const authUserIds = (rawUsers || []).map(u => u.id).filter(Boolean);
   const lastLoginMap = new Map<string, string>();
   if (authUserIds.length > 0) {
     const { data: authUsersData } = await serviceSupabase
@@ -107,7 +110,8 @@ export default async function RegisteredUsersPage({ searchParams }: PageProps) {
   const users: UserProfile[] = (rawUsers || []).map((u: any) => ({
     ...u,
     has_communicated: communicatedUserIdSet.has(u.id),
-    last_login_at: u.auth_user_id ? lastLoginMap.get(u.auth_user_id) : null,
+    // FIX: Use `id` to look up the last login time.
+    last_login_at: u.id ? lastLoginMap.get(u.id) : null,
   }));
   
   if (error) {

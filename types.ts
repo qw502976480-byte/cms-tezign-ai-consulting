@@ -33,7 +33,6 @@ export interface Registration {
 export interface UserProfile {
   id: string;
   created_at: string;
-  auth_user_id: string | null;
   name: string;
   phone: string | null;
   email: string;

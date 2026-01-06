@@ -117,7 +117,6 @@ export default function RequestListClient({ initialItems }: Props) {
               // Fallback to legacy snapshot fields if user_profile is missing
               const displayProfile = req.user_profile || {
                  id: req.user_id,
-                 auth_user_id: null,
                  name: req.name,
                  email: req.email,
                  phone: req.phone,
