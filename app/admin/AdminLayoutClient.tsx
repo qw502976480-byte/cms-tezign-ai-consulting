@@ -1,7 +1,7 @@
 
 'use client';
-// FIX: Import React to use React.ReactNode
-import React, { useState } from 'react';
+
+import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { LayoutDashboard, FileText, LayoutTemplate, Users, Calendar, LogOut, Send } from 'lucide-react';
@@ -12,7 +12,6 @@ export default function AdminLayoutClient({ children }: { children: React.ReactN
   const pathname = usePathname();
   const router = useRouter();
   const supabase = createClient();
-  const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
 
   const isLoginPage = pathname === '/admin/login';
 
@@ -24,8 +23,13 @@ export default function AdminLayoutClient({ children }: { children: React.ReactN
 
   if (isLoginPage) return <>{children}</>;
 
-  // New sidebar navigation structure with unified naming
-  const overviewItem = { label: '概览 (Dashboard)', href: '/admin', icon: LayoutDashboard };
+  // Navigation Items Config
+  // Using Chinese + English for key sections as requested
+  const overviewItem = { 
+    label: '概览 (Dashboard)', 
+    href: '/admin', 
+    icon: LayoutDashboard 
+  };
   
   const navGroups = [
     {
@@ -38,6 +42,7 @@ export default function AdminLayoutClient({ children }: { children: React.ReactN
       title: '官网内容',
       items: [
         { label: '内容资源 (Resources)', href: '/admin/resources', icon: FileText },
+        // "Content Distribution" is non-key/placeholder, kept simple or consistent based on grouping
         { label: '内容分发', href: '#', icon: Send, comingSoon: true },
       ]
     },
@@ -56,63 +61,64 @@ export default function AdminLayoutClient({ children }: { children: React.ReactN
   ];
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
-      {/* Sidebar */}
-      <aside 
-        onMouseEnter={() => setIsSidebarExpanded(true)}
-        onMouseLeave={() => setIsSidebarExpanded(false)}
-        className={`fixed h-full z-10 hidden md:flex flex-col bg-white border-r border-gray-200/75 transition-all duration-200 ease-out ${isSidebarExpanded ? 'w-64' : 'w-20'}`}
-      >
-        <div className={`px-6 py-4 border-b border-gray-100 flex items-center h-16 overflow-hidden`}>
-            <div className={`flex flex-col ml-0 overflow-hidden`}>
-                <span className="font-bold text-lg text-gray-900 tracking-tight whitespace-nowrap">Web Platform</span>
-                <span className={`text-sm text-gray-500 font-medium whitespace-nowrap transition-all duration-150 ${isSidebarExpanded ? 'opacity-100' : 'opacity-0'}`}>Tezign AI Consulting</span>
-            </div>
+    <div className="flex min-h-screen bg-gray-50/50">
+      {/* Sidebar - Fixed Width, Always Expanded */}
+      <aside className="w-[280px] bg-white border-r border-gray-200 fixed h-full z-10 flex flex-col">
+        {/* Header - Text Only, ~56px height */}
+        <div className="h-14 px-6 flex items-center border-b border-gray-100/50">
+           <div className="flex items-baseline gap-2 overflow-hidden whitespace-nowrap">
+              <span className="font-semibold text-base text-gray-900 tracking-tight">Web Platform</span>
+              <span className="text-sm text-gray-500 font-normal truncate">· Tezign AI Consulting</span>
+           </div>
         </div>
 
-        <nav className="flex-1 p-4 space-y-1">
-          {/* Render Overview item */}
+        {/* Navigation */}
+        <nav className="flex-1 overflow-y-auto py-6 px-3 space-y-1 custom-scrollbar">
+          {/* Overview Item */}
           {(() => {
             const Icon = overviewItem.icon;
             const isActive = pathname === overviewItem.href;
             return (
               <Link
                 href={overviewItem.href}
-                className={`flex items-center h-10 py-2 rounded-lg text-sm font-medium transition-colors ${isActive ? 'bg-gray-100 text-gray-900' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'} ${isSidebarExpanded ? 'px-3' : 'justify-center'}`}
+                className={`flex items-center gap-3 px-4 h-11 rounded-full text-sm font-medium transition-all duration-200 ${
+                  isActive
+                    ? 'bg-gray-100 text-gray-900'
+                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                }`}
               >
-                <Icon size={20} />
-                <span className={`ml-3 whitespace-nowrap transition-all duration-150 ${isSidebarExpanded ? 'opacity-100' : 'opacity-0 w-0'}`}>
-                  {overviewItem.label}
-                </span>
+                <Icon size={20} strokeWidth={1.5} className={isActive ? "text-gray-900" : "text-gray-500"} />
+                <span className="truncate">{overviewItem.label}</span>
               </Link>
             );
           })()}
 
-          {/* Render item groups */}
-          {navGroups.map((group) => (
-            <div key={group.title} className="pt-4 mt-4 border-t border-gray-100">
-              <span className={`px-3 mb-2 block text-xs font-semibold text-gray-500 transition-opacity ${isSidebarExpanded ? 'opacity-100' : 'opacity-0'}`}>
-                {isSidebarExpanded ? group.title : ''}
-              </span>
-              <div className="space-y-1">
-                {group.items.map((item, index) => {
+          {/* Groups */}
+          {navGroups.map((group, groupIdx) => (
+            <div key={group.title} className="pt-5 mt-1">
+              <div className="px-4 mb-2">
+                 <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wider">
+                  {group.title}
+                 </span>
+              </div>
+              
+              <div className="space-y-0.5">
+                {group.items.map((item, itemIdx) => {
                   const Icon = item.icon;
+                  // Exact match for root, startsWith for sub-routes (except root)
                   const isActive = pathname === item.href || (item.href !== '/admin' && pathname.startsWith(item.href));
 
                   if (item.comingSoon) {
                     return (
                       <div
-                        key={`${item.label}-${index}`}
-                        className={`flex items-center gap-3 h-10 py-2 rounded-lg text-sm font-medium text-gray-400 cursor-not-allowed ${isSidebarExpanded ? 'px-3' : 'justify-center'}`}
-                        title={item.label}
+                        key={`${item.label}-${itemIdx}`}
+                        className="flex items-center gap-3 px-4 h-11 rounded-full text-sm text-gray-400 cursor-not-allowed select-none"
                       >
-                        <Icon size={20} />
-                        <div className={`flex-1 flex justify-between items-center overflow-hidden transition-all duration-150 ${isSidebarExpanded ? 'opacity-100 w-auto ml-3' : 'opacity-0 w-0'}`}>
-                            <span className="whitespace-nowrap">{item.label}</span>
-                            <span className="text-xs bg-gray-100 text-gray-500 border border-gray-200 px-1.5 py-0.5 rounded-full whitespace-nowrap">
-                              Soon
-                            </span>
-                        </div>
+                        <Icon size={20} strokeWidth={1.5} className="text-gray-300" />
+                        <span className="truncate">{item.label}</span>
+                        <span className="ml-auto text-[10px] bg-gray-50 text-gray-400 border border-gray-100 px-1.5 py-0.5 rounded">
+                          SOON
+                        </span>
                       </div>
                     );
                   }
@@ -121,12 +127,14 @@ export default function AdminLayoutClient({ children }: { children: React.ReactN
                     <Link
                       key={item.href}
                       href={item.href}
-                      className={`flex items-center h-10 py-2 rounded-lg text-sm font-medium transition-colors ${isActive ? 'bg-gray-100 text-gray-900' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'} ${isSidebarExpanded ? 'px-3' : 'justify-center'}`}
+                      className={`flex items-center gap-3 px-4 h-11 rounded-full text-sm font-medium transition-all duration-200 ${
+                        isActive
+                          ? 'bg-gray-100 text-gray-900'
+                          : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                      }`}
                     >
-                      <Icon size={20} />
-                      <span className={`ml-3 whitespace-nowrap transition-all duration-150 ${isSidebarExpanded ? 'opacity-100' : 'opacity-0 w-0'}`}>
-                        {item.label}
-                      </span>
+                      <Icon size={20} strokeWidth={1.5} className={isActive ? "text-gray-900" : "text-gray-500"} />
+                      <span className="truncate">{item.label}</span>
                     </Link>
                   );
                 })}
@@ -134,23 +142,23 @@ export default function AdminLayoutClient({ children }: { children: React.ReactN
             </div>
           ))}
         </nav>
-        <div className="p-4 border-t border-gray-100">
+
+        {/* Footer Actions */}
+        <div className="p-4 border-t border-gray-100 bg-white">
           <button
             onClick={handleSignOut}
-            className={`flex items-center gap-3 w-full h-10 py-2 rounded-lg text-sm font-medium transition-colors text-gray-500 hover:bg-gray-50 hover:text-gray-900 ${isSidebarExpanded ? 'px-3' : 'justify-center'}`}
+            className="flex items-center gap-3 w-full px-4 h-11 rounded-full text-sm font-medium text-gray-500 hover:bg-gray-50 hover:text-gray-900 transition-colors"
           >
-            <LogOut size={20} />
-            <span className={`whitespace-nowrap transition-all duration-150 ${isSidebarExpanded ? 'opacity-100' : 'opacity-0 w-0'}`}>
-              退出登录
-            </span>
+            <LogOut size={20} strokeWidth={1.5} />
+            <span>退出登录</span>
           </button>
         </div>
       </aside>
 
-      {/* Main Content */}
-      <main className={`flex-1 p-8 overflow-auto transition-all duration-200 ease-out ${isSidebarExpanded ? 'md:ml-64' : 'md:ml-20'}`}>
-        <div className="max-w-6xl mx-auto">
-          {children}
+      {/* Main Content Area */}
+      <main className="flex-1 ml-[280px] min-w-0">
+        <div className="max-w-6xl mx-auto p-8 md:p-12">
+           {children}
         </div>
       </main>
     </div>

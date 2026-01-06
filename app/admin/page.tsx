@@ -1,9 +1,7 @@
 
 
-// FIX: Import React to resolve namespace error for React.ElementType
 import React from 'react';
 import { createClient } from '@/utils/supabase/server';
-// FIX: Import the 'User' icon from lucide-react
 import { Users, PhoneForwarded, Clock, AreaChart, Calendar, UserCheck, Mail, User } from 'lucide-react';
 import { subDays, format } from 'date-fns';
 import Link from 'next/link';
@@ -74,15 +72,15 @@ async function getDashboardData() {
 
 function KpiCard({ title, value, icon: Icon, description }: { title: string, value: string | number, icon: React.ElementType, description: string }) {
   return (
-    <div className="bg-white p-6 rounded-xl border border-gray-200/75 hover:border-gray-200 transition-colors group">
+    <div className="bg-white p-6 rounded-xl border border-gray-200 hover:border-gray-300 transition-colors">
       <div className="flex items-start justify-between">
-        <div className="space-y-1">
+        <div className="space-y-2">
           <p className="text-sm text-gray-500 font-medium">{title}</p>
-          <p className="text-3xl font-bold text-gray-900">{value}</p>
+          <p className="text-3xl font-semibold text-gray-900 tracking-tight">{value}</p>
           <p className="text-xs text-gray-400">{description}</p>
         </div>
-        <div className="p-3 bg-gray-50 text-gray-900 rounded-lg border border-gray-100 group-hover:bg-gray-100 transition-colors">
-          <Icon size={24} />
+        <div className="p-2.5 bg-gray-50 text-gray-600 rounded-lg border border-gray-100">
+          <Icon size={20} strokeWidth={1.5} />
         </div>
       </div>
     </div>
@@ -94,10 +92,10 @@ export default async function AdminDashboard() {
 
   return (
     <div className="space-y-8">
-      <h1 className="text-2xl font-bold text-gray-900 mb-6">概览 (Dashboard)</h1>
+      <h1 className="text-2xl font-semibold text-gray-900 tracking-tight">概览 (Dashboard)</h1>
       
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
         <KpiCard title="注册用户" value={kpis.totalUsers} icon={Users} description="累计注册用户" />
         <KpiCard title="已发生线上沟通" value={kpis.communicatedUsers} icon={UserCheck} description="有演示申请的用户" />
         <KpiCard title="待处理演示" value={kpis.pendingDemos} icon={PhoneForwarded} description="需要跟进" />
@@ -105,12 +103,12 @@ export default async function AdminDashboard() {
       </div>
 
       {/* Upcoming Appointments List */}
-      <div>
-        <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-          <Calendar size={20} />
+      <div className="pt-2">
+        <h2 className="text-base font-medium text-gray-900 mb-4 flex items-center gap-2">
+          <Calendar size={18} className="text-gray-500" strokeWidth={2} />
           即将到期的演示申请
         </h2>
-        <div className="bg-white rounded-xl border border-gray-200/75 overflow-hidden">
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           {upcomingAppointments.length > 0 ? (
             <ul className="divide-y divide-gray-100">
               {upcomingAppointments.map(({ scheduled_at, demo_requests }) => {
@@ -118,22 +116,20 @@ export default async function AdminDashboard() {
                  return (
                   <li key={demo_requests.id} className="p-4 flex items-center justify-between hover:bg-gray-50 transition-colors">
                     <div className="flex items-center gap-4">
-                      <div className="p-3 bg-indigo-50 text-indigo-700 rounded-lg border border-indigo-100">
-                          <Clock size={20} />
+                      <div className="p-2.5 bg-indigo-50 text-indigo-600 rounded-lg">
+                          <Clock size={18} strokeWidth={2} />
                       </div>
                       <div>
-                        <p className="font-medium text-gray-900 flex items-center gap-1.5">
-                            <User size={14} className="text-gray-400" />
+                        <p className="font-medium text-gray-900 text-sm flex items-center gap-2">
                             {contact.name}
                         </p>
-                        <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-1.5">
-                            <Mail size={12} className="text-gray-400" />
+                        <p className="text-xs text-gray-500 mt-0.5 font-mono">
                             {contact.email}
                         </p>
                       </div>
                     </div>
                     <div className="text-right">
-                       <p className="font-semibold text-gray-800 text-sm">
+                       <p className="font-medium text-gray-900 text-sm tabular-nums">
                          {format(new Date(scheduled_at), 'yyyy-MM-dd HH:mm')}
                        </p>
                        <UpcomingAppointmentCountdown scheduledAt={scheduled_at} />
@@ -149,7 +145,7 @@ export default async function AdminDashboard() {
           )}
           {upcomingAppointments.length > 0 && (
              <div className="px-4 py-3 bg-gray-50 border-t border-gray-100 text-right">
-                <Link href="/admin/demo-requests" className="text-sm font-medium text-gray-600 hover:text-black">
+                <Link href="/admin/demo-requests" className="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors">
                     查看全部 &rarr;
                 </Link>
              </div>
