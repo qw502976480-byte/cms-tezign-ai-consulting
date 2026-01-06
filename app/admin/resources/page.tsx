@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { createClient } from '@/utils/supabase/server';
 import { Plus, Edit2, Star, Pin } from 'lucide-react';
-import { ResourceStatus } from '@/types';
+import { ResourceStatus, HomepageLatestNewsConfig } from '@/types';
 
 interface ResourceRow {
   id: string;
@@ -19,17 +19,17 @@ export const dynamic = 'force-dynamic';
 export default async function ResourcesListPage() {
   const supabase = await createClient();
 
-  // Fetch resources and homepage modules in parallel
+  // Fetch resources and homepage config in parallel
   const [resourcesResult, modulesResult] = await Promise.all([
     supabase
       .from('resources')
       .select('id, title, slug, category, summary, status, published_at, created_at')
       .order('created_at', { ascending: false }),
-    // Use 'type' column with updated keys
     supabase
-      .from('homepage_modules')
-      .select('type, content_item_ids')
-      .in('type', ['latest_updates_carousel', 'latest_updates_fixed'])
+      .from('homepage_config')
+      .select('config')
+      .eq('type', 'latest_news')
+      .maybeSingle() // Use maybeSingle to avoid errors if the config row doesn't exist
   ]);
 
   const resources = resourcesResult.data;
@@ -44,18 +44,13 @@ export default async function ResourcesListPage() {
   }
 
   // Process homepage slots into Sets for O(1) lookup
-  const featuredIds = new Set<string>(); // latest_updates_carousel
-  const fixedIds = new Set<string>();    // latest_updates_fixed
+  const featuredIds = new Set<string>(); // latest_news.featured_items (carousel)
+  const fixedIds = new Set<string>();    // latest_news.list_items (fixed list)
 
-  if (modulesResult.data) {
-    modulesResult.data.forEach((mod: any) => {
-      const ids = Array.isArray(mod.content_item_ids) ? mod.content_item_ids : [];
-      if (mod.type === 'latest_updates_carousel') {
-        ids.forEach((id: string) => featuredIds.add(id));
-      } else if (mod.type === 'latest_updates_fixed') {
-        ids.forEach((id: string) => fixedIds.add(id));
-      }
-    });
+  if (modulesResult.data?.config) {
+    const newsConfig = modulesResult.data.config as HomepageLatestNewsConfig;
+    (newsConfig.featured_items || []).forEach((id: string) => featuredIds.add(id));
+    (newsConfig.list_items || []).forEach((id: string) => fixedIds.add(id));
   }
 
   return (

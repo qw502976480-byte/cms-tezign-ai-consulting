@@ -4,15 +4,12 @@ import React, { useState, useEffect } from 'react';
 import { createClient } from '@/utils/supabase/client';
 import { useRouter } from 'next/navigation';
 import { Loader2, ArrowLeft, Save, Globe, Layout, FileText, RefreshCw, Calendar as CalendarIcon } from 'lucide-react';
-import { Resource } from '@/types';
+import { Resource, HomepageLatestNewsConfig } from '@/types';
 import Link from 'next/link';
 
 interface ResourceFormProps {
   initialData?: Resource;
 }
-
-const TYPE_CAROUSEL = 'latest_updates_carousel';
-const TYPE_FIXED = 'latest_updates_fixed';
 
 export default function ResourceForm({ initialData }: ResourceFormProps) {
   const supabase = createClient();
@@ -34,36 +31,36 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
 
   // Homepage Slots State
   const [homepageFlags, setHomepageFlags] = useState({
-    carousel: false, // latest_updates_carousel
-    sidebar: false,  // latest_updates_fixed
+    carousel: false, // Corresponds to latest_news.featured_items
+    sidebar: false,  // Corresponds to latest_news.list_items
   });
 
-  // Load Homepage Config (Slots) from homepage_modules
+  // Load Homepage Config from homepage_config
   useEffect(() => {
     if (!initialData?.id) return;
 
     const fetchHomepageSlots = async () => {
-      // Fetch based on 'type' column
       const { data, error } = await supabase
-        .from('homepage_modules')
-        .select('type, content_item_ids')
-        .in('type', [TYPE_CAROUSEL, TYPE_FIXED]);
+        .from('homepage_config')
+        .select('config')
+        .eq('type', 'latest_news')
+        .single();
       
       if (error) {
-        console.error("Error fetching homepage slots:", error);
+        console.error("Error fetching homepage config:", error);
         return;
       }
 
       const flags = { carousel: false, sidebar: false };
       
-      if (data) {
-        data.forEach((row: any) => {
-          const ids: string[] = Array.isArray(row.content_item_ids) ? row.content_item_ids : [];
-          if (ids.includes(initialData.id)) {
-            if (row.type === TYPE_CAROUSEL) flags.carousel = true;
-            if (row.type === TYPE_FIXED) flags.sidebar = true;
-          }
-        });
+      if (data?.config) {
+        const config = data.config as HomepageLatestNewsConfig;
+        if (config.featured_items && config.featured_items.includes(initialData.id)) {
+          flags.carousel = true;
+        }
+        if (config.list_items && config.list_items.includes(initialData.id)) {
+          flags.sidebar = true;
+        }
       }
       setHomepageFlags(flags);
     };
@@ -118,69 +115,6 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
     }));
   };
 
-  // Helper to update homepage_modules array
-  const updateHomepageSlot = async (typeKey: string, shouldBeIn: boolean, resourceId: string) => {
-    // 1. Fetch current list AND other required fields to preserve them
-    const { data: currentData, error: fetchError } = await supabase
-      .from('homepage_modules')
-      .select('content_item_ids, status, data')
-      .eq('type', typeKey)
-      .maybeSingle();
-    
-    if (fetchError) {
-        console.error(`Error fetching ${typeKey}:`, fetchError);
-        // Don't throw here to allow saving the resource even if module fetch fails
-    }
-    
-    let ids: string[] = [];
-    if (currentData?.content_item_ids && Array.isArray(currentData.content_item_ids)) {
-        ids = [...currentData.content_item_ids];
-    }
-
-    const isCurrentlyIn = ids.includes(resourceId);
-
-    // 2. Determine if update is needed
-    let needsUpdate = false;
-
-    if (shouldBeIn && !isCurrentlyIn) {
-        // Add to front
-        ids.unshift(resourceId);
-        needsUpdate = true;
-    } else if (!shouldBeIn && isCurrentlyIn) {
-        // Remove
-        ids = ids.filter(id => id !== resourceId);
-        needsUpdate = true;
-    } else if (!currentData && shouldBeIn) {
-        // Row doesn't exist, but we want to add it
-        ids = [resourceId];
-        needsUpdate = true;
-    }
-
-    if (!needsUpdate && currentData) {
-        return;
-    }
-
-    // Prepare fields for payload. If row didn't exist, set defaults.
-    const status = currentData?.status || 'active';
-    const dataField = currentData?.data || {};
-
-    // 3. Upsert using 'type' as the key
-    const { error: upsertError } = await supabase
-        .from('homepage_modules')
-        .upsert({
-            type: typeKey,
-            content_item_ids: ids,
-            status: status,
-            data: dataField
-            // created_at is handled by DB default
-        }, { onConflict: 'type' });
-
-    if (upsertError) {
-        console.error(`Error updating ${typeKey}:`, upsertError);
-        throw upsertError;
-    }
-  };
-
   const handleSave = async () => {
     if (!formData.title) {
         alert("请输入标题");
@@ -229,12 +163,58 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
         resourceId = data.id;
       }
 
-      // 3. Update Homepage Slots (homepage_modules) using 'type'
+      // 3. Update Homepage Slots in homepage_config
       if (resourceId) {
-        await Promise.all([
-          updateHomepageSlot(TYPE_CAROUSEL, homepageFlags.carousel, resourceId),
-          updateHomepageSlot(TYPE_FIXED, homepageFlags.sidebar, resourceId)
-        ]);
+        const { data: newsConfigData, error: fetchError } = await supabase
+          .from('homepage_config')
+          .select('config')
+          .eq('type', 'latest_news')
+          .single();
+
+        if (fetchError) {
+          console.error("Error fetching homepage config:", fetchError);
+          throw fetchError;
+        }
+
+        const currentConfig = (newsConfigData?.config || { featured_items: [], list_items: [] }) as HomepageLatestNewsConfig;
+        
+        let featured_items = Array.isArray(currentConfig.featured_items) ? [...currentConfig.featured_items] : [];
+        let list_items = Array.isArray(currentConfig.list_items) ? [...currentConfig.list_items] : [];
+
+        let changed = false;
+
+        // Carousel / featured_items
+        const isFeatured = featured_items.includes(resourceId);
+        if (homepageFlags.carousel && !isFeatured) {
+            featured_items.unshift(resourceId);
+            changed = true;
+        } else if (!homepageFlags.carousel && isFeatured) {
+            featured_items = featured_items.filter(id => id !== resourceId);
+            changed = true;
+        }
+
+        // Sidebar / list_items
+        const isFixed = list_items.includes(resourceId);
+        if (homepageFlags.sidebar && !isFixed) {
+            list_items.unshift(resourceId);
+            changed = true;
+        } else if (!homepageFlags.sidebar && isFixed) {
+            list_items = list_items.filter(id => id !== resourceId);
+            changed = true;
+        }
+
+        if (changed) {
+            const newConfig = { ...currentConfig, featured_items, list_items };
+            const { error: updateError } = await supabase
+                .from('homepage_config')
+                .update({ config: newConfig as any, updated_at: new Date().toISOString() })
+                .eq('type', 'latest_news');
+            
+            if (updateError) {
+                console.error("Error updating homepage config:", updateError);
+                throw updateError;
+            }
+        }
       }
 
       router.push('/admin/resources');
