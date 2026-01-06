@@ -1,5 +1,5 @@
 export type ResourceCategory = 'report' | 'announcement' | 'case_study' | 'methodology';
-export type DemoStatus = 'New' | 'Confirmed' | 'Completed' | 'Canceled';
+export type DemoRequestStatus = 'pending' | 'processed';
 export type HomepageModuleType = 'hero' | 'gpt_search' | 'latest_news' | 'core_capabilities' | 'product_claim' | 'primary_cta';
 export type ResourceStatus = 'draft' | 'published' | 'archived';
 
@@ -27,15 +27,17 @@ export interface Registration {
 
 export interface DemoRequest {
   id: string;
-  registration_id: string | null;
   name: string;
+  company: string | null;
+  title: string | null;
   email: string;
-  timezone: string;
-  requested_times: string[];
-  notes: string;
-  status: DemoStatus;
+  phone: string | null;
+  notes: string | null;
+  status: DemoRequestStatus;
   created_at: string;
+  processed_at: string | null;
 }
+
 
 // --- Homepage Configuration Types ---
 
