@@ -1,6 +1,5 @@
 import { createServiceClient } from '@/utils/supabase/server';
 import { NextRequest, NextResponse } from 'next/server';
-import { DemoRequestStatus, DemoRequestOutcome } from '@/types';
 
 export const runtime = 'nodejs';
 
@@ -17,39 +16,22 @@ export async function PATCH(
 
   try {
     const body = await request.json();
-    // Rule: We only care about outcome. Status is derived.
+    // Rule: We only care about outcome. Status is ALWAYS 'processed' when outcome is set.
     const { outcome } = body; 
 
     console.log(`[API] Updating Request ${id}: outcome=${outcome}`);
 
-    // Validate outcome
-    if (outcome !== null && outcome !== undefined && !['completed', 'cancelled'].includes(outcome)) {
-       return NextResponse.json({ error: `Invalid outcome provided: ${outcome}` }, { status: 400 });
+    // Validate outcome - STRICT check
+    if (outcome !== 'completed' && outcome !== 'cancelled') {
+       return NextResponse.json({ error: `Invalid outcome. Must be 'completed' or 'cancelled'.` }, { status: 400 });
     }
 
-    // --- Core Logic: Derive Status from Outcome ---
-    // If outcome is 'completed' or 'cancelled' -> Status MUST be 'processed'
-    // If outcome is null (cleared) -> Status MUST be 'pending'
-    
-    let derivedStatus: DemoRequestStatus = 'pending';
-    let processedAt: string | null = null;
-    let finalOutcome: DemoRequestOutcome = null;
-
-    if (outcome === 'completed' || outcome === 'cancelled') {
-        derivedStatus = 'processed';
-        processedAt = new Date().toISOString();
-        finalOutcome = outcome;
-    } else {
-        // Resetting to pending
-        derivedStatus = 'pending';
-        processedAt = null;
-        finalOutcome = null;
-    }
-
+    // --- Core Logic: Forced Linkage ---
+    // If outcome is set, status MUST be 'processed'.
     const payload = {
-      status: derivedStatus,
-      outcome: finalOutcome,
-      processed_at: processedAt
+      status: 'processed',
+      outcome: outcome,
+      processed_at: new Date().toISOString()
     };
 
     const { data, error } = await supabase

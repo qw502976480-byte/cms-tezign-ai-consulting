@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { DemoRequest, DemoRequestOutcome } from '@/types';
-import { Loader2, ChevronDown, CheckCircle2, XCircle, CircleDashed, Check } from 'lucide-react';
+import { Loader2, ChevronDown, CheckCircle2, XCircle, Minus, Check } from 'lucide-react';
 
 interface Props {
   request: DemoRequest;
@@ -15,7 +15,7 @@ export default function RequestActions({ request, onUpdate }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Current value logic
-  const currentOutcome = request.outcome || 'null'; // 'completed' | 'cancelled' | 'null'
+  const currentOutcome = request.outcome; // 'completed' | 'cancelled' | null
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -30,7 +30,8 @@ export default function RequestActions({ request, onUpdate }: Props) {
 
   const handleSelect = async (val: string) => {
     // Convert string value back to DemoRequestOutcome
-    const targetOutcome = val === 'null' ? null : (val as DemoRequestOutcome);
+    // We only accept 'completed' or 'cancelled' here based on options
+    const targetOutcome = val as DemoRequestOutcome;
     
     // Close dropdown immediately
     setIsOpen(false);
@@ -57,32 +58,33 @@ export default function RequestActions({ request, onUpdate }: Props) {
 
     if (currentOutcome === 'completed') return 'bg-green-50 border-green-200 text-green-700 hover:border-green-300';
     if (currentOutcome === 'cancelled') return 'bg-gray-100 border-gray-200 text-gray-500 hover:border-gray-300';
-    return 'bg-white border-gray-300 text-gray-700 hover:border-gray-400 hover:text-gray-900';
+    
+    // Default / NULL state
+    return 'bg-white border-gray-300 text-gray-500 hover:border-gray-400 hover:text-gray-900';
   };
 
   const getIcon = () => {
       if (loading) return <Loader2 className="animate-spin" size={14} />;
       if (currentOutcome === 'completed') return <CheckCircle2 size={14} />;
       if (currentOutcome === 'cancelled') return <XCircle size={14} />;
-      return <CircleDashed size={14} className={isOpen ? 'text-gray-900' : 'text-gray-400'} />;
+      return <Minus size={14} className={isOpen ? 'text-gray-900' : 'text-gray-400'} />;
   };
 
   const getLabel = () => {
       if (loading) return '处理中...';
       if (currentOutcome === 'completed') return '已完成';
       if (currentOutcome === 'cancelled') return '已取消';
-      return '待处理';
+      return '选择结果'; // When NULL
   }
 
-  // Options configuration
+  // Options configuration - ONLY TWO OPTIONS allowed
   const options = [
-      { value: 'null', label: '待处理 (重置)', icon: CircleDashed, colorClass: 'text-gray-500' },
-      { value: 'completed', label: '已完成沟通', icon: CheckCircle2, colorClass: 'text-green-600' },
-      { value: 'cancelled', label: '已取消沟通', icon: XCircle, colorClass: 'text-gray-400' },
+      { value: 'completed', label: '已完成', icon: CheckCircle2, colorClass: 'text-green-600' },
+      { value: 'cancelled', label: '已取消', icon: XCircle, colorClass: 'text-gray-500' },
   ];
 
   return (
-    <div className="relative inline-block w-[140px]" ref={containerRef}>
+    <div className="relative inline-block w-[120px]" ref={containerRef}>
       {/* Trigger Button */}
       <button
         type="button"
@@ -99,7 +101,7 @@ export default function RequestActions({ request, onUpdate }: Props) {
 
       {/* Custom Dropdown Panel */}
       {isOpen && (
-        <div className="absolute right-0 top-full mt-1.5 w-48 bg-white border border-gray-100 rounded-xl shadow-xl z-50 p-1 animate-in fade-in zoom-in-95 duration-100 origin-top-right">
+        <div className="absolute right-0 top-full mt-1.5 w-36 bg-white border border-gray-100 rounded-xl shadow-xl z-50 p-1 animate-in fade-in zoom-in-95 duration-100 origin-top-right">
             {options.map((opt) => {
                 const isSelected = String(currentOutcome) === opt.value;
                 const Icon = opt.icon;

@@ -17,14 +17,16 @@ function FilterDropdown({
   value, 
   onChange, 
   options,
-  disabled = false
+  disabled = false,
+  tooltip = ''
 }: { 
   icon: any, 
   label: string,
   value: string, 
   onChange: (val: string) => void, 
   options: { label: string, value: string }[],
-  disabled?: boolean
+  disabled?: boolean,
+  tooltip?: string
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -42,25 +44,25 @@ function FilterDropdown({
   const selectedLabel = options.find(o => o.value === value)?.label || options[0].label;
 
   return (
-    <div className={`relative w-full sm:w-auto ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`} ref={containerRef}>
+    <div className={`relative w-full sm:w-auto`} ref={containerRef} title={tooltip}>
         <button
             type="button"
             disabled={disabled}
             onClick={() => !disabled && setIsOpen(!isOpen)}
-            className={`w-full sm:w-48 flex items-center justify-between px-3 py-2.5 bg-white border rounded-lg shadow-sm text-sm transition-all duration-200 group
-                ${isOpen ? 'border-gray-900 ring-1 ring-gray-900' : 'border-gray-200'}
-                ${!disabled && 'hover:border-gray-300'}
+            className={`w-full sm:w-48 flex items-center justify-between px-3 py-2.5 border rounded-lg shadow-sm text-sm transition-all duration-200 group
+                ${disabled ? 'bg-gray-100 border-gray-200 cursor-not-allowed opacity-70' : 'bg-white border-gray-200 hover:border-gray-300'}
+                ${isOpen ? 'border-gray-900 ring-1 ring-gray-900' : ''}
             `}
         >
             <div className="flex items-center gap-2 truncate">
-                <Icon size={16} className={`flex-shrink-0 transition-colors ${isOpen ? 'text-gray-900' : 'text-gray-500'} ${!disabled && 'group-hover:text-gray-700'}`} />
-                <span className="text-gray-500">{label}:</span>
-                <span className="font-medium text-gray-900 truncate">{selectedLabel}</span>
+                <Icon size={16} className={`flex-shrink-0 transition-colors ${disabled ? 'text-gray-400' : (isOpen ? 'text-gray-900' : 'text-gray-500 group-hover:text-gray-700')}`} />
+                <span className={disabled ? 'text-gray-400' : 'text-gray-500'}>{label}:</span>
+                <span className={`font-medium truncate ${disabled ? 'text-gray-400' : 'text-gray-900'}`}>{selectedLabel}</span>
             </div>
-            <ChevronDown size={14} className={`text-gray-400 transition-transform duration-200 flex-shrink-0 ${isOpen ? 'rotate-180 text-gray-900' : ''}`} />
+            <ChevronDown size={14} className={`flex-shrink-0 transition-transform duration-200 ${disabled ? 'text-gray-300' : 'text-gray-400'} ${isOpen ? 'rotate-180 text-gray-900' : ''}`} />
         </button>
 
-        {isOpen && (
+        {isOpen && !disabled && (
             <div className="absolute top-full left-0 mt-1.5 w-full sm:w-56 bg-white border border-gray-100 rounded-xl shadow-xl z-50 p-1 animate-in fade-in zoom-in-95 duration-100 origin-top">
                 {options.map((opt) => (
                     <button
@@ -109,6 +111,9 @@ export default function Filters({ searchParams }: { searchParams: SearchParams }
   const appointmentType = searchParams.appointment_type || 'all';
   const timeStatus = searchParams.time_status || 'all';
 
+  // Logic: Time filter is disabled unless "Scheduled" is selected
+  const isTimeFilterDisabled = appointmentType !== 'scheduled';
+
   return (
     <div className="flex flex-col sm:flex-row flex-wrap items-start sm:items-center gap-3 bg-white p-1 rounded-none z-20 relative">
       
@@ -120,8 +125,8 @@ export default function Filters({ searchParams }: { searchParams: SearchParams }
             onChange={(val) => handleFilterChange('status', val)}
             options={[
               { label: '全部', value: 'all' },
-              { label: '待处理', value: 'pending' },
-              { label: '已处理', value: 'processed' },
+              { label: '待处理 (Pending)', value: 'pending' },
+              { label: '已处理 (Processed)', value: 'processed' },
             ]}
         />
 
@@ -142,13 +147,14 @@ export default function Filters({ searchParams }: { searchParams: SearchParams }
         <FilterDropdown 
             icon={Clock}
             label="时间筛选"
-            value={timeStatus}
-            disabled={appointmentType !== 'scheduled'}
+            value={isTimeFilterDisabled ? 'all' : timeStatus}
+            disabled={isTimeFilterDisabled}
+            tooltip={isTimeFilterDisabled ? '请先选择“已安排”预约情况' : ''}
             onChange={(val) => handleFilterChange('time_status', val)}
             options={[
               { label: '全部', value: 'all' },
-              { label: '已逾期 (Time < Now)', value: 'overdue' },
-              { label: '未逾期 (Time >= Now)', value: 'future' },
+              { label: '已逾期 (Overdue)', value: 'overdue' },
+              { label: '未逾期 (Future)', value: 'future' },
               { label: '临近 (24小时内)', value: 'near_24h' },
             ]}
         />

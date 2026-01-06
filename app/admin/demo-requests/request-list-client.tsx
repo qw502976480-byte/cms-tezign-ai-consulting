@@ -8,6 +8,8 @@ import { PieChart, CheckCircle2, Circle, XCircle, Phone } from 'lucide-react';
 import AppointmentCell from './AppointmentCell';
 import Countdown from './Countdown';
 import RequestActions from './UpdateRequestStatusButton';
+import ContactCell from './ContactCell';
+import RequestDetailDialog from './RequestDetailDialog';
 
 interface CombinedItem {
   request: DemoRequest;
@@ -21,16 +23,15 @@ interface Props {
 export default function RequestListClient({ initialItems }: Props) {
   const router = useRouter();
   const [items, setItems] = useState<CombinedItem[]>(initialItems);
+  
+  // Dialog State
+  const [selectedItem, setSelectedItem] = useState<CombinedItem | null>(null);
 
   // --- Core Logic: Update based on Outcome only ---
   const handleUpdate = async (id: string, newOutcome: DemoRequestOutcome) => {
     // 1. Calculate Expected Status based on Rule
-    // outcome set -> processed
-    // outcome null -> pending
-    let newStatus: DemoRequestStatus = 'pending';
-    if (newOutcome === 'completed' || newOutcome === 'cancelled') {
-        newStatus = 'processed';
-    }
+    // outcome set -> status MUST be processed
+    const newStatus: DemoRequestStatus = 'processed';
 
     // 2. Optimistic Update
     const previousItems = [...items];
@@ -42,8 +43,8 @@ export default function RequestListClient({ initialItems }: Props) {
             ...item.request,
             status: newStatus,
             outcome: newOutcome,
-            // Update timestamp optimistically if becoming processed
-            processed_at: newStatus === 'processed' ? new Date().toISOString() : null
+            // Update timestamp optimistically
+            processed_at: new Date().toISOString() 
           }
         };
       }
@@ -74,13 +75,17 @@ export default function RequestListClient({ initialItems }: Props) {
     }
   };
 
-  // --- Sorting: Pending Top, then Created Desc ---
+  // --- Sorting: Pending Top, then Processed. Within groups: Created Desc ---
   const sortedItems = useMemo(() => {
     return [...items].sort((a, b) => {
-      // 1. Status: Pending < Processed
-      if (a.request.status !== b.request.status) {
-        return a.request.status === 'pending' ? -1 : 1;
+      // 1. Status Priority: Pending (0) < Processed (1)
+      const statusWeightA = a.request.status === 'pending' ? 0 : 1;
+      const statusWeightB = b.request.status === 'pending' ? 0 : 1;
+
+      if (statusWeightA !== statusWeightB) {
+        return statusWeightA - statusWeightB;
       }
+
       // 2. Date: Newest first
       return new Date(b.request.created_at).getTime() - new Date(a.request.created_at).getTime();
     });
@@ -157,27 +162,26 @@ export default function RequestListClient({ initialItems }: Props) {
           <thead className="text-gray-500 font-medium border-b border-gray-200 bg-gray-50">
             <tr>
               <th className="px-6 py-4 w-[200px]">申请时间/公司</th>
-              <th className="px-6 py-4 w-[200px]">联系人</th>
+              <th className="px-6 py-4 w-[240px]">联系人</th>
               <th className="px-6 py-4 w-[100px]">状态</th>
               <th className="px-6 py-4 w-[180px]">预约时间</th>
               <th className="px-6 py-4 w-[150px]">倒计时</th>
-              <th className="px-6 py-4 text-right">沟通结果操作</th>
+              <th className="px-6 py-4 text-right">沟通结果</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {sortedItems.map(({ request: req, appointment }) => {
+            {sortedItems.map((item) => {
+              const { request: req, appointment } = item;
               const statusBadge = getStatusBadge(req.status);
               return (
                 <tr key={req.id} className="hover:bg-gray-50 transition-colors group">
                   <td className="px-6 py-4 text-gray-500 align-top">
                     {format(new Date(req.created_at), 'yyyy-MM-dd HH:mm')}
-                    <p className="font-medium text-gray-900 mt-1 truncate" title={req.company || ''}>{req.company || '-'}</p>
-                    <p className="text-xs truncate" title={req.title || ''}>{req.title || '-'}</p>
+                    <p className="font-medium text-gray-900 mt-1 truncate max-w-[160px]" title={req.company || ''}>{req.company || '-'}</p>
+                    <p className="text-xs truncate max-w-[160px]" title={req.title || ''}>{req.title || '-'}</p>
                   </td>
                   <td className="px-6 py-4 align-top">
-                    <p className="font-medium text-gray-900">{req.name}</p>
-                    <p className="text-gray-500 text-xs">{req.email}</p>
-                    {req.phone && <p className="text-gray-500 text-xs mt-1">{req.phone}</p>}
+                    <ContactCell request={req} onClick={() => setSelectedItem(item)} />
                   </td>
                   <td className="px-6 py-4 align-top">
                     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${statusBadge.className}`}>
@@ -209,6 +213,16 @@ export default function RequestListClient({ initialItems }: Props) {
           </tbody>
         </table>
       </div>
+
+      {/* Detail Dialog */}
+      {selectedItem && (
+        <RequestDetailDialog 
+            isOpen={!!selectedItem}
+            onClose={() => setSelectedItem(null)}
+            request={selectedItem.request}
+            appointment={selectedItem.appointment}
+        />
+      )}
     </div>
   );
 }
