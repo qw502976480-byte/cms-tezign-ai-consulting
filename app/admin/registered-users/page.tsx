@@ -1,8 +1,9 @@
+
 import React from 'react';
 import { createClient } from '@/utils/supabase/server';
 import RegisteredUsersClientView from './client-view';
 import { subDays, startOfDay, endOfDay } from 'date-fns';
-import { RegisteredUser } from '@/types';
+import { UserProfile } from '@/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,37 +22,33 @@ export default async function RegisteredUsersPage({ searchParams }: PageProps) {
 
   const keyword = (searchParams.q as string) || '';
   const userType = (searchParams.type as string) || 'all';
-  const regionLang = (searchParams.region as string) || 'all'; // Renamed to region for clarity
+  const regionLang = (searchParams.region as string) || 'all';
   const timeRange = (searchParams.range as string) || 'all';
-  const commStatus = (searchParams.comm as string) || 'all'; // Communication Status: 'communicated' | 'not_communicated' | 'all'
+  const commStatus = (searchParams.comm as string) || 'all'; // 'communicated' | 'not_communicated' | 'all'
   const customStart = (searchParams.start as string) || '';
   const customEnd = (searchParams.end as string) || '';
 
-  // 2. Pre-process "Online Communication" Filter
-  // Since we can't do complex Joins easily, we fetch emails that have communicated first.
-  let communicatedEmails: string[] = [];
-  const shouldFilterByComm = commStatus !== 'all';
-
-  // We always need to know who communicated to show the badge, but we only strictly filter query if param is set.
-  // Optimization: Fetch all 'communicated' emails (outcome = completed/cancelled)
-  // In a massive DB this should be paginated or indexed, but for Admin CMS it's fine.
+  // 2. Determine Communication Status (Rule: has at least one demo_request)
+  // Fetch distinct user_ids from demo_requests
+  let communicatedUserIds: string[] = [];
   const { data: demoRequests } = await supabase
     .from('demo_requests')
-    .select('email')
-    .in('outcome', ['completed', 'cancelled']); // Key logic: outcome is completed or cancelled
+    .select('user_id'); // We just need existence
 
-  const communicatedEmailSet = new Set((demoRequests || []).map(r => r.email).filter(Boolean));
-  communicatedEmails = Array.from(communicatedEmailSet) as string[];
+  // Safe mapping and filtering with type assertion
+  const demoRequestsData = demoRequests as { user_id: string }[] | null;
+  const communicatedUserIdSet = new Set((demoRequestsData || []).map(r => r.user_id).filter(Boolean));
+  communicatedUserIds = Array.from(communicatedUserIdSet);
 
-  // 3. Build Main Query
+  // 3. Build Main Query against `user_profiles`
   let query = supabase
-    .from('registered_users')
-    .select('id, name, email, phone, created_at, user_type, company_name, title, use_case_tags, interest_tags, pain_points, country, region, city, language, locale', { count: 'exact' });
+    .from('user_profiles')
+    .select('*', { count: 'exact' });
 
   // Filter: Keyword
   if (keyword) {
     const pattern = `%${keyword}%`;
-    query = query.or(`name.ilike.${pattern},email.ilike.${pattern},phone.ilike.${pattern}`);
+    query = query.or(`name.ilike.${pattern},email.ilike.${pattern},phone.ilike.${pattern},company_name.ilike.${pattern}`);
   }
 
   // Filter: User Type
@@ -59,11 +56,9 @@ export default async function RegisteredUsersPage({ searchParams }: PageProps) {
     query = query.eq('user_type', userType);
   }
 
-  // Filter: Region/Language (Matches any of the location fields)
+  // Filter: Region/Location
   if (regionLang !== 'all') {
-    // Simple exact match logic based on what availableLocales returns (usually 'zh-CN', 'en-US' etc from locale field)
-    // OR we can make it search country/region/language
-    query = query.or(`locale.eq.${regionLang},language.eq.${regionLang},country.eq.${regionLang}`);
+    query = query.or(`country.eq.${regionLang},city.eq.${regionLang},region.eq.${regionLang}`);
   }
 
   // Filter: Time Range
@@ -78,56 +73,56 @@ export default async function RegisteredUsersPage({ searchParams }: PageProps) {
       .lte('created_at', endOfDay(new Date(customEnd)).toISOString());
   }
 
-  // Filter: Communication Status (The complex one)
+  // Filter: Communication Status
   if (commStatus === 'communicated') {
-    if (communicatedEmails.length > 0) {
-      query = query.in('email', communicatedEmails);
+    if (communicatedUserIds.length > 0) {
+      query = query.in('id', communicatedUserIds);
     } else {
-      // User wants communicated, but no one has communicated. Return empty.
-      query = query.eq('id', '00000000-0000-0000-0000-000000000000'); // Impossible ID
+      query = query.eq('id', '00000000-0000-0000-0000-000000000000'); // No matches
     }
   } else if (commStatus === 'not_communicated') {
-    if (communicatedEmails.length > 0) {
-      // Note: Supabase JS .not('email', 'in', array) works for smaller arrays. 
-      // If array is huge, this might break URL length limits. 
-      // Fallback: Fetch page then filter in memory? No, that breaks pagination.
-      // Assuming manageable size for CMS.
-      query = query.not('email', 'in', `(${communicatedEmails.map(e => `"${e}"`).join(',')})`);
+    if (communicatedUserIds.length > 0) {
+        // Safe check for empty array to avoid syntax error in supabase query
+        const idsString = `(${communicatedUserIds.map(id => `"${id}"`).join(',')})`;
+        query = query.not('id', 'in', idsString);
     }
   }
 
-  // 4. Execute Query (Sort & Paginate)
+  // 4. Execute Query
   const { data: rawUsers, count, error } = await query
     .order('created_at', { ascending: false })
     .range(from, to);
 
-  // 5. Post-process: Enrich data with communication status
-  const users: RegisteredUser[] = (rawUsers || []).map((u: any) => ({
+  // 5. Post-process: Enrich data
+  const users: UserProfile[] = (rawUsers || []).map((u: any) => ({
     ...u,
-    // Add computed field
-    communication_status: communicatedEmailSet.has(u.email) ? 'communicated' : 'not_communicated'
+    has_communicated: communicatedUserIdSet.has(u.id)
   }));
 
-  // 6. Fetch Distinct Regions/Locales for Filter
-  // Try to get unique values from locale column
-  const { data: localeData } = await supabase
-    .from('registered_users')
-    .select('locale')
+  // 6. Fetch Distinct Countries/Cities for Filter
+  // Simple approximation: fetch latest 1000 and extract distinct countries
+  const { data: locationData } = await supabase
+    .from('user_profiles')
+    .select('country, city')
     .order('created_at', { ascending: false })
-    .limit(1000); // Sample last 1000 users for filter options
+    .limit(1000);
     
-  const uniqueLocales = Array.from(new Set((localeData || []).map((row: any) => row.locale).filter(Boolean))).sort() as string[];
+  const locations = new Set<string>();
+  (locationData || []).forEach((row: any) => {
+      if (row.country) locations.add(row.country);
+      if (row.city) locations.add(row.city);
+  });
+  const uniqueLocations = Array.from(locations).sort();
 
-  // Handle errors gracefully (e.g. table doesn't exist yet)
   if (error) {
-    console.error('Supabase Error:', error.message);
+    console.error('Supabase Error (user_profiles):', error.message);
   }
 
   return (
     <RegisteredUsersClientView
       initialUsers={users}
       totalCount={count || 0}
-      availableRegions={uniqueLocales}
+      availableRegions={uniqueLocations}
       searchParams={{
         q: keyword,
         type: userType,
@@ -138,7 +133,7 @@ export default async function RegisteredUsersPage({ searchParams }: PageProps) {
         end: customEnd,
         page,
       }}
-      error={error ? `数据加载失败 (可能是数据库字段未同步): ${error.message}` : null}
+      error={error ? `加载失败: ${error.message}` : null}
     />
   );
 }

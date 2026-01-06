@@ -1,3 +1,4 @@
+
 import { createClient } from '@/utils/supabase/server';
 import { DemoRequest, DemoAppointment } from '@/types';
 import { addHours } from 'date-fns';
@@ -17,20 +18,31 @@ export default async function DemoRequestsPage({ searchParams }: { searchParams:
 
   // 1. Basic SQL Filter (Status)
   const status = searchParams.status || 'all';
-  let query = supabase.from('demo_requests').select('*');
+  
+  // JOIN user_profiles to get the single source of truth for contact info
+  let query = supabase
+    .from('demo_requests')
+    .select('*, user_profiles(*)');
 
   if (status && status !== 'all') {
     query = query.eq('status', status);
   }
   
-  // Default Sort by Created At Desc (Server side base sort)
-  // We do advanced sorting (Pending first) on the client, but fetching newest first helps with initial render.
   query = query.order('created_at', { ascending: false });
 
   const { data: initialRequests, error: reqError } = await query;
-  if (reqError) console.error('Error fetching demo requests:', reqError.message);
+  
+  if (reqError) {
+    console.error('Error fetching demo requests:', reqError.message);
+  }
 
-  const requests = (initialRequests as DemoRequest[]) || [];
+  // Cast safely, assuming user_profiles comes back as an object or null
+  const requests = (initialRequests as any[])?.map(item => ({
+    ...item,
+    // Ensure user_profile is correctly structured if the join returns an array (Supabase sometimes does this for 1:M, though user_id should be 1:1 here)
+    user_profile: Array.isArray(item.user_profiles) ? item.user_profiles[0] : item.user_profiles
+  })) as DemoRequest[] || [];
+
   const requestIds = requests.map(r => r.id);
 
   // 2. Fetch Appointments
@@ -46,7 +58,6 @@ export default async function DemoRequestsPage({ searchParams }: { searchParams:
     if (appError) console.error('Error fetching appointments:', appError.message);
     
     if (appointments) {
-       // Logic: Prefer 'scheduled' appointment, otherwise take the latest one
        const groupedApps = new Map<string, DemoAppointment[]>();
        (appointments as DemoAppointment[]).forEach(app => {
          const list = groupedApps.get(app.demo_request_id) || [];
@@ -71,26 +82,17 @@ export default async function DemoRequestsPage({ searchParams }: { searchParams:
 
   const filteredRequests = requests.filter(req => {
     const appointment = currentAppointmentMap.get(req.id);
-    // Assuming every request has an appointment as per requirement.
-    // If appointment is missing for some reason, we treat it as null date.
     const scheduledTime = appointment ? new Date(appointment.scheduled_at) : null;
 
-    // Filter B: Time Logic
     if (timeStatus !== 'all') {
-        if (!scheduledTime) return false; // Exclude if no time and we are filtering by time
-
-        if (timeStatus === 'overdue') {
-            return scheduledTime < now;
-        }
-        if (timeStatus === 'future') {
-            return scheduledTime >= now;
-        }
+        if (!scheduledTime) return false;
+        if (timeStatus === 'overdue') return scheduledTime < now;
+        if (timeStatus === 'future') return scheduledTime >= now;
         if (timeStatus === 'near_24h') {
             const twentyFourHoursLater = addHours(now, 24);
             return scheduledTime >= now && scheduledTime <= twentyFourHoursLater;
         }
     }
-
     return true;
   });
 
@@ -99,29 +101,24 @@ export default async function DemoRequestsPage({ searchParams }: { searchParams:
     request: req,
     appointment: currentAppointmentMap.get(req.id)
   })).sort((a, b) => {
-    // Primary: Pending first
     if (a.request.status !== b.request.status) {
         return a.request.status === 'pending' ? -1 : 1;
     }
-    // Secondary: Created At Desc
     return new Date(b.request.created_at).getTime() - new Date(a.request.created_at).getTime();
   });
-
-  // Check for missing phone numbers (Warning banner logic)
-  const missingPhoneCount = initialItems.filter(i => !i.request.phone).length;
 
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-end">
-          <h1 className="text-2xl font-bold text-gray-900">演示申请管理</h1>
-          {missingPhoneCount > 0 && (
-              <div className="flex items-center gap-2 text-xs text-orange-600 bg-orange-50 px-2 py-1 rounded border border-orange-100">
-                  <AlertTriangle size={12} />
-                  <span>提示：有 {missingPhoneCount} 条历史数据暂无手机号</span>
-              </div>
-          )}
+          <h1 className="text-2xl font-bold text-gray-900">演示申请</h1>
       </div>
       
+      {reqError && (
+         <div className="bg-red-50 text-red-700 p-4 rounded-lg border border-red-200">
+            Error loading requests: {reqError.message}
+         </div>
+      )}
+
       <Filters searchParams={searchParams} />
       <RequestListClient initialItems={initialItems} />
     </div>

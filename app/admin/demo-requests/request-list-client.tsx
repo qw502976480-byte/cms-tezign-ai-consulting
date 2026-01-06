@@ -1,8 +1,9 @@
+
 'use client';
 
 import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { DemoRequest, DemoAppointment, DemoRequestStatus, DemoRequestOutcome } from '@/types';
+import { DemoRequest, DemoAppointment, DemoRequestStatus, DemoRequestOutcome, UserProfile } from '@/types';
 import { format } from 'date-fns';
 import AppointmentCell from './AppointmentCell';
 import Countdown from './Countdown';
@@ -10,6 +11,8 @@ import RequestActions from './UpdateRequestStatusButton';
 import ContactCell from './ContactCell';
 import RequestDetailDialog from './RequestDetailDialog';
 import StatsOverview from './StatsOverview';
+// Import User Detail Modal from registered-users
+import UserDetailModal from '../registered-users/UserDetailModal';
 
 interface CombinedItem {
   request: DemoRequest;
@@ -25,16 +28,14 @@ export default function RequestListClient({ initialItems }: Props) {
   const [items, setItems] = useState<CombinedItem[]>(initialItems);
   
   // Dialog State
-  const [selectedItem, setSelectedItem] = useState<CombinedItem | null>(null);
+  const [selectedRequestForDetail, setSelectedRequestForDetail] = useState<CombinedItem | null>(null);
+  const [selectedUserProfile, setSelectedUserProfile] = useState<UserProfile | null>(null);
 
-  // --- Core Logic: Update based on Outcome only ---
   const handleUpdate = async (id: string, newOutcome: DemoRequestOutcome) => {
-    // 1. Calculate Expected Status based on Rule
-    // outcome set -> status MUST be processed
     const newStatus: DemoRequestStatus = 'processed';
-
-    // 2. Optimistic Update
     const previousItems = [...items];
+    
+    // Optimistic UI
     setItems(current => current.map(item => {
       if (item.request.id === id) {
         return {
@@ -43,7 +44,6 @@ export default function RequestListClient({ initialItems }: Props) {
             ...item.request,
             status: newStatus,
             outcome: newOutcome,
-            // Update timestamp optimistically
             processed_at: new Date().toISOString() 
           }
         };
@@ -52,41 +52,27 @@ export default function RequestListClient({ initialItems }: Props) {
     }));
 
     try {
-      // 3. Call API
       const response = await fetch(`/api/demo-requests/${id}/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ outcome: newOutcome }), // Only send outcome
+        body: JSON.stringify({ outcome: newOutcome }),
       });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`API Error ${response.status}:`, errorText);
-        throw new Error(`Update failed: ${response.status}`);
-      }
-
-      // 4. Background Refresh
+      if (!response.ok) throw new Error(`Update failed: ${response.status}`);
       router.refresh();
 
     } catch (error: any) {
       console.error('Update failed:', error);
       alert(`更新失败: ${error.message}`);
-      setItems(previousItems); // Revert
+      setItems(previousItems); 
     }
   };
 
-  // --- Sorting: Pending Top, then Processed. Within groups: Created Desc ---
   const sortedItems = useMemo(() => {
     return [...items].sort((a, b) => {
-      // 1. Status Priority: Pending (0) < Processed (1)
       const statusWeightA = a.request.status === 'pending' ? 0 : 1;
       const statusWeightB = b.request.status === 'pending' ? 0 : 1;
-
-      if (statusWeightA !== statusWeightB) {
-        return statusWeightA - statusWeightB;
-      }
-
-      // 2. Date: Newest first
+      if (statusWeightA !== statusWeightB) return statusWeightA - statusWeightB;
       return new Date(b.request.created_at).getTime() - new Date(a.request.created_at).getTime();
     });
   }, [items]);
@@ -100,16 +86,14 @@ export default function RequestListClient({ initialItems }: Props) {
 
   return (
     <div className="space-y-6">
-      {/* New Global Stats Overview */}
       <StatsOverview />
 
-      {/* Table */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden min-h-[400px]">
         <table className="w-full text-sm text-left">
           <thead className="text-gray-500 font-medium border-b border-gray-200 bg-gray-50">
             <tr>
               <th className="px-6 py-4 w-[200px]">申请时间/公司</th>
-              <th className="px-6 py-4 w-[240px]">联系人</th>
+              <th className="px-6 py-4 w-[240px]">联系人 (UserProfile)</th>
               <th className="px-6 py-4 w-[100px]">状态</th>
               <th className="px-6 py-4 w-[180px]">预约时间</th>
               <th className="px-6 py-4 w-[150px]">倒计时</th>
@@ -120,15 +104,39 @@ export default function RequestListClient({ initialItems }: Props) {
             {sortedItems.map((item) => {
               const { request: req, appointment } = item;
               const statusBadge = getStatusBadge(req.status);
+              
+              // Fallback to legacy snapshot fields if user_profile is missing
+              const displayProfile = req.user_profile || {
+                 id: req.user_id,
+                 auth_user_id: null,
+                 name: req.name,
+                 email: req.email,
+                 phone: req.phone,
+                 company_name: req.company,
+                 title: req.title,
+                 created_at: req.created_at,
+                 user_type: 'personal', // Default
+                 use_case_tags: [],
+                 interest_tags: [],
+                 pain_points: null,
+              } as UserProfile;
+
               return (
                 <tr key={req.id} className="hover:bg-gray-50 transition-colors group">
                   <td className="px-6 py-4 text-gray-500 align-top">
                     {format(new Date(req.created_at), 'yyyy-MM-dd HH:mm')}
-                    <p className="font-medium text-gray-900 mt-1 truncate max-w-[160px]" title={req.company || ''}>{req.company || '-'}</p>
-                    <p className="text-xs truncate max-w-[160px]" title={req.title || ''}>{req.title || '-'}</p>
+                    <p className="font-medium text-gray-900 mt-1 truncate max-w-[160px]" title={displayProfile.company_name || ''}>
+                        {displayProfile.company_name || '-'}
+                    </p>
+                    <p className="text-xs truncate max-w-[160px]" title={displayProfile.title || ''}>
+                        {displayProfile.title || '-'}
+                    </p>
                   </td>
                   <td className="px-6 py-4 align-top">
-                    <ContactCell request={req} onClick={() => setSelectedItem(item)} />
+                    <ContactCell 
+                        user={displayProfile} 
+                        onClick={() => setSelectedUserProfile(displayProfile)} 
+                    />
                   </td>
                   <td className="px-6 py-4 align-top">
                     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${statusBadge.className}`}>
@@ -161,15 +169,23 @@ export default function RequestListClient({ initialItems }: Props) {
         </table>
       </div>
 
-      {/* Detail Dialog */}
-      {selectedItem && (
+      {/* Legacy Request Detail Dialog (Logs etc) */}
+      {selectedRequestForDetail && (
         <RequestDetailDialog 
-            isOpen={!!selectedItem}
-            onClose={() => setSelectedItem(null)}
-            request={selectedItem.request}
-            appointment={selectedItem.appointment}
+            isOpen={!!selectedRequestForDetail}
+            onClose={() => setSelectedRequestForDetail(null)}
+            request={selectedRequestForDetail.request}
+            appointment={selectedRequestForDetail.appointment}
         />
       )}
+
+      {/* User Profile Modal */}
+      <UserDetailModal 
+         user={selectedUserProfile}
+         isOpen={!!selectedUserProfile}
+         onClose={() => setSelectedUserProfile(null)}
+         onNoteSaved={() => router.refresh()}
+      />
     </div>
   );
 }
