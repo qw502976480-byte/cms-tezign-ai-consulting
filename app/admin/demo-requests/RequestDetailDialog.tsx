@@ -42,7 +42,7 @@ export default function RequestDetailDialog({ isOpen, onClose, request, appointm
         // Requirement 4: Handle non-ok responses.
         const text = await res.text();
         console.error("[logs] failed", res.status, text);
-        throw new Error(`操作记录加载失败（状态码：${res.status}）`);
+        throw new Error(`操作记录加载失败（状态码：${res.status}）详情：${text}`);
       }
 
       const data = await res.json();
@@ -59,6 +59,7 @@ export default function RequestDetailDialog({ isOpen, onClose, request, appointm
       logCache[request.id] = { ts: Date.now(), data: logsData };
 
     } catch (e: any) {
+      console.error("[logs] catch error:", e);
       setLogError(e.message);
     } finally {
       setLoadingLogs(false);
