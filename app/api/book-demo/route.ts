@@ -10,7 +10,6 @@ export async function POST(request: NextRequest) {
   const apiKey = process.env.RESEND_API_KEY;
 
   if (!apiKey) {
-    // Return error instead of throwing to prevent build failure
     return NextResponse.json({ error: "Missing RESEND_API_KEY" }, { status: 500 });
   }
 
@@ -18,32 +17,30 @@ export async function POST(request: NextRequest) {
   
   try {
     const body = await request.json();
-    const { name, email, requested_times, timezone, notes } = body;
+    const { name, email, company, title, phone, notes } = body;
 
     if (!email || !name) {
       return NextResponse.json({ error: 'Email and name required' }, { status: 400 });
     }
 
     // 1. Ensure registration exists (UPSERT)
-    const { data: regData, error: regError } = await supabase
+    const { error: regError } = await supabase
       .from('registrations')
-      .upsert({ email, name }, { onConflict: 'email' })
-      .select('id')
-      .single();
+      .upsert({ email, name }, { onConflict: 'email' });
 
     if (regError) throw regError;
 
-    // 2. Create Demo Request
+    // 2. Create Demo Request with the new schema
     const { error: demoError } = await supabase
       .from('demo_requests')
       .insert({
-        registration_id: regData.id,
         name,
         email,
-        timezone,
-        requested_times: requested_times || [],
+        company,
+        title,
+        phone,
         notes,
-        status: 'New'
+        status: 'pending' // Set initial status to 'pending'
       });
 
     if (demoError) throw demoError;
@@ -56,12 +53,16 @@ export async function POST(request: NextRequest) {
       subject: 'We received your demo request',
       html: `
         <h1>Hi ${name},</h1>
-        <p>Thanks for requesting a demo. We have received your request.</p>
-        <p><strong>Timezone:</strong> ${timezone}</p>
-        <p><strong>Requested Times:</strong></p>
-        <ul>${(requested_times || []).map((t: string) => `<li>${t}</li>`).join('')}</ul>
+        <p>Thanks for requesting a demo. We have received your request and will get back to you shortly.</p>
+        <p>Here's a summary of the information you provided:</p>
+        <ul>
+          <li><strong>Name:</strong> ${name}</li>
+          <li><strong>Email:</strong> ${email}</li>
+          <li><strong>Company:</strong> ${company || 'Not provided'}</li>
+          <li><strong>Title:</strong> ${title || 'Not provided'}</li>
+          <li><strong>Phone:</strong> ${phone || 'Not provided'}</li>
+        </ul>
         <p><strong>Notes:</strong> ${notes || 'None'}</p>
-        <p>We will get back to you shortly.</p>
       `
     });
 
@@ -72,9 +73,15 @@ export async function POST(request: NextRequest) {
         to: process.env.EMAIL_TO_INTERNAL,
         subject: `New Demo Request: ${name}`,
         html: `
-          <p><strong>User:</strong> ${name} (${email})</p>
-          <p><strong>Timezone:</strong> ${timezone}</p>
-          <p><strong>Notes:</strong> ${notes}</p>
+          <p>A new demo request has been submitted:</p>
+          <ul>
+            <li><strong>Name:</strong> ${name}</li>
+            <li><strong>Email:</strong> ${email}</li>
+            <li><strong>Company:</strong> ${company || '-'}</li>
+            <li><strong>Title:</strong> ${title || '-'}</li>
+            <li><strong>Phone:</strong> ${phone || '-'}</li>
+            <li><strong>Notes:</strong> ${notes || '-'}</li>
+          </ul>
         `
       });
     }

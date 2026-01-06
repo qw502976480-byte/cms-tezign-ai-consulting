@@ -13,7 +13,7 @@ async function getStats() {
   ] = await Promise.all([
     supabase.from('resources').select('*', { count: 'exact', head: true }),
     supabase.from('registrations').select('*', { count: 'exact', head: true }),
-    supabase.from('demo_requests').select('*', { count: 'exact', head: true }).eq('status', 'New'),
+    supabase.from('demo_requests').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
   ]);
 
   return { resourceCount, regCount, demoCount };
