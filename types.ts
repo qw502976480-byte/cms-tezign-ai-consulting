@@ -2,6 +2,7 @@ export type ResourceCategory = 'report' | 'announcement' | 'case_study' | 'metho
 export type DemoRequestStatus = 'pending' | 'processed';
 export type HomepageModuleType = 'hero' | 'gpt_search' | 'latest_news' | 'core_capabilities' | 'product_claim' | 'primary_cta';
 export type ResourceStatus = 'draft' | 'published' | 'archived';
+export type DemoAppointmentStatus = 'scheduled' | 'completed';
 
 export interface Resource {
   id: string;
@@ -36,6 +37,14 @@ export interface DemoRequest {
   status: DemoRequestStatus;
   created_at: string;
   processed_at: string | null;
+}
+
+export interface DemoAppointment {
+  id: string;
+  demo_request_id: string;
+  scheduled_at: string;
+  status: DemoAppointmentStatus;
+  created_at: string;
 }
 
 

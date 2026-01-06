@@ -8,6 +8,7 @@ interface SearchParams {
   range?: '7d' | '30d' | 'custom';
   start?: string;
   end?: string;
+  appointment_status?: 'all' | 'none' | 'scheduled' | 'overdue' | 'completed';
 }
 
 export default function Filters({ searchParams }: { searchParams: SearchParams }) {
@@ -22,24 +23,16 @@ export default function Filters({ searchParams }: { searchParams: SearchParams }
     const current = new URLSearchParams(currentSearchParams.toString());
     current.set(key, value);
 
-    // If changing range to non-custom, clear custom dates and navigate
     if (key === 'range' && value !== 'custom') {
       current.delete('start');
       current.delete('end');
       setCustomStart('');
       setCustomEnd('');
-      const search = current.toString();
-      const query = search ? `?${search}` : "";
-      router.push(`${pathname}${query}`);
-    } else if (key !== 'range') { // For status changes, navigate immediately
-       const search = current.toString();
-       const query = search ? `?${search}` : "";
-       router.push(`${pathname}${query}`);
-    } else { // It's a switch to custom, just update the UI state
-      const search = current.toString();
-      const query = search ? `?${search}` : "";
-      router.push(`${pathname}${query}`);
     }
+    
+    const search = current.toString();
+    const query = search ? `?${search}` : "";
+    router.push(`${pathname}${query}`);
   };
 
   const handleCustomDateApply = () => {
@@ -64,10 +57,11 @@ export default function Filters({ searchParams }: { searchParams: SearchParams }
   
   const status = searchParams.status || 'all';
   const range = searchParams.range || '30d';
+  const appointmentStatus = searchParams.appointment_status || 'all';
 
   return (
     <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-wrap items-center justify-between gap-4">
-      <div className="flex items-center gap-4">
+      <div className="flex flex-wrap items-center gap-4">
         {/* Status Filter */}
         <div>
           <label htmlFor="status-filter" className="text-sm font-medium text-gray-500 mr-2">状态:</label>
@@ -80,6 +74,23 @@ export default function Filters({ searchParams }: { searchParams: SearchParams }
             <option value="all">全部</option>
             <option value="pending">待处理</option>
             <option value="processed">已处理</option>
+          </select>
+        </div>
+
+        {/* Appointment Status Filter */}
+        <div>
+          <label htmlFor="appointment-filter" className="text-sm font-medium text-gray-500 mr-2">预约:</label>
+          <select
+            id="appointment-filter"
+            value={appointmentStatus}
+            onChange={(e) => handleFilterChange('appointment_status', e.target.value)}
+            className="rounded-md border-gray-300 shadow-sm focus:border-gray-900 focus:ring-gray-900 text-sm"
+          >
+            <option value="all">全部</option>
+            <option value="none">未安排</option>
+            <option value="scheduled">已安排</option>
+            <option value="overdue">已逾期</option>
+            <option value="completed">已完成</option>
           </select>
         </div>
 
