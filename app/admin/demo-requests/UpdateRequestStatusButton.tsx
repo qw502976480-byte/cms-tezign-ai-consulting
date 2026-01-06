@@ -1,74 +1,78 @@
 'use client';
 
 import { useState } from 'react';
-import { DemoRequest, DemoRequestStatus, DemoRequestOutcome } from '@/types';
-import { Loader2, Check, X } from 'lucide-react';
+import { DemoRequest, DemoRequestOutcome } from '@/types';
+import { Loader2, ChevronDown, CheckCircle2, XCircle, CircleDashed } from 'lucide-react';
 
 interface Props {
   request: DemoRequest;
-  onUpdate: (id: string, status: DemoRequestStatus, outcome: DemoRequestOutcome) => Promise<void>;
+  onUpdate: (id: string, outcome: DemoRequestOutcome) => Promise<void>;
 }
 
 export default function RequestActions({ request, onUpdate }: Props) {
   const [loading, setLoading] = useState(false);
 
-  // Determine if we should show buttons or the outcome state
-  // Rule C: Visual Consistency
-  const isCompleted = request.outcome === 'completed';
-  const isCancelled = request.outcome === 'cancelled';
-  const hasOutcome = isCompleted || isCancelled;
+  // Current value logic
+  const currentOutcome = request.outcome || 'null'; // 'completed' | 'cancelled' | 'null'
 
-  const handleClick = async (status: DemoRequestStatus, outcome: DemoRequestOutcome) => {
-    if (loading) return;
+  const handleChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newVal = e.target.value;
+    const targetOutcome = newVal === 'null' ? null : (newVal as DemoRequestOutcome);
+    
+    // Prevent redundant updates
+    if (targetOutcome === request.outcome) return;
+
     setLoading(true);
     try {
-      await onUpdate(request.id, status, outcome);
-      // Note: We don't set loading false here because the component might unmount/re-render via parent
-      // But if it stays, we want it to reflect the new state immediately passed down via props
+      await onUpdate(request.id, targetOutcome);
     } catch (e) {
+      // Error handling is done in parent, but we stop loading here if needed
+    } finally {
       setLoading(false);
     }
   };
 
-  // If already has an outcome, display it
-  if (hasOutcome) {
-      if (isCompleted) {
-          return <span className="flex items-center justify-end gap-1 text-xs font-medium text-green-700"><Check size={12}/> 已完成</span>;
-      }
-      if (isCancelled) {
-          return <span className="flex items-center justify-end gap-1 text-xs font-medium text-gray-400"><X size={12}/> 已取消</span>;
-      }
-  }
+  // Visual Styles based on state
+  const getContainerStyle = () => {
+    if (currentOutcome === 'completed') return 'bg-green-50 border-green-200 text-green-700';
+    if (currentOutcome === 'cancelled') return 'bg-gray-100 border-gray-200 text-gray-500';
+    return 'bg-white border-gray-300 text-gray-700 hover:border-gray-400';
+  };
 
-  // Loading State
-  if (loading) {
-     return (
-        <div className="flex justify-end items-center h-[30px] w-full gap-2">
-           <Loader2 className="animate-spin text-gray-400" size={14} />
-           <span className="text-xs text-gray-400">处理中...</span>
-        </div>
-     );
-  }
+  const getIcon = () => {
+      if (loading) return <Loader2 className="animate-spin text-gray-400" size={14} />;
+      if (currentOutcome === 'completed') return <CheckCircle2 size={14} />;
+      if (currentOutcome === 'cancelled') return <XCircle size={14} />;
+      return <CircleDashed size={14} className="text-gray-400" />;
+  };
 
-  // Action Buttons
   return (
-    <div className="flex items-center justify-end gap-2">
-      <button
-        // Rule A: Cancel -> status: processed, outcome: cancelled
-        onClick={() => handleClick('processed', 'cancelled')}
-        title="标记为取消 (未发生沟通)"
-        className="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+    <div className="relative inline-block w-36">
+      {/* Visual Facade */}
+      <div className={`flex items-center justify-between px-3 py-1.5 border rounded-md text-xs font-medium transition-colors ${getContainerStyle()}`}>
+         <div className="flex items-center gap-2 truncate">
+            {getIcon()}
+            <span>
+                {currentOutcome === 'completed' && '已完成'}
+                {currentOutcome === 'cancelled' && '已取消'}
+                {currentOutcome === 'null' && '待处理'}
+            </span>
+         </div>
+         {!loading && <ChevronDown size={12} className="opacity-50" />}
+      </div>
+
+      {/* Invisible Select Overlay for interaction */}
+      <select
+        value={currentOutcome}
+        onChange={handleChange}
+        disabled={loading}
+        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
+        title="更改沟通结果"
       >
-        取消
-      </button>
-      <button
-        // Rule A: Complete -> status: processed, outcome: completed
-        onClick={() => handleClick('processed', 'completed')}
-        title="标记为完成 (已发生沟通)"
-        className="px-3 py-1.5 text-xs font-medium text-white bg-gray-900 border border-gray-900 rounded-md hover:bg-black transition-colors"
-      >
-        完成
-      </button>
+        <option value="null">待处理 (未结果)</option>
+        <option value="completed">已完成沟通</option>
+        <option value="cancelled">已取消沟通</option>
+      </select>
     </div>
   );
 }

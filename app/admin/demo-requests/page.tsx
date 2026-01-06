@@ -1,122 +1,115 @@
 import { createClient } from '@/utils/supabase/server';
 import { DemoRequest, DemoAppointment } from '@/types';
-import { subDays, startOfDay, endOfDay } from 'date-fns';
+import { addHours } from 'date-fns';
 import Filters from './Filters';
 import RequestListClient from './request-list-client';
 
 export const dynamic = 'force-dynamic';
 
 interface SearchParams {
-  status?: 'pending' | 'processed' | 'all';
-  range?: '7d' | '30d' | 'custom';
-  start?: string;
-  end?: string;
-  appointment_status?: 'all' | 'none' | 'scheduled' | 'overdue' | 'completed';
+  status?: 'all' | 'pending' | 'processed';
+  appointment_type?: 'all' | 'scheduled' | 'none';
+  time_status?: 'all' | 'overdue' | 'future' | 'near_24h';
 }
 
 export default async function DemoRequestsPage({ searchParams }: { searchParams: SearchParams }) {
   const supabase = await createClient();
 
-  // 1. Initial query for demo_requests based on primary filters
+  // 1. Basic SQL Filter (Status)
   const status = searchParams.status || 'all';
-  const range = searchParams.range || '30d';
-
   let query = supabase.from('demo_requests').select('*');
 
-  // We filter by status in SQL if specific, otherwise we get all to sort manually
   if (status && status !== 'all') {
     query = query.eq('status', status);
   }
-
-  let startDate: Date | null = null;
-  let endDate: Date | null = null;
-  if (range === '7d') startDate = subDays(new Date(), 7);
-  else if (range === '30d') startDate = subDays(new Date(), 30);
-  else if (range === 'custom' && searchParams.start && searchParams.end) {
-    try {
-      startDate = startOfDay(new Date(searchParams.start));
-      endDate = endOfDay(new Date(searchParams.end));
-    } catch (e) {
-      startDate = subDays(new Date(), 30);
-    }
-  } else {
-    startDate = subDays(new Date(), 30);
-  }
-
-  if (startDate) query = query.gte('created_at', startDate.toISOString());
-  if (endDate) query = query.lte('created_at', endDate.toISOString());
   
-  const { data: initialRequests, error: reqError } = await query;
+  // Default Sort by Created At Desc (Server side base sort)
+  query = query.order('created_at', { ascending: false });
 
+  const { data: initialRequests, error: reqError } = await query;
   if (reqError) console.error('Error fetching demo requests:', reqError.message);
 
   const requests = (initialRequests as DemoRequest[]) || [];
   const requestIds = requests.map(r => r.id);
 
-  // 2. Fetch associated appointments for the filtered requests
+  // 2. Fetch Appointments
   let currentAppointmentMap = new Map<string, DemoAppointment>();
+  
   if (requestIds.length > 0) {
     const { data: appointments, error: appError } = await supabase
       .from('demo_appointments')
       .select('*')
       .in('demo_request_id', requestIds)
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false }); // Get latest first
 
     if (appError) console.error('Error fetching appointments:', appError.message);
     
     if (appointments) {
-      const appointmentsByRequestId = new Map<string, DemoAppointment[]>();
-      (appointments as DemoAppointment[]).forEach(app => {
-        const list = appointmentsByRequestId.get(app.demo_request_id) || [];
-        list.push(app);
-        appointmentsByRequestId.set(app.demo_request_id, list);
-      });
+       // Logic: Prefer 'scheduled' appointment, otherwise take the latest one
+       // This maps one request to its "Active" or "Most Recent" appointment
+       const groupedApps = new Map<string, DemoAppointment[]>();
+       (appointments as DemoAppointment[]).forEach(app => {
+         const list = groupedApps.get(app.demo_request_id) || [];
+         list.push(app);
+         groupedApps.set(app.demo_request_id, list);
+       });
 
-      for (const [requestId, apps] of Array.from(appointmentsByRequestId.entries())) {
-        const scheduledApp = apps.find((a: DemoAppointment) => a.status === 'scheduled');
-        if (scheduledApp) {
-          currentAppointmentMap.set(requestId, scheduledApp);
-        } else {
-          // Find the most recent non-scheduled appointment
-          const latestTerminalApp = apps.find((a: DemoAppointment) => ['completed', 'canceled', 'no_show'].includes(a.status));
-          if (latestTerminalApp) {
-            currentAppointmentMap.set(requestId, latestTerminalApp);
-          }
-        }
-      }
+       groupedApps.forEach((apps, reqId) => {
+         const scheduled = apps.find(a => a.status === 'scheduled');
+         if (scheduled) {
+            currentAppointmentMap.set(reqId, scheduled);
+         } else if (apps.length > 0) {
+            currentAppointmentMap.set(reqId, apps[0]);
+         }
+       });
     }
   }
 
-  // 3. Apply secondary appointment filter in code
-  const appointmentStatus = searchParams.appointment_status || 'all';
+  // 3. Apply Advanced Filters (Appointment Type & Time Status) in JS
+  const appointmentType = searchParams.appointment_type || 'all';
+  const timeStatus = searchParams.time_status || 'all';
   const now = new Date();
 
   const filteredRequests = requests.filter(req => {
     const appointment = currentAppointmentMap.get(req.id);
-    switch (appointmentStatus) {
-      case 'none':
-        return !appointment;
-      case 'scheduled':
-        return appointment?.status === 'scheduled' && new Date(appointment.scheduled_at) > now;
-      case 'overdue':
-        return appointment?.status === 'scheduled' && new Date(appointment.scheduled_at) <= now;
-      case 'completed':
-        return appointment?.status === 'completed';
-      case 'all':
-      default:
-        return true;
+    const hasScheduledApp = appointment?.status === 'scheduled';
+    const scheduledTime = hasScheduledApp ? new Date(appointment!.scheduled_at) : null;
+
+    // Filter B: Appointment Existence
+    if (appointmentType === 'scheduled') {
+        if (!hasScheduledApp) return false;
+    } else if (appointmentType === 'none') {
+        if (hasScheduledApp) return false;
     }
+
+    // Filter C: Time Logic (Only applies if we are looking at scheduled items)
+    // If appointment_type is 'none', time_status is ignored by UI, but we check here too.
+    if (appointmentType === 'scheduled' && timeStatus !== 'all' && scheduledTime) {
+        if (timeStatus === 'overdue') {
+            return scheduledTime < now;
+        }
+        if (timeStatus === 'future') {
+            return scheduledTime >= now;
+        }
+        if (timeStatus === 'near_24h') {
+            const twentyFourHoursLater = addHours(now, 24);
+            return scheduledTime >= now && scheduledTime <= twentyFourHoursLater;
+        }
+    }
+
+    return true;
   });
 
-  // 4. Combine data for Client Component
-  // We do the initial sort here too, to avoid layout shift on hydration
+  // 4. Combine & Initial Client Sort
   const initialItems = filteredRequests.map(req => ({
     request: req,
     appointment: currentAppointmentMap.get(req.id)
   })).sort((a, b) => {
+    // Primary: Pending first
     if (a.request.status !== b.request.status) {
         return a.request.status === 'pending' ? -1 : 1;
     }
+    // Secondary: Created At Desc
     return new Date(b.request.created_at).getTime() - new Date(a.request.created_at).getTime();
   });
 

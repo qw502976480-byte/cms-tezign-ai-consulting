@@ -17,44 +17,54 @@ export async function PATCH(
 
   try {
     const body = await request.json();
-    const { status, outcome } = body;
+    // Rule: We only care about outcome. Status is derived.
+    const { outcome } = body; 
 
-    console.log(`[API] Updating Request ${id}: status=${status}, outcome=${outcome}`);
+    console.log(`[API] Updating Request ${id}: outcome=${outcome}`);
 
-    // Validate status against valid DB values
-    // Rule A: Both 'Complete' and 'Cancel' actions result in status='processed'
-    if (!status || !['pending', 'processed'].includes(status)) {
-      return NextResponse.json({ error: 'Invalid status provided. Must be pending or processed.' }, { status: 400 });
-    }
-
-    // Validate outcome if provided
-    if (outcome && !['completed', 'cancelled'].includes(outcome)) {
+    // Validate outcome
+    if (outcome !== null && outcome !== undefined && !['completed', 'cancelled'].includes(outcome)) {
        return NextResponse.json({ error: `Invalid outcome provided: ${outcome}` }, { status: 400 });
     }
 
-    // Prepare payload
-    const payload: { status: DemoRequestStatus; outcome?: DemoRequestOutcome; processed_at?: string } = {
-      status: status as DemoRequestStatus,
-      // Rule A: If status becomes processed, set the timestamp
-      processed_at: status === 'processed' ? new Date().toISOString() : undefined,
-    };
+    // --- Core Logic: Derive Status from Outcome ---
+    // If outcome is 'completed' or 'cancelled' -> Status MUST be 'processed'
+    // If outcome is null (cleared) -> Status MUST be 'pending'
+    
+    let derivedStatus: DemoRequestStatus = 'pending';
+    let processedAt: string | null = null;
+    let finalOutcome: DemoRequestOutcome = null;
 
-    // Explicitly add outcome if it exists in the request body
-    if (outcome !== undefined) {
-        payload.outcome = outcome as DemoRequestOutcome;
+    if (outcome === 'completed' || outcome === 'cancelled') {
+        derivedStatus = 'processed';
+        processedAt = new Date().toISOString();
+        finalOutcome = outcome;
+    } else {
+        // Resetting to pending
+        derivedStatus = 'pending';
+        processedAt = null;
+        finalOutcome = null;
     }
 
-    const { error } = await supabase
+    const payload = {
+      status: derivedStatus,
+      outcome: finalOutcome,
+      processed_at: processedAt
+    };
+
+    const { data, error } = await supabase
       .from('demo_requests')
       .update(payload)
-      .eq('id', id);
+      .eq('id', id)
+      .select()
+      .single();
 
     if (error) {
       console.error('[API] Supabase Update Error:', error);
       throw error;
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, data });
 
   } catch (err: any) {
     console.error('[API] Update Demo Request Status Failed:', err);
