@@ -1,3 +1,4 @@
+
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
@@ -5,7 +6,8 @@ import { NextResponse } from 'next/server'
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url)
   const code = searchParams.get('code')
-  const next = searchParams.get('next') ?? '/'
+  // Default to /admin if no next param is provided
+  const next = searchParams.get('next') ?? '/admin'
 
   if (code) {
     const cookieStore = await cookies()
@@ -26,12 +28,19 @@ export async function GET(request: Request) {
         },
       }
     )
+    
+    // Exchange the code for a session
     const { error } = await supabase.auth.exchangeCodeForSession(code)
+    
     if (!error) {
+      // Successful login, redirect to the dashboard
+      // Using NextResponse.redirect ensures the Set-Cookie headers from cookieStore are passed along
       return NextResponse.redirect(`${origin}${next}`)
+    } else {
+        console.error('Auth Callback Error:', error.message)
     }
   }
 
-  // return the user to an error page with instructions
+  // If code is missing or exchange failed, redirect back to login with error
   return NextResponse.redirect(`${origin}/admin/login?error=auth-code-error`)
 }
