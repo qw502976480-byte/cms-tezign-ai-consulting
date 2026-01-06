@@ -1,8 +1,8 @@
 'use client';
 
-import { useTransition } from 'react';
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { DemoRequest } from '@/types';
-import { updateDemoRequestStatus } from './actions';
 import { Loader2 } from 'lucide-react';
 
 interface Props {
@@ -10,21 +10,41 @@ interface Props {
 }
 
 export default function RequestActions({ request }: Props) {
-  const [isPending, startTransition] = useTransition();
+  const [loading, setLoading] = useState(false);
+  const router = useRouter();
 
   if (request.status !== 'pending') {
     return <span className="text-gray-500">—</span>;
   }
 
-  const handleUpdate = (newStatus: 'completed' | 'cancelled') => {
-    startTransition(async () => {
-      await updateDemoRequestStatus(request.id, newStatus);
-    });
+  const handleUpdate = async (newStatus: 'completed' | 'cancelled') => {
+    setLoading(true);
+    try {
+      const response = await fetch(`/api/demo-requests/${request.id}/status`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ status: newStatus }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to update status');
+      }
+
+      router.refresh();
+    } catch (error) {
+      console.error('Failed to update request status:', error);
+      alert('An error occurred while updating the status. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <div className="flex items-center justify-end gap-2">
-      {isPending ? (
+      {loading ? (
         <div className="flex justify-center items-center h-[30px] w-[116px]">
           <Loader2 className="animate-spin text-gray-500" size={16} />
         </div>
