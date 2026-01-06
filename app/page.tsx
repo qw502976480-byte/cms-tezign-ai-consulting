@@ -3,6 +3,8 @@ import Link from 'next/link';
 import LatestNewsModule from '@/app/components/homepage/latest-news';
 import { Resource } from '@/types';
 
+export const dynamic = 'force-dynamic';
+
 async function getLatestNewsData(): Promise<{ carouselItems: Resource[], fixedItems: Resource[] }> {
   const supabase = await createClient();
   try {
