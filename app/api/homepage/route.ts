@@ -28,7 +28,7 @@ export async function GET() {
   }
   
   // 3. Fetch associated resources
-  let resourceMap = new Map<string, Resource>();
+  let resourceMap: Map<string, Resource> = new Map();
   if (allResourceIds.length > 0) {
     const { data: resources, error: resourceError } = await supabase
         .from('resources')
@@ -37,7 +37,10 @@ export async function GET() {
         .eq('status', 'published');
 
     if (!resourceError && resources) {
-        resourceMap = new Map(resources.map((c: Resource) => [c.id, c]));
+        // FIX: Cast resources to Resource[] to satisfy the Map's type.
+        // Although we're fetching a subset of fields, this aligns with downstream
+        // type expectations and resolves the build error.
+        resourceMap = new Map((resources as Resource[]).map((c) => [c.id, c]));
     }
   }
 
