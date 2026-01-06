@@ -3,26 +3,26 @@
 import React, { useState, useTransition } from 'react';
 import { DemoRequest, DemoAppointment } from '@/types';
 import { format, parseISO } from 'date-fns';
-import { upsertAppointment } from './actions';
 import { Loader2 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 
 interface Props {
   request: DemoRequest;
   appointment: DemoAppointment | undefined;
 }
 
-export default function AppointmentCell({ request, appointment }: Props) {
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [scheduledAt, setScheduledAt] = useState<string>(() => {
-    if (appointment?.scheduled_at) {
-      // Format for datetime-local input: YYYY-MM-DDTHH:mm
-      const d = parseISO(appointment.scheduled_at);
-      return format(d, "yyyy-MM-dd'T'HH:mm");
-    }
-    return '';
-  });
-  const [isPending, startTransition] = useTransition();
+const TIME_SLOTS = [
+  "10:00", "11:00", "14:00", "15:00", "16:00", "17:00"
+];
 
+export default function AppointmentCell({ request, appointment }: Props) {
+  const router = useRouter();
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const initialSlot = appointment ? format(parseISO(appointment.scheduled_at), 'HH:mm') : '';
+  const [selectedSlot, setSelectedSlot] = useState<string>(TIME_SLOTS.includes(initialSlot) ? initialSlot : '');
+  
   const handleOpenModal = () => {
     setIsModalOpen(true);
   };
@@ -33,17 +33,39 @@ export default function AppointmentCell({ request, appointment }: Props) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!scheduledAt) {
-        alert("Please select a date and time.");
+    if (!selectedSlot) {
+        alert("Please select a time slot.");
         return;
     }
-    startTransition(async () => {
-      await upsertAppointment(request.id, scheduledAt);
-      handleCloseModal();
-    });
+    setIsLoading(true);
+
+    try {
+      const response = await fetch(`/api/demo-requests/${request.id}/schedule`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ slot: selectedSlot }),
+      });
+
+      if (response.status === 409) {
+        const data = await response.json();
+        alert(data.error || "This time slot is already full.");
+      } else if (!response.ok) {
+        throw new Error('Failed to schedule appointment.');
+      } else {
+        handleCloseModal();
+        router.refresh();
+      }
+    } catch (error: any) {
+      alert(`An error occurred: ${error.message}`);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const isCompleted = appointment?.status === 'completed';
+  const appointmentDate = format(parseISO(request.created_at), 'yyyy-MM-dd');
 
   return (
     <>
@@ -72,17 +94,32 @@ export default function AppointmentCell({ request, appointment }: Props) {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-sm">
             <h3 className="text-lg font-bold mb-4">
-              {appointment ? '改期预约' : '安排预约'} for {request.name}
+              {appointment ? '改期预约' : '安排预约'}
             </h3>
-            <form onSubmit={handleSubmit}>
-              <input
-                type="datetime-local"
-                value={scheduledAt}
-                onChange={(e) => setScheduledAt(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"
-                required
-              />
-              <div className="flex justify-end gap-2 mt-4">
+            <form onSubmit={handleSubmit} className="space-y-4">
+               <div>
+                <label className="block text-sm font-medium text-gray-500 mb-1">预约日期 (固定)</label>
+                <div className="w-full px-3 py-2 border border-gray-200 bg-gray-50 rounded-lg text-gray-700">
+                  {appointmentDate}
+                </div>
+              </div>
+              <div>
+                <label htmlFor="slot-select" className="block text-sm font-medium text-gray-700 mb-1">选择时段</label>
+                <select
+                  id="slot-select"
+                  value={selectedSlot}
+                  onChange={(e) => setSelectedSlot(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"
+                  required
+                >
+                  <option value="" disabled>--请选择--</option>
+                  {TIME_SLOTS.map(slot => (
+                    <option key={slot} value={slot}>{`${slot} - ${slot.split(':')[0]}:59`}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
                   onClick={handleCloseModal}
@@ -92,11 +129,11 @@ export default function AppointmentCell({ request, appointment }: Props) {
                 </button>
                 <button
                   type="submit"
-                  disabled={isPending}
+                  disabled={isLoading}
                   className="px-4 py-2 bg-gray-900 text-white rounded-md hover:bg-black disabled:opacity-50 flex items-center justify-center"
                   style={{ minWidth: '90px' }}
                 >
-                  {isPending ? <Loader2 className="animate-spin" size={16} /> : '保存'}
+                  {isLoading ? <Loader2 className="animate-spin" size={16} /> : '保存'}
                 </button>
               </div>
             </form>
