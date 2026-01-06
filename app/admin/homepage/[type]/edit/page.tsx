@@ -43,18 +43,23 @@ export default async function EditSectionPage({
     .eq('type', type)
     .single();
 
-  // 2️⃣ 数据不存在
+  // 2️⃣ 数据不存在或加载失败
   if (error || !data) {
     return (
-      <div className="max-w-2xl mx-auto mt-10 p-6 bg-amber-50 border border-amber-200 rounded-xl">
+      <div className="max-w-2xl mx-auto mt-10 p-6 bg-red-50 border border-red-200 rounded-xl">
         <div className="flex items-start gap-4">
-          <AlertTriangle className="text-amber-600 mt-1" size={24} />
+          <AlertTriangle className="text-red-600 mt-1" size={24} />
           <div>
-            <h2 className="text-lg font-bold text-amber-800">模块配置不存在</h2>
-            <p className="mt-2 text-sm text-amber-700">
-              数据库中未找到 <strong>{type}</strong>（{moduleName}）的配置。
+            <h2 className="text-lg font-bold text-red-800">模块配置加载失败</h2>
+            <p className="mt-2 text-sm text-red-700">
+              无法加载 <strong>{type}</strong> ({moduleName}) 的配置。
             </p>
-            <Link href="/admin/homepage" className="mt-4 inline-block text-sm underline">
+            {error && (
+              <pre className="mt-2 text-xs text-red-600 bg-red-100 p-2 rounded font-mono">
+                <code>{error.message}</code>
+              </pre>
+            )}
+            <Link href="/admin/homepage" className="mt-4 inline-block text-sm underline text-red-800">
               返回列表
             </Link>
           </div>

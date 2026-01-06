@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react';
 import { createClient } from '@/utils/supabase/client';
 import { useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
-import { HomepageConfig, CapabilityItem } from '@/types';
+import { HomepageConfig, CapabilityItem, HomepageLatestNewsConfig } from '@/types';
 
 export default function SectionEditor({ moduleConfig }: { moduleConfig: HomepageConfig }) {
   const supabase = createClient();
@@ -114,6 +114,11 @@ export default function SectionEditor({ moduleConfig }: { moduleConfig: Homepage
           </>
         );
       case 'latest_news':
+        const { 
+            featured_items = [], 
+            list_items = [] 
+        } = config as HomepageLatestNewsConfig;
+
         return (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
@@ -121,7 +126,7 @@ export default function SectionEditor({ moduleConfig }: { moduleConfig: Homepage
               <div className="border border-gray-200 rounded-md max-h-80 overflow-y-auto p-2 grid gap-1 bg-gray-50">
                 {resources.map(item => (
                   <label key={item.id} className="flex items-center gap-2 p-2 hover:bg-white rounded cursor-pointer">
-                    <input type="checkbox" checked={(config as any).featured_items?.includes(item.id)} onChange={() => handleResourceToggle('featured_items', item.id!, 5)} className="text-gray-900 focus:ring-gray-900" />
+                    <input type="checkbox" checked={featured_items.includes(item.id)} onChange={() => handleResourceToggle('featured_items', item.id!, 5)} className="text-gray-900 focus:ring-gray-900" />
                     <span className="text-sm text-gray-700">{item.title}</span>
                   </label>
                 ))}
@@ -132,7 +137,7 @@ export default function SectionEditor({ moduleConfig }: { moduleConfig: Homepage
               <div className="border border-gray-200 rounded-md max-h-80 overflow-y-auto p-2 grid gap-1 bg-gray-50">
                 {resources.map(item => (
                   <label key={item.id} className="flex items-center gap-2 p-2 hover:bg-white rounded cursor-pointer">
-                    <input type="checkbox" checked={(config as any).list_items?.includes(item.id)} onChange={() => handleResourceToggle('list_items', item.id!, 3)} className="text-gray-900 focus:ring-gray-900" />
+                    <input type="checkbox" checked={list_items.includes(item.id)} onChange={() => handleResourceToggle('list_items', item.id!, 3)} className="text-gray-900 focus:ring-gray-900" />
                     <span className="text-sm text-gray-700">{item.title}</span>
                   </label>
                 ))}
