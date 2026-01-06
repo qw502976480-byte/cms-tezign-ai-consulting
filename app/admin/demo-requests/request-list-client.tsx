@@ -14,6 +14,7 @@ import StatsOverview from './StatsOverview';
 // Import User Detail Modal from registered-users
 import UserDetailModal from '../registered-users/UserDetailModal';
 import { Clock, CheckCircle2, CircleDashed } from 'lucide-react';
+import { updateRequestOutcome } from './actions';
 
 interface CombinedItem {
   request: DemoRequest;
@@ -52,21 +53,17 @@ export default function RequestListClient({ initialItems }: Props) {
       return item;
     }));
 
-    try {
-      const response = await fetch(`/api/demo-requests/${id}/status`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ outcome: newOutcome }),
-      });
+    // Server action call
+    const result = await updateRequestOutcome(id, newOutcome);
 
-      if (!response.ok) throw new Error(`Update failed: ${response.status}`);
-      router.refresh();
-
-    } catch (error: any) {
-      console.error('Update failed:', error);
-      alert(`更新失败: ${error.message}`);
-      setItems(previousItems); 
+    if (!result.success) {
+      console.error('Update failed:', result.error);
+      alert(`更新失败: ${result.error}`);
+      setItems(previousItems); // Revert on failure
     }
+    
+    // Re-sync with server data to ensure consistency for all components on page
+    router.refresh();
   };
 
   const sortedItems = useMemo(() => {
