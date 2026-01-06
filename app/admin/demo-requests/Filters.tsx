@@ -2,11 +2,10 @@
 
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { useState, useEffect, useRef } from 'react';
-import { ListFilter, Calendar, Clock, ChevronDown, Check } from 'lucide-react';
+import { ListFilter, Clock, ChevronDown, Check } from 'lucide-react';
 
 interface SearchParams {
   status?: 'all' | 'pending' | 'processed';
-  appointment_type?: 'all' | 'scheduled' | 'none';
   time_status?: 'all' | 'overdue' | 'future' | 'near_24h';
 }
 
@@ -97,22 +96,13 @@ export default function Filters({ searchParams }: { searchParams: SearchParams }
     const current = new URLSearchParams(currentSearchParams.toString());
     current.set(key, value);
     
-    // Logic: If user switches Appointment Type away from 'scheduled', clear Time Status
-    if (key === 'appointment_type' && value !== 'scheduled') {
-        current.delete('time_status');
-    }
-
     const search = current.toString();
     const query = search ? `?${search}` : "";
     router.push(`${pathname}${query}`);
   };
 
   const status = searchParams.status || 'all';
-  const appointmentType = searchParams.appointment_type || 'all';
   const timeStatus = searchParams.time_status || 'all';
-
-  // Logic: Time filter is disabled unless "Scheduled" is selected
-  const isTimeFilterDisabled = appointmentType !== 'scheduled';
 
   return (
     <div className="flex flex-col sm:flex-row flex-wrap items-start sm:items-center gap-3 bg-white p-1 rounded-none z-20 relative">
@@ -130,26 +120,11 @@ export default function Filters({ searchParams }: { searchParams: SearchParams }
             ]}
         />
 
-        {/* Group B: Appointment Existence */}
-        <FilterDropdown 
-            icon={Calendar}
-            label="预约情况"
-            value={appointmentType}
-            onChange={(val) => handleFilterChange('appointment_type', val)}
-            options={[
-              { label: '全部', value: 'all' },
-              { label: '已安排 (有时间)', value: 'scheduled' },
-              { label: '未安排 (无时间)', value: 'none' },
-            ]}
-        />
-
-        {/* Group C: Time Logic (Only active if scheduled) */}
+        {/* Group B: Time Logic (Always Active) */}
         <FilterDropdown 
             icon={Clock}
             label="时间筛选"
-            value={isTimeFilterDisabled ? 'all' : timeStatus}
-            disabled={isTimeFilterDisabled}
-            tooltip={isTimeFilterDisabled ? '请先选择“已安排”预约情况' : ''}
+            value={timeStatus}
             onChange={(val) => handleFilterChange('time_status', val)}
             options={[
               { label: '全部', value: 'all' },

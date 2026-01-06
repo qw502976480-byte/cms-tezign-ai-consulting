@@ -9,7 +9,6 @@ export const dynamic = 'force-dynamic';
 
 interface SearchParams {
   status?: 'all' | 'pending' | 'processed';
-  appointment_type?: 'all' | 'scheduled' | 'none';
   time_status?: 'all' | 'overdue' | 'future' | 'near_24h';
 }
 
@@ -66,27 +65,20 @@ export default async function DemoRequestsPage({ searchParams }: { searchParams:
     }
   }
 
-  // 3. Apply Advanced Filters (Appointment Type & Time Status) in JS
-  const appointmentType = searchParams.appointment_type || 'all';
+  // 3. Apply Advanced Filters (Time Status) in JS
   const timeStatus = searchParams.time_status || 'all';
   const now = new Date();
 
   const filteredRequests = requests.filter(req => {
     const appointment = currentAppointmentMap.get(req.id);
-    const hasScheduledApp = appointment?.status === 'scheduled';
-    const scheduledTime = hasScheduledApp ? new Date(appointment!.scheduled_at) : null;
+    // Assuming every request has an appointment as per requirement.
+    // If appointment is missing for some reason, we treat it as null date.
+    const scheduledTime = appointment ? new Date(appointment.scheduled_at) : null;
 
-    // Filter B: Appointment Existence
-    if (appointmentType === 'scheduled') {
-        if (!hasScheduledApp) return false;
-    } else if (appointmentType === 'none') {
-        if (hasScheduledApp) return false;
-    }
+    // Filter B: Time Logic
+    if (timeStatus !== 'all') {
+        if (!scheduledTime) return false; // Exclude if no time and we are filtering by time
 
-    // Filter C: Time Logic (Only applies if we are looking at scheduled items)
-    // IMPORTANT: If appointment_type is NOT 'scheduled', we typically ignore time filters,
-    // but if the user manually kept the param, we still apply logic only if appointment exists.
-    if (appointmentType === 'scheduled' && timeStatus !== 'all' && scheduledTime) {
         if (timeStatus === 'overdue') {
             return scheduledTime < now;
         }
