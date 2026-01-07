@@ -1,10 +1,11 @@
+
 'use client';
 
 import React, { useState, useTransition, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { upsertDeliveryTask, estimateAudienceCount, previewAudience, searchResources, getResourcesByIds, getEmailAccounts, getEmailTemplates, getUniqueInterestTags, preflightCheckDeliveryTask, runDeliveryTaskNow } from './actions';
 import { DeliveryTask, DeliveryTaskType, DeliveryChannel, DeliveryTaskStatus, DeliveryContentMode, DeliveryAudienceRule, DeliveryContentRule, DeliveryScheduleRule, EmailSendingAccount, EmailTemplate, EmailChannelConfig, DeliveryRun, UserProfile } from '@/types';
-import { Loader2, Save, Play, Search, X, Check, Calculator, CalendarClock, Users, FileText, Settings, AlertTriangle, Mail, Calendar, ArrowRight, ExternalLink, ChevronDown, Tag, Send, History, Eye, Info } from 'lucide-react';
+import { Loader2, Save, Play, Search, X, Check, Calculator, CalendarClock, Users, FileText, Settings, AlertTriangle, Mail, Calendar, ArrowRight, ExternalLink, ChevronDown, Tag, Send, History, Eye, Info, PlusCircle } from 'lucide-react';
 import EmailConfigModal from './EmailConfigModal';
 import { format } from 'date-fns';
 
@@ -59,6 +60,10 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
   const [contentRule, setContentRule] = useState<DeliveryContentRule>(initialData?.content_rule || { category: [], time_range: '30d', limit: 3, featured_slot: 'none' });
   const [selectedContentIds, setSelectedContentIds] = useState<string[]>(initialData?.content_ids || []);
   const [schedule, setSchedule] = useState<DeliveryScheduleRule>(initialData?.schedule_rule || { mode: 'one_time', one_time_type: 'immediate', timezone: 'Asia/Shanghai' });
+  
+  // We use this single state object to hold content for both Email and In-App to avoid clearing data when switching channels.
+  // When channel is 'email', we interpret subject/header_note as standard email fields.
+  // When channel is 'in_app', we interpret subject as 'Title' and header_note as 'Message Body'.
   const [emailConfig, setEmailConfig] = useState<EmailChannelConfig>(initialData?.channel_config?.email || { account_id: '', template_id: '', subject: '', header_note: '', footer_note: '' });
   
   const [availableAccounts, setAvailableAccounts] = useState<EmailSendingAccount[]>([]);
@@ -161,7 +166,7 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
   const handleAudienceEstimate = async () => {
     setEstimating(true);
     const res = await estimateAudienceCount(audience);
-    if (!res.success) {
+    if (res.success === false) {
         alert(res.error);
     } else {
         setAudience(prev => ({ ...prev, estimated_count: res.count }));
@@ -174,7 +179,7 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
       setLoadingPreview(true);
       setIsPreviewOpen(true);
       const res = await previewAudience(audience);
-      if (!res.success) {
+      if (res.success === false) {
           alert(res.error);
           setIsPreviewOpen(false);
       } else {
@@ -185,12 +190,30 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
   
   const handleSave = (isDraft: boolean) => {
     setPreflightError(null);
+
+    // Front-end Validation before saving
+    if (!isDraft) {
+        if (basic.channel === 'email' && !emailConfig.account_id) {
+            alert('请选择发送账户 (Sender Account)');
+            scrollToSection('basic');
+            return;
+        }
+        if (contentSource === 'custom' && !emailConfig.subject) {
+            alert('请输入标题/主题 (Subject/Title)');
+            scrollToSection('content');
+            return;
+        }
+    }
+
     const taskData: Partial<DeliveryTask> = {
         id: initialData?.id, ...basic, audience_rule: audience, content_mode: contentMode,
         content_rule: contentMode === 'rule' ? contentRule : null,
-        content_ids: contentSource === 'resource' ? selectedContentIds : [], // Respect Content Source
+        content_ids: contentSource === 'resource' ? selectedContentIds : [],
         schedule_rule: schedule,
-        channel_config: basic.channel === 'email' ? { email: emailConfig } : null
+        // Channel Config Logic
+        channel_config: basic.channel === 'email' 
+            ? { email: emailConfig } 
+            : { in_app: { subject: emailConfig.subject, message: emailConfig.header_note } } as any // Cast to support in_app via JSONB
     };
 
     if (isDraft) {
@@ -279,6 +302,13 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
     });
   };
 
+  // Helper to determine labels based on channel
+  const isEmail = basic.channel === 'email';
+  const labelSubject = isEmail ? '邮件主题 (Subject)' : '标题 (Title)';
+  const labelBody = isEmail ? '邮件正文 (Body)' : '消息内容 (Content)';
+  const placeholderSubject = isEmail ? '请输入邮件标题' : '请输入站内信/通知标题';
+  const placeholderBody = isEmail ? '请输入邮件正文内容...' : '请输入消息正文内容...';
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 relative">
         <div className="hidden lg:block space-y-2 sticky top-6 h-fit">
@@ -298,7 +328,7 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
                  <button onClick={() => handleSave(true)} disabled={isPending || isChecking || isManualRunning} className="w-full flex items-center justify-center gap-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50">
                     <Save size={16} /> 保存草稿
                  </button>
-                 <button onClick={() => handleSave(false)} disabled={isPending || isChecking || isManualRunning || !!scheduleError} className="w-full flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 shadow-sm">
+                 <button onClick={() => handleSave(false)} disabled={isPending || isChecking || isManualRunning || !!scheduleError || (isEmail && availableAccounts.length === 0)} className="w-full flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 shadow-sm">
                     {isChecking ? <Loader2 className="animate-spin" size={16} /> : <Play size={16} />}
                     {isChecking ? '校验中...' : '启用任务'}
                  </button>
@@ -331,16 +361,36 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">渠道</label>
-                            {/* Issue 1: Fix - Remove disabled prop from options */}
                             <CustomSelect 
                                 value={basic.channel} 
                                 onChange={(v) => setBasic(p => ({...p, channel: v as any}))} 
                                 options={[
                                     {label:'Email', value:'email'},
-                                    {label:'站内信 (In-app)', value:'in_app'} // Removed disabled: true
+                                    {label:'站内信 (In-app)', value:'in_app'}
                                 ]} 
                             />
                         </div>
+                        {/* Fix: Sender Account Select - Only for Email */}
+                        {isEmail && (
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">发送账户 <span className="text-red-500">*</span></label>
+                                {availableAccounts.length > 0 ? (
+                                    <CustomSelect 
+                                        value={emailConfig.account_id}
+                                        onChange={(v) => setEmailConfig(p => ({...p, account_id: v}))}
+                                        options={availableAccounts.map(a => ({ label: `${a.name} (${a.from_email})`, value: a.id }))}
+                                        placeholder="选择发送账户"
+                                    />
+                                ) : (
+                                    <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-2 flex items-center justify-between">
+                                        <span className="flex items-center gap-1"><AlertTriangle size={14}/> 未配置发送账户</span>
+                                        <button onClick={() => setIsConfigModalOpen(true)} className="text-xs underline font-medium hover:text-red-800">
+                                            去配置
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        )}
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">语言/地区</label>
                             <CustomSelect 
@@ -537,12 +587,14 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
                     )}
 
                     <div className="pt-2 border-t border-gray-100">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">邮件主题 (Subject)</label>
-                        <input type="text" value={emailConfig.subject} onChange={(e) => setEmailConfig(p => ({...p, subject: e.target.value}))} className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" placeholder="邮件标题" />
+                        {/* Fix: Channel-aware Label */}
+                        <label className="block text-sm font-medium text-gray-700 mb-1">{labelSubject}</label>
+                        <input type="text" value={emailConfig.subject} onChange={(e) => setEmailConfig(p => ({...p, subject: e.target.value}))} className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" placeholder={placeholderSubject} />
                     </div>
                     <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">邮件正文 (Body)</label>
-                        <textarea value={emailConfig.header_note || ''} onChange={(e) => setEmailConfig(p => ({...p, header_note: e.target.value}))} rows={5} className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 font-mono" placeholder="请输入邮件正文..." />
+                        {/* Fix: Channel-aware Label */}
+                        <label className="block text-sm font-medium text-gray-700 mb-1">{labelBody}</label>
+                        <textarea value={emailConfig.header_note || ''} onChange={(e) => setEmailConfig(p => ({...p, header_note: e.target.value}))} rows={5} className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 font-mono" placeholder={placeholderBody} />
                     </div>
                 </section>
             </div>
