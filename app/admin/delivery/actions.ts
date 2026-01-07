@@ -3,7 +3,7 @@
 import { createServiceClient, createClient } from '@/utils/supabase/server';
 import { revalidatePath } from 'next/cache';
 import { DeliveryTask, DeliveryTaskStatus, DeliveryAudienceRule, Resource, EmailSendingAccount, EmailTemplate } from '@/types';
-import { addDays, nextDay, set, startOfDay, isAfter, isBefore, addWeeks, addMonths, parse, subDays } from 'date-fns';
+import { addDays, nextDay, set, startOfDay, isAfter, isBefore, addWeeks, addMonths, parse, subDays, endOfDay } from 'date-fns';
 
 // --- Delivery Tasks ---
 
@@ -162,20 +162,24 @@ export async function duplicateTask(task: DeliveryTask) {
 
 // --- Helpers ---
 
+/**
+ * Calculates the number of users that match the given audience rule.
+ * Uses Service Client to access auth.users and user_profiles directly.
+ */
 export async function estimateAudienceCount(rule: DeliveryAudienceRule) {
-    const supabase = createServiceClient(); // Use service client to query cross-table including auth.users
+    const supabase = createServiceClient();
     
     // 1. Base Query on User Profiles
-    let query = supabase.from('user_profiles').select('id, email, user_type, country, city');
+    // Selecting minimal fields needed for filtering (except tags which are arrays)
+    let query = supabase.from('user_profiles').select('id, email, user_type, country, city, interest_tags');
 
     // Filter: User Type
     if (rule.user_type && rule.user_type !== 'all') {
         query = query.eq('user_type', rule.user_type);
     }
 
-    // Filter: Geography (Partial match)
+    // Filter: Geography (Partial match, comma separated)
     if (rule.country) {
-        // Support comma separated
         const countries = rule.country.split(/,|，/).map(s => s.trim()).filter(Boolean);
         if (countries.length > 0) {
              const orQuery = countries.map(c => `country.ilike.%${c}%`).join(',');
@@ -190,12 +194,33 @@ export async function estimateAudienceCount(rule: DeliveryAudienceRule) {
         }
     }
 
+    // Filter: Professional Info (Company / Title)
+    if (rule.company) {
+        query = query.ilike('company_name', `%${rule.company}%`);
+    }
+    if (rule.title) {
+        query = query.ilike('title', `%${rule.title}%`);
+    }
+
+    // Filter: Interest Tags (Overlap)
+    // Note: 'interest_tags' is a text[] column. We use the overlap operator (&&) via .overlaps()
+    if (rule.interest_tags && rule.interest_tags.length > 0) {
+        query = query.overlaps('interest_tags', rule.interest_tags);
+    }
+
+    // Filter: Registration Time
+    if (rule.registered_from) {
+        query = query.gte('created_at', startOfDay(new Date(rule.registered_from)).toISOString());
+    }
+    if (rule.registered_to) {
+        query = query.lte('created_at', endOfDay(new Date(rule.registered_to)).toISOString());
+    }
+
     // Execute Base Query
     const { data: profiles, error } = await query;
     if (error) return { success: false, error: error.message };
     
-    // Perform In-Memory Intersection for other complex filters (MVP Approach)
-    // This avoids complex SQL joins which might be restricted or require views.
+    // Perform In-Memory Intersection for complex/joined filters (MVP Approach)
     let validProfiles = profiles || [];
 
     // Filter: Marketing Opt-in (Requires joining 'registrations')
@@ -216,11 +241,11 @@ export async function estimateAudienceCount(rule: DeliveryAudienceRule) {
         const { data: demos } = await supabase.from('demo_requests').select('user_id');
         const demoUserIds = new Set(demos?.map(d => d.user_id));
         
-        // Logic: has_communicated AND has_demo_request (intersection)
+        // Logic: has_communicated OR has_demo_request (usually synonyms in this system)
         if (rule.has_communicated !== 'all') {
             validProfiles = validProfiles.filter(p => rule.has_communicated === 'yes' ? demoUserIds.has(p.id) : !demoUserIds.has(p.id));
         }
-        if (rule.has_demo_request !== 'all') {
+        else if (rule.has_demo_request !== 'all') {
              validProfiles = validProfiles.filter(p => rule.has_demo_request === 'yes' ? demoUserIds.has(p.id) : !demoUserIds.has(p.id));
         }
     }
@@ -260,12 +285,27 @@ export async function estimateAudienceCount(rule: DeliveryAudienceRule) {
 
         // Apply Time Filter (Refine if scope was 'all' but time range was set)
         if (rule.last_login_range !== 'all') {
-             // If authQuery already filtered by time, just checking existence in map is enough
              validProfiles = validProfiles.filter(p => loggedInUserMap.has(p.id));
         }
     }
 
     return { success: true, count: validProfiles.length };
+}
+
+export async function getUniqueInterestTags() {
+    const supabase = createServiceClient();
+    const { data } = await supabase.from('user_profiles').select('interest_tags');
+    
+    if (!data) return [];
+    
+    const allTags = new Set<string>();
+    data.forEach((row: any) => {
+        if (Array.isArray(row.interest_tags)) {
+            row.interest_tags.forEach((tag: string) => allTags.add(tag));
+        }
+    });
+    
+    return Array.from(allTags).sort();
 }
 
 export async function searchResources(keyword: string) {

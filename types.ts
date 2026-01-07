@@ -57,19 +57,27 @@ export interface DeliveryAudienceRule {
   scope: 'all' | 'logged_in' | 'never_logged_in'; 
   user_type: 'all' | 'personal' | 'company';
 
-  // 2. Compliance
+  // 2. Compliance & Tags
   marketing_opt_in: 'all' | 'yes' | 'no';
+  interest_tags?: string[]; // New: Array of tags to match
 
   // 3. Behavior
-  has_communicated: 'all' | 'yes' | 'no'; // Has demo request record
-  has_demo_request: 'all' | 'yes' | 'no'; // Synonym for above in this context, but kept for future granularity (e.g. status=completed)
+  has_communicated: 'all' | 'yes' | 'no';
+  has_demo_request: 'all' | 'yes' | 'no';
+  
   last_login_range: 'all' | '7d' | '30d' | 'custom';
   last_login_start?: string;
   last_login_end?: string;
 
-  // 4. Geo
-  country?: string; // Comma separated for fuzzy match
+  // 4. Attributes (Geo & Professional)
+  country?: string; 
   city?: string;
+  company?: string; // New
+  title?: string;   // New
+  
+  // 5. Registration Time
+  registered_from?: string; // New
+  registered_to?: string;   // New
 
   estimated_count?: number; // Snapshot of estimate when saved
 }
