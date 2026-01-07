@@ -8,6 +8,7 @@ import { DeliveryTask, DeliveryTaskType, DeliveryChannel, DeliveryTaskStatus, De
 import { Loader2, Save, Play, Search, X, Check, Calculator, CalendarClock, Users, FileText, Settings, AlertTriangle, Mail, Calendar, ArrowRight, ExternalLink, ChevronDown, Tag, Send, History, Eye, Info, PlusCircle, Lock, Unlock, Copy } from 'lucide-react';
 import EmailConfigModal from './EmailConfigModal';
 import { format } from 'date-fns';
+import { deriveDeliveryTaskState } from './utils';
 
 interface Props {
   initialData?: DeliveryTask;
@@ -134,10 +135,9 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
     if (schedule.mode === 'one_time' && schedule.one_time_type === 'scheduled') {
         const { one_time_date, one_time_time } = schedule;
         if (one_time_date && one_time_time) {
-            const targetTime = new Date(`${one_time_date} ${one_time_time}`);
-            if (targetTime < new Date()) {
-                error = '定时执行时间不能早于当前时间。';
-            }
+            // Note: We loosen the check here to allow viewing old tasks without error, 
+            // but the API Guard will prevent saving an overdue one as "Enable".
+            // The derived state logic handles the "Overdue" status display.
         }
     } else if (schedule.mode === 'recurring') {
         if (schedule.start_date && schedule.end_date) {
@@ -333,10 +333,21 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
   const isContentDisabled = isEmail && !!emailConfig.template_id && !overrideTemplate;
 
   // --- Derived State for Button Logic ---
-  const isOneTime = schedule.mode === 'one_time';
-  const runCount = initialData?.run_count || 0;
-  // A one-time task is considered "Executed/Completed" if it has at least one run record.
-  const isCompletedOneTime = isOneTime && runCount > 0;
+  // Create a temporary task object for state derivation if initialData is missing (new task)
+  const currentTaskState = initialData || {
+      ...basic,
+      audience_rule: audience,
+      schedule_rule: schedule,
+      run_count: 0,
+      last_run_status: null
+  } as DeliveryTask;
+
+  // IMPORTANT: We use the `schedule` state from the form, not just `initialData`, to react to live changes
+  const taskForDerivation = { ...currentTaskState, schedule_rule: schedule };
+  
+  const { status: derivedStatus, canEnable, canRunNow, message: stateMessage } = deriveDeliveryTaskState(taskForDerivation);
+  const isOverdue = derivedStatus === 'overdue';
+  const isCompleted = derivedStatus === 'completed' || derivedStatus === 'failed';
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 relative">
@@ -354,36 +365,45 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
             ))}
             
             <div className="pt-6 border-t border-gray-100 mt-6 space-y-3">
-                 {/* Show different controls based on task state */}
-                 {!isCompletedOneTime ? (
-                    <>
-                        <button onClick={() => handleSave(true)} disabled={isPending || isChecking || isManualRunning} className="w-full flex items-center justify-center gap-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50">
-                            <Save size={16} /> 保存草稿
-                        </button>
-                        <button onClick={() => handleSave(false)} disabled={isPending || isChecking || isManualRunning || !!scheduleError || (isEmail && (availableAccounts.length === 0 || availableTemplates.length === 0))} className="w-full flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 shadow-sm">
-                            {isChecking ? <Loader2 className="animate-spin" size={16} /> : <Play size={16} />}
-                            {isChecking ? '校验中...' : '启用任务'}
-                        </button>
-                    </>
-                 ) : (
+                 {/* 1. If Completed/Failed (Executed One-time) -> Duplicate Only */}
+                 {isCompleted ? (
                     <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg text-center space-y-2">
                         <div className="flex items-center justify-center gap-1 text-xs text-gray-500">
                             <Check size={14} className="text-green-600" />
-                            一次性任务已执行
+                            {derivedStatus === 'failed' ? '任务执行失败' : '一次性任务已执行'}
                         </div>
                         <button onClick={handleDuplicate} disabled={isPending} className="w-full flex items-center justify-center gap-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50">
                             <Copy size={16} /> 复制任务
                         </button>
-                        <p className="text-[10px] text-gray-400">一次性任务已执行完成，如需再次发送，请复制该任务</p>
+                        <p className="text-[10px] text-gray-400">如需再次发送，请复制创建新任务</p>
                     </div>
-                 )}
+                 ) : (
+                    <>
+                        {/* 2. Save Draft (Always visible unless completed) */}
+                        <button onClick={() => handleSave(true)} disabled={isPending || isChecking || isManualRunning} className="w-full flex items-center justify-center gap-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50">
+                            <Save size={16} /> 保存草稿
+                        </button>
 
-                 {/* Run Now is only available for existing, non-completed tasks */}
-                 {initialData && !isCompletedOneTime && (
-                     <button onClick={handleRunNow} disabled={isManualRunning || isPending || isChecking} className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 shadow-sm">
-                        {isManualRunning ? <Loader2 className="animate-spin" size={16} /> : <Send size={16} />}
-                        {isManualRunning ? '执行中...' : '立即执行'}
-                     </button>
+                        {/* 3. Enable Task */}
+                        {canEnable ? (
+                            <button onClick={() => handleSave(false)} disabled={isPending || isChecking || isManualRunning || !!scheduleError || (isEmail && (availableAccounts.length === 0 || availableTemplates.length === 0))} className="w-full flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 shadow-sm">
+                                {isChecking ? <Loader2 className="animate-spin" size={16} /> : <Play size={16} />}
+                                {isChecking ? '校验中...' : '启用任务'}
+                            </button>
+                        ) : (
+                            <div className="text-xs text-center text-amber-600 bg-amber-50 p-2 rounded border border-amber-100">
+                                {isOverdue ? '任务已逾期，请使用立即执行' : (stateMessage || '无法启用')}
+                            </div>
+                        )}
+
+                        {/* 4. Run Now (Only if existing task and allowed) */}
+                        {initialData && canRunNow && (
+                            <button onClick={handleRunNow} disabled={isManualRunning || isPending || isChecking} className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 shadow-sm">
+                                {isManualRunning ? <Loader2 className="animate-spin" size={16} /> : <Send size={16} />}
+                                {isManualRunning ? '执行中...' : '立即执行'}
+                            </button>
+                        )}
+                    </>
                  )}
                  
                  {preflightError && (

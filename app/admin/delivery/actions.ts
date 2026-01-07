@@ -6,54 +6,68 @@ import { revalidatePath } from 'next/cache';
 import { DeliveryTask, DeliveryTaskStatus, DeliveryAudienceRule, Resource, EmailSendingAccount, EmailTemplate, PreflightCheckResult, DeliveryRunStatus, LastRunStatus, UserProfile, DeliveryRun } from '@/types';
 import { addMinutes, isAfter, isBefore, parse, subDays, startOfDay, endOfDay } from 'date-fns';
 import { Resend } from 'resend';
+import { deriveDeliveryTaskState } from './utils';
 
 // --- Preflight Check ---
 export async function preflightCheckDeliveryTask(task: Partial<DeliveryTask>): Promise<{ success: boolean; error?: string; data?: PreflightCheckResult }> {
   const now = new Date();
   
-  // 1. Time validity check
+  // 1. One-time task idempotency & Overdue check (API Guard)
+  if (task.id && task.schedule_rule?.mode === 'one_time') {
+    const supabase = createServiceClient();
+    const { data: existingTask } = await supabase.from('delivery_tasks').select('*').eq('id', task.id).single();
+    
+    if (existingTask) {
+        // Construct a temporary task object merging existing with new data for state checking
+        const mergedTask = { ...existingTask, ...task } as DeliveryTask;
+        const state = deriveDeliveryTaskState(mergedTask);
+
+        // Guard A: Already executed
+        if (existingTask.run_count > 0) {
+            return { success: false, error: '该一次性任务已执行过，无法再次启用。请复制任务。' };
+        }
+
+        // Guard B: Overdue (Cannot Enable, must Run Now)
+        if (state.status === 'overdue') {
+            return { success: false, error: '任务计划时间已过期，无法启用调度。请使用“立即执行”或修改时间。' };
+        }
+    }
+  }
+
+  // 2. Time validity check (Basic format check)
   if (task.schedule_rule?.mode === 'one_time' && task.schedule_rule.one_time_type === 'scheduled') {
     const { one_time_date, one_time_time } = task.schedule_rule;
     if (!one_time_date || !one_time_time) {
       return { success: false, error: '定时任务必须设置执行日期和时间。' };
     }
     const targetTime = parse(`${one_time_date} ${one_time_time}`, 'yyyy-MM-dd HH:mm', new Date());
-    if (!isAfter(targetTime, addMinutes(now, 1))) {
+    // Allow saving if it's strictly future, but the 'Overdue' check above handles the logic for existing tasks.
+    // For NEW tasks, we ensure it's in the future.
+    if (!task.id && !isAfter(targetTime, addMinutes(now, 1))) {
       return { success: false, error: '一次性任务的执行时间必须晚于当前时间至少1分钟。' };
     }
   }
 
-  // 2. Channel config check
+  // 3. Channel config check
   if (task.channel === 'email') {
     const emailConfig = task.channel_config?.email;
     if (!emailConfig?.account_id) return { success: false, error: 'Email 任务必须选择发送账户。' };
     if (!emailConfig?.template_id) return { success: false, error: 'Email 任务必须选择邮件模板。' };
     if (!emailConfig?.subject?.trim()) return { success: false, error: 'Email 任务必须填写邮件主题。' };
   } else if (task.channel === 'in_app') {
-      // Fix Issue 1: Validate In-app channel on activation instead of disabling in UI
       return { success: false, error: '站内信渠道暂未开通发送能力，请稍后重试或选择 Email 渠道。' };
   }
 
-  // 3. Audience count check
+  // 4. Audience count check
   if (!task.audience_rule) {
      return { success: false, error: '任务必须配置目标受众规则。'};
   }
   const audienceEstimate = await estimateAudienceCount(task.audience_rule);
-  // FIX: Explicitly check for 'false' to help TypeScript's type narrowing.
   if (audienceEstimate.success === false) {
     return { success: false, error: `受众计算失败: ${audienceEstimate.error}` };
   }
   if (audienceEstimate.count === 0) {
     return { success: false, error: '当前筛选条件命中 0 位用户，请调整筛选条件。' };
-  }
-  
-  // 4. One-time task idempotency check (if it has run before)
-  if (task.id && task.schedule_rule?.mode === 'one_time') {
-    const supabase = createServiceClient();
-    const { data: existingTask } = await supabase.from('delivery_tasks').select('run_count').eq('id', task.id).single();
-    if (existingTask && existingTask.run_count > 0) {
-        return { success: false, error: '该一次性任务已执行过，如需重发请复制任务。' };
-    }
   }
 
   // Calculate next_run_at
@@ -66,8 +80,7 @@ export async function preflightCheckDeliveryTask(task: Partial<DeliveryTask>): P
       nextRunAt = parse(`${one_time_date} ${one_time_time}`, 'yyyy-MM-dd HH:mm', new Date()).toISOString();
     }
   } else if (task.schedule_rule?.mode === 'recurring') {
-    // This is a simplified calculation for preflight, the runner would have more robust logic.
-    nextRunAt = new Date(Date.now() + 5 * 60 * 1000).toISOString(); // Placeholder for next 5 mins
+    nextRunAt = new Date(Date.now() + 5 * 60 * 1000).toISOString(); 
   }
   
   return { 
@@ -83,10 +96,6 @@ export async function preflightCheckDeliveryTask(task: Partial<DeliveryTask>): P
 // --- Delivery Tasks ---
 export async function upsertDeliveryTask(data: Partial<DeliveryTask>, preflightResult?: PreflightCheckResult) {
   const supabase = createServiceClient();
-
-  // FIX: Database Schema Compliance
-  // We strictly filter properties to match the 'delivery_tasks' table columns.
-  // We exclude 'locale', 'schedule_type' (redundant with schedule_rule), and other UI-only state.
   
   const payload: any = {
     name: data.name,
@@ -102,14 +111,8 @@ export async function upsertDeliveryTask(data: Partial<DeliveryTask>, preflightR
     updated_at: new Date().toISOString(),
   };
 
-  // Optional fields that might exist in schema (handle gracefully if they don't via strict typing if we had generated types)
-  // For now, we assume these standard columns exist based on types.ts
   if (preflightResult) {
       payload.next_run_at = preflightResult.next_run_at;
-      // We assume preflight_result column might exist, if not, supabase might ignore or error.
-      // Ideally, store preflight data in a JSON column if specific column doesn't exist.
-      // To be safe, we'll try to put it in channel_config if we have to, 
-      // but let's assume 'next_run_at' exists as a column.
   }
   
   if (!data.id) {
@@ -125,7 +128,6 @@ export async function upsertDeliveryTask(data: Partial<DeliveryTask>, preflightR
 
   if (result.error) {
     console.error("Upsert Error:", result.error);
-    // User friendly error mapping
     if (result.error.message.includes('column "schedule_type" does not exist')) {
         return { success: false, error: "Database schema mismatch: schedule_type column missing." };
     }
@@ -144,9 +146,14 @@ export async function runDeliveryTaskNow(taskId: string): Promise<{ success: boo
   const { data: task } = await supabase.from('delivery_tasks').select('*').eq('id', taskId).single();
   if (!task) return { success: false, error: 'Task not found.' };
 
+  // Guard: Check idempotency for one-time tasks
+  const state = deriveDeliveryTaskState(task);
+  if (!state.canRunNow) {
+      return { success: false, error: state.message || '该任务当前不允许立即执行。' };
+  }
+
   // 2. Fetch Audience
   const audienceRes = await getAudience(task.audience_rule);
-  // FIX: Explicitly check for 'false' to help TypeScript's type narrowing.
   if (audienceRes.success === false) {
       await logRun(taskId, started_at, 'failed', 0, 0, 0, `Audience fetch failed: ${audienceRes.error}`);
       await updateTaskOnRunCompletion(taskId, 'failed', `Audience fetch failed: ${audienceRes.error}`);
@@ -167,7 +174,6 @@ export async function runDeliveryTaskNow(taskId: string): Promise<{ success: boo
   }
 
   // 3. Send Emails
-  // In a real scenario, this would be a background job. Here we do it directly.
   const { success_count, failure_count } = await sendEmailsToRecipients(task, recipients);
   
   const status: DeliveryRunStatus = failure_count > 0 ? 'failed' : 'success';
@@ -240,11 +246,8 @@ async function logRun(taskId: string, started_at: Date, status: DeliveryRunStatu
 
 async function updateTaskOnRunCompletion(taskId: string, status: LastRunStatus, message: string) {
     const supabase = createServiceClient();
-    
-    // 1. Fetch current task to check rule
     const { data: currentTask } = await supabase.from('delivery_tasks').select('run_count, schedule_rule').eq('id', taskId).single();
     
-    // 2. Determine updated status
     const updatePayload: Partial<DeliveryTask> = {
         last_run_at: new Date().toISOString(),
         last_run_status: status,
@@ -252,26 +255,17 @@ async function updateTaskOnRunCompletion(taskId: string, status: LastRunStatus, 
         run_count: (currentTask?.run_count || 0) + 1,
     };
 
-    // Determine if it was one-time based on schedule_rule (JSONB) to avoid missing column issues
-    // Type checking carefully
     const scheduleRule = currentTask?.schedule_rule as any;
     const isOneTime = scheduleRule?.mode === 'one_time';
 
-    // If one-time task finishes (success or skipped), mark as completed
-    if (isOneTime && (status === 'success' || status === 'skipped')) {
-        updatePayload.status = 'completed';
+    // Strict Lifecycle: If one-time task finishes, mark as completed regardless of success/fail
+    // (Failures are logged in runs, but the task instance is "done")
+    if (isOneTime) {
+        updatePayload.status = status === 'success' || status === 'skipped' ? 'completed' : 'failed';
         updatePayload.completed_at = new Date().toISOString();
-        updatePayload.next_run_at = null; // No next run
+        updatePayload.next_run_at = null; 
     }
     
-    // If it failed, we might keep it active to retry, or set to failed. 
-    // Usually 'active' (with error) or 'failed' is fine. Let's set 'active' but last_run_status shows error.
-    // But if strictly asked to reflect completion:
-    if (status === 'failed' && isOneTime) {
-        updatePayload.status = 'failed'; 
-    }
-    
-    // 3. Update DB
     await supabase.from('delivery_tasks').update(updatePayload as any).eq('id', taskId);
 }
 
@@ -288,9 +282,8 @@ export async function getTaskRuns(taskId: string): Promise<DeliveryRun[]> {
 
 // --- Audience Calculation ---
 
-// Fix Issue 2: Helper for Preview
 export async function previewAudience(rule: DeliveryAudienceRule): Promise<{ success: true, users: UserProfile[] } | { success: false, error: string }> {
-    const result = await getAudience(rule, 20); // Limit to 20 for preview
+    const result = await getAudience(rule, 20); 
     if (!result.success) return result;
     return { success: true, users: result.users as UserProfile[] };
 }
@@ -298,7 +291,6 @@ export async function previewAudience(rule: DeliveryAudienceRule): Promise<{ suc
 async function getAudience(rule: DeliveryAudienceRule | null, limit?: number): Promise<{ success: true, users: any[] } | { success: false, error: string }> {
     if (!rule) return { success: false, error: 'Audience rule is missing.' };
     const supabase = createServiceClient();
-    // Select minimal fields for preview/sending
     let query = supabase.from('user_profiles').select('id, name, email, user_type, created_at');
     
     if (rule.user_type && rule.user_type !== 'all') {
@@ -318,7 +310,7 @@ async function getAudience(rule: DeliveryAudienceRule | null, limit?: number): P
         if (rule.has_communicated === 'yes') {
             if (communicatedUserIds.length === 0) return { success: true, users: [] };
             query = query.in('id', communicatedUserIds);
-        } else { // 'no'
+        } else { 
             if (communicatedUserIds.length > 0) {
                 query = query.not('id', 'in', `(${communicatedUserIds.join(',')})`);
             }
@@ -366,7 +358,7 @@ export async function estimateAudienceCount(rule: DeliveryAudienceRule): Promise
         if (rule.has_communicated === 'yes') {
             if (communicatedUserIds.length === 0) return { success: true, count: 0 };
             query = query.in('id', communicatedUserIds);
-        } else { // 'no'
+        } else {
             if (communicatedUserIds.length > 0) {
                 query = query.not('id', 'in', `(${communicatedUserIds.join(',')})`);
             }
@@ -380,7 +372,6 @@ export async function estimateAudienceCount(rule: DeliveryAudienceRule): Promise
     if (rule.city) query = query.ilike('city', `%${rule.city}%`);
     if (rule.registered_from) query = query.gte('created_at', startOfDay(new Date(rule.registered_from)).toISOString());
     if (rule.registered_to) query = query.lte('created_at', endOfDay(new Date(rule.registered_to)).toISOString());
-    // Added logic for last login filtering
     if (rule.last_login_start) query = query.gte('last_login_at', startOfDay(new Date(rule.last_login_start)).toISOString());
     if (rule.last_login_end) query = query.lte('last_login_at', endOfDay(new Date(rule.last_login_end)).toISOString());
 
@@ -412,11 +403,13 @@ export async function deleteTask(id: string) {
 }
 
 export async function duplicateTask(task: DeliveryTask) {
-  const { id, created_at, updated_at, next_run_at, last_run_at, run_count, ...rest } = task;
+  // Reset critical lifecycle fields
+  const { id, created_at, updated_at, next_run_at, last_run_at, run_count, completed_at, last_run_status, last_run_message, ...rest } = task;
   const payload = {
     ...rest,
     name: `${rest.name} (复制)`,
     status: 'draft',
+    run_count: 0, // Reset run count
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
