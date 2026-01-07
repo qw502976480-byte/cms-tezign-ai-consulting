@@ -1,10 +1,9 @@
 
-
 'use server';
 
 import { createServiceClient } from '@/utils/supabase/server';
 import { revalidatePath } from 'next/cache';
-import { DeliveryTask, DeliveryTaskStatus, DeliveryAudienceRule, Resource, EmailSendingAccount, EmailTemplate, PreflightCheckResult, DeliveryRunStatus, LastRunStatus } from '@/types';
+import { DeliveryTask, DeliveryTaskStatus, DeliveryAudienceRule, Resource, EmailSendingAccount, EmailTemplate, PreflightCheckResult, DeliveryRunStatus, LastRunStatus, UserProfile } from '@/types';
 import { addMinutes, isAfter, isBefore, parse, subDays, startOfDay, endOfDay } from 'date-fns';
 import { Resend } from 'resend';
 
@@ -30,6 +29,9 @@ export async function preflightCheckDeliveryTask(task: Partial<DeliveryTask>): P
     if (!emailConfig?.account_id) return { success: false, error: 'Email 任务必须选择发送账户。' };
     if (!emailConfig?.template_id) return { success: false, error: 'Email 任务必须选择邮件模板。' };
     if (!emailConfig?.subject?.trim()) return { success: false, error: 'Email 任务必须填写邮件主题。' };
+  } else if (task.channel === 'in_app') {
+      // Fix Issue 1: Validate In-app channel on activation instead of disabling in UI
+      return { success: false, error: '站内信渠道暂未开通发送能力，请稍后重试或选择 Email 渠道。' };
   }
 
   // 3. Audience count check
@@ -243,10 +245,18 @@ async function updateTaskOnRunCompletion(taskId: string, status: LastRunStatus, 
 
 // --- Audience Calculation ---
 
-async function getAudience(rule: DeliveryAudienceRule | null): Promise<{ success: true, users: any[] } | { success: false, error: string }> {
+// Fix Issue 2: Helper for Preview
+export async function previewAudience(rule: DeliveryAudienceRule): Promise<{ success: true, users: UserProfile[] } | { success: false, error: string }> {
+    const result = await getAudience(rule, 20); // Limit to 20 for preview
+    if (!result.success) return result;
+    return { success: true, users: result.users as UserProfile[] };
+}
+
+async function getAudience(rule: DeliveryAudienceRule | null, limit?: number): Promise<{ success: true, users: any[] } | { success: false, error: string }> {
     if (!rule) return { success: false, error: 'Audience rule is missing.' };
     const supabase = createServiceClient();
-    let query = supabase.from('user_profiles').select('id, name, email');
+    // Select minimal fields for preview/sending
+    let query = supabase.from('user_profiles').select('id, name, email, user_type, created_at');
     
     if (rule.user_type && rule.user_type !== 'all') {
         query = query.eq('user_type', rule.user_type);
@@ -272,6 +282,20 @@ async function getAudience(rule: DeliveryAudienceRule | null): Promise<{ success
         }
     }
     
+    if (rule.interest_tags && rule.interest_tags.length > 0) {
+        query = query.overlaps('interest_tags', rule.interest_tags);
+    }
+    if (rule.country) query = query.ilike('country', `%${rule.country}%`);
+    if (rule.city) query = query.ilike('city', `%${rule.city}%`);
+    if (rule.registered_from) query = query.gte('created_at', startOfDay(new Date(rule.registered_from)).toISOString());
+    if (rule.registered_to) query = query.lte('created_at', endOfDay(new Date(rule.registered_to)).toISOString());
+    if (rule.last_login_start) query = query.gte('last_login_at', startOfDay(new Date(rule.last_login_start)).toISOString());
+    if (rule.last_login_end) query = query.lte('last_login_at', endOfDay(new Date(rule.last_login_end)).toISOString());
+
+    if (limit) {
+        query = query.limit(limit);
+    }
+
     const { data: users, error } = await query;
 
     if (error) {

@@ -1,11 +1,10 @@
-
 'use client';
 
 import React, { useState, useTransition, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { upsertDeliveryTask, estimateAudienceCount, searchResources, getResourcesByIds, getEmailAccounts, getEmailTemplates, getUniqueInterestTags, preflightCheckDeliveryTask, runDeliveryTaskNow } from './actions';
-import { DeliveryTask, DeliveryTaskType, DeliveryChannel, DeliveryTaskStatus, DeliveryContentMode, DeliveryAudienceRule, DeliveryContentRule, DeliveryScheduleRule, EmailSendingAccount, EmailTemplate, EmailChannelConfig, DeliveryRun } from '@/types';
-import { Loader2, Save, Play, Search, X, Check, Calculator, CalendarClock, Users, FileText, Settings, AlertTriangle, Mail, Calendar, ArrowRight, ExternalLink, ChevronDown, Tag, Send, History } from 'lucide-react';
+import { upsertDeliveryTask, estimateAudienceCount, previewAudience, searchResources, getResourcesByIds, getEmailAccounts, getEmailTemplates, getUniqueInterestTags, preflightCheckDeliveryTask, runDeliveryTaskNow } from './actions';
+import { DeliveryTask, DeliveryTaskType, DeliveryChannel, DeliveryTaskStatus, DeliveryContentMode, DeliveryAudienceRule, DeliveryContentRule, DeliveryScheduleRule, EmailSendingAccount, EmailTemplate, EmailChannelConfig, DeliveryRun, UserProfile } from '@/types';
+import { Loader2, Save, Play, Search, X, Check, Calculator, CalendarClock, Users, FileText, Settings, AlertTriangle, Mail, Calendar, ArrowRight, ExternalLink, ChevronDown, Tag, Send, History, Eye, Info } from 'lucide-react';
 import EmailConfigModal from './EmailConfigModal';
 import { format } from 'date-fns';
 
@@ -46,11 +45,17 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
     locale: 'zh-CN', // Default locale
   });
 
+  // Issue 2: Initialize estimated_count to null if not present to indicate "stale/unknown" state if filters change
   const [audience, setAudience] = useState<DeliveryAudienceRule>(initialData?.audience_rule || {
-    scope: 'all', user_type: 'all', marketing_opt_in: 'yes', has_communicated: 'all', has_demo_request: 'all', last_login_range: 'all', country: '', city: '', company: '', title: '', interest_tags: [], estimated_count: 0
+    scope: 'all', user_type: 'all', marketing_opt_in: 'yes', has_communicated: 'all', has_demo_request: 'all', last_login_range: 'all', country: '', city: '', company: '', title: '', interest_tags: [], estimated_count: undefined
   });
   
+  // Issue 3: Content Source State
   const [contentMode, setContentMode] = useState<DeliveryContentMode>(initialData?.content_mode || 'manual');
+  const [contentSource, setContentSource] = useState<'resource' | 'custom'>(
+      (initialData?.content_ids && initialData.content_ids.length > 0) ? 'resource' : 'custom'
+  );
+
   const [contentRule, setContentRule] = useState<DeliveryContentRule>(initialData?.content_rule || { category: [], time_range: '30d', limit: 3, featured_slot: 'none' });
   const [selectedContentIds, setSelectedContentIds] = useState<string[]>(initialData?.content_ids || []);
   const [schedule, setSchedule] = useState<DeliveryScheduleRule>(initialData?.schedule_rule || { mode: 'one_time', one_time_type: 'immediate', timezone: 'Asia/Shanghai' });
@@ -63,6 +68,11 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
 
   // --- Helper State ---
   const [estimating, setEstimating] = useState(false);
+  // Issue 2: Preview State
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [previewUsers, setPreviewUsers] = useState<UserProfile[]>([]);
+  const [loadingPreview, setLoadingPreview] = useState(false);
+
   const [scheduleError, setScheduleError] = useState<string | null>(null);
   const [searchKeyword, setSearchKeyword] = useState('');
   const [searchResults, setSearchResults] = useState<{id: string, title: string}[]>([]);
@@ -76,13 +86,21 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
 
   useEffect(() => { loadOptions(); }, []);
 
-  // FIX: Use ReturnType<typeof setTimeout> for environment-agnostic timer ID typing
-  const debouncedEstimate = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // Issue 2: Removed automatic audience estimation useEffect
+  
+  // Reset estimated count when audience rule changes to prompt user to refresh
+  const isFirstRender = useRef(true);
   useEffect(() => {
-    if (debouncedEstimate.current) clearTimeout(debouncedEstimate.current);
-    debouncedEstimate.current = setTimeout(() => { handleAudienceEstimate(); }, 800);
-    return () => { if (debouncedEstimate.current) clearTimeout(debouncedEstimate.current) };
-  }, [audience]);
+      if (isFirstRender.current) {
+          isFirstRender.current = false;
+          return;
+      }
+      setAudience(prev => ({ ...prev, estimated_count: undefined }));
+  }, [
+      audience.user_type, audience.marketing_opt_in, audience.has_communicated, 
+      audience.country, audience.city, audience.registered_from, audience.registered_to,
+      audience.last_login_start, audience.last_login_end, audience.interest_tags
+  ]);
 
   useEffect(() => {
     if (initialData?.content_ids && initialData.content_ids.length > 0) {
@@ -95,8 +113,14 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
   }, [initialData?.content_ids]);
 
   useEffect(() => {
-    setSelectedContentIds(selectedResources.map(r => r.id));
-  }, [selectedResources]);
+    // If user switches to custom, clear selected IDs for submission (optional, but cleaner)
+    // If user switches to resource, use selectedResources
+    if (contentSource === 'custom') {
+        setSelectedContentIds([]);
+    } else {
+        setSelectedContentIds(selectedResources.map(r => r.id));
+    }
+  }, [selectedResources, contentSource]);
 
   useEffect(() => {
     // Schedule Validation Logic
@@ -137,12 +161,26 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
   const handleAudienceEstimate = async () => {
     setEstimating(true);
     const res = await estimateAudienceCount(audience);
-    if (res.success) {
-        setAudience(prev => ({ ...prev, estimated_count: res.count }));
+    if (!res.success) {
+        alert(res.error);
     } else {
-        // Handle error gracefully, maybe set count to 0 or show toast
+        setAudience(prev => ({ ...prev, estimated_count: res.count }));
     }
     setEstimating(false);
+  };
+
+  // Issue 2: Preview Handler
+  const handleAudiencePreview = async () => {
+      setLoadingPreview(true);
+      setIsPreviewOpen(true);
+      const res = await previewAudience(audience);
+      if (!res.success) {
+          alert(res.error);
+          setIsPreviewOpen(false);
+      } else {
+          setPreviewUsers(res.users);
+      }
+      setLoadingPreview(false);
   };
   
   const handleSave = (isDraft: boolean) => {
@@ -150,7 +188,7 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
     const taskData: Partial<DeliveryTask> = {
         id: initialData?.id, ...basic, audience_rule: audience, content_mode: contentMode,
         content_rule: contentMode === 'rule' ? contentRule : null,
-        content_ids: contentMode === 'manual' ? selectedContentIds : null,
+        content_ids: contentSource === 'resource' ? selectedContentIds : [], // Respect Content Source
         schedule_rule: schedule,
         channel_config: basic.channel === 'email' ? { email: emailConfig } : null
     };
@@ -293,12 +331,13 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">渠道</label>
+                            {/* Issue 1: Fix - Remove disabled prop from options */}
                             <CustomSelect 
                                 value={basic.channel} 
                                 onChange={(v) => setBasic(p => ({...p, channel: v as any}))} 
                                 options={[
                                     {label:'Email', value:'email'},
-                                    {label:'站内信 (Coming Soon)', value:'in_app', disabled: true}
+                                    {label:'站内信 (In-app)', value:'in_app'} // Removed disabled: true
                                 ]} 
                             />
                         </div>
@@ -394,13 +433,28 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
                      <div className="flex items-center justify-between p-4 bg-indigo-50 rounded-lg border border-indigo-100 sticky bottom-4 shadow-sm">
                         <div className="flex items-center gap-2">
                             <span className="text-sm text-indigo-800">当前条件下预计触达:</span>
-                            <span className={`text-xl font-bold ${audience.estimated_count === 0 ? 'text-yellow-600' : 'text-indigo-900'}`}>
-                                {estimating ? <Loader2 className="animate-spin inline" size={16}/> : (audience.estimated_count ?? '-')}
-                            </span>
-                            <span className="text-xs text-indigo-600">位用户</span>
-                            {audience.estimated_count === 0 && !estimating && <span title="命中0人，任务无法启用"><AlertTriangle size={16} className="text-yellow-600" /></span>}
+                            {/* Issue 2: Better estimation display state */}
+                            {estimating ? (
+                                <Loader2 className="animate-spin text-indigo-900" size={20}/>
+                            ) : (
+                                audience.estimated_count !== undefined ? (
+                                    <>
+                                        <span className={`text-xl font-bold ${audience.estimated_count === 0 ? 'text-yellow-600' : 'text-indigo-900'}`}>
+                                            {audience.estimated_count}
+                                        </span>
+                                        <span className="text-xs text-indigo-600">位用户</span>
+                                        {audience.estimated_count === 0 && <span title="命中0人，任务无法启用"><AlertTriangle size={16} className="text-yellow-600" /></span>}
+                                    </>
+                                ) : (
+                                    <span className="text-sm text-gray-400">点击刷新获取 &rarr;</span>
+                                )
+                            )}
                         </div>
-                        <button type="button" onClick={handleAudienceEstimate} disabled={estimating} className="flex items-center gap-2 text-xs text-indigo-700 font-medium hover:underline disabled:opacity-50"><Calculator size={12} /> 手动刷新</button>
+                        <div className="flex items-center gap-3">
+                            {/* Issue 2: Preview Button */}
+                            <button type="button" onClick={handleAudiencePreview} className="flex items-center gap-2 text-xs text-indigo-700 font-medium hover:underline bg-white px-2 py-1 rounded border border-indigo-100 hover:bg-indigo-50 transition-colors"><Eye size={12} /> 预览用户</button>
+                            <button type="button" onClick={handleAudienceEstimate} disabled={estimating} className="flex items-center gap-2 text-xs text-white bg-indigo-600 hover:bg-indigo-700 px-3 py-1.5 rounded transition-colors disabled:opacity-50"><Calculator size={12} /> 手动刷新</button>
+                        </div>
                     </div>
                  </section>
             </div>
@@ -411,44 +465,84 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
                     <FileText className="text-gray-400" size={20} />
                     <h2 className="text-lg font-semibold text-gray-900">内容配置 (Content)</h2>
                     </div>
-                    <div>
+                    
+                    {/* Issue 3: Content Source Switch */}
+                    <div className="space-y-3">
+                        <label className="block text-sm font-medium text-gray-700">是否引用站内内容？</label>
+                        <div className="flex gap-4">
+                            <label className="flex items-center cursor-pointer">
+                                <input 
+                                    type="radio" 
+                                    name="content_source" 
+                                    className="w-4 h-4 text-gray-900 focus:ring-gray-900"
+                                    checked={contentSource === 'resource'}
+                                    onChange={() => setContentSource('resource')}
+                                />
+                                <span className="ml-2 text-sm text-gray-900">引用站内内容</span>
+                            </label>
+                            <label className="flex items-center cursor-pointer">
+                                <input 
+                                    type="radio" 
+                                    name="content_source" 
+                                    className="w-4 h-4 text-gray-900 focus:ring-gray-900"
+                                    checked={contentSource === 'custom'}
+                                    onChange={() => setContentSource('custom')}
+                                />
+                                <span className="ml-2 text-sm text-gray-900">不引用（纯文本/自定义）</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    {/* Conditional Resource Selection */}
+                    {contentSource === 'resource' && (
+                        <div className="animate-in fade-in slide-in-from-top-2 duration-200">
+                            <label className="block text-sm font-medium text-gray-700 mb-1">选择内容资源 (Resources)</label>
+                            <div className="border rounded-lg p-3 space-y-2 bg-gray-50">
+                                <div className="relative">
+                                    <Search size={16} className="absolute left-3 top-2.5 text-gray-400" />
+                                    <input type="text" placeholder="搜索站内资源标题..." value={searchKeyword} onChange={(e) => handleResourceSearch(e.target.value)} className="w-full border rounded-md px-3 py-1.5 pl-9 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white" />
+                                </div>
+                                
+                                {/* Empty State for Search */}
+                                { isSearching && <div className="p-2 text-sm text-gray-500">搜索中...</div> }
+                                { !isSearching && searchKeyword.length >= 2 && searchResults.length === 0 && (
+                                    <div className="p-4 text-center text-sm text-gray-500 bg-white border border-gray-100 rounded-lg">
+                                        暂无可引用的站内内容
+                                    </div>
+                                )}
+
+                                { searchResults.length > 0 && (
+                                    <div className="max-h-40 overflow-y-auto border rounded-md bg-white">
+                                        {searchResults.map(res => (
+                                            <button type="button" key={res.id} onClick={() => toggleResource(res)} className="w-full text-left p-2 text-sm hover:bg-gray-100 flex items-center gap-2 border-b border-gray-50 last:border-0">
+                                                <div className={`w-4 h-4 border rounded flex items-center justify-center ${selectedResources.some(r => r.id === res.id) ? 'bg-gray-900 border-gray-900' : 'border-gray-300'}`}>
+                                                    {selectedResources.some(r => r.id === res.id) && <Check size={12} className="text-white" />}
+                                                </div>
+                                                {res.title}
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                                
+                                <div className="flex flex-wrap gap-2 pt-2">
+                                    {selectedResources.length > 0 ? selectedResources.map(res => (
+                                        <div key={res.id} className="bg-white border border-gray-200 rounded-full px-3 py-1 text-xs flex items-center gap-1 shadow-sm">
+                                            <span className="max-w-[200px] truncate">{res.title}</span>
+                                            <button type="button" onClick={() => toggleResource(res)} className="hover:text-red-500"><X size={12} /></button>
+                                        </div>
+                                    )) : <p className="text-xs text-gray-400 px-1">请搜索并添加资源</p>}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="pt-2 border-t border-gray-100">
                         <label className="block text-sm font-medium text-gray-700 mb-1">邮件主题 (Subject)</label>
                         <input type="text" value={emailConfig.subject} onChange={(e) => setEmailConfig(p => ({...p, subject: e.target.value}))} className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" placeholder="邮件标题" />
                     </div>
                     <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">选择内容资源 (Resources)</label>
-                    <div className="border rounded-lg p-2 space-y-2">
-                        <div className="relative">
-                        <Search size={16} className="absolute left-3 top-2.5 text-gray-400" />
-                        <input type="text" placeholder="搜索资源..." value={searchKeyword} onChange={(e) => handleResourceSearch(e.target.value)} className="w-full border rounded-md px-3 py-1.5 pl-9 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
-                        </div>
-                        { (isSearching || searchResults.length > 0) &&
-                        <div className="max-h-40 overflow-y-auto border rounded-md">
-                            {isSearching ? <div className="p-2 text-sm text-gray-500">搜索中...</div> : 
-                            searchResults.map(res => (
-                                <button type="button" key={res.id} onClick={() => toggleResource(res)} className="w-full text-left p-2 text-sm hover:bg-gray-100 flex items-center gap-2">
-                                <div className={`w-4 h-4 border rounded flex items-center justify-center ${selectedResources.some(r => r.id === res.id) ? 'bg-gray-900 border-gray-900' : 'border-gray-300'}`}>
-                                    {selectedResources.some(r => r.id === res.id) && <Check size={12} className="text-white" />}
-                                </div>
-                                {res.title}
-                                </button>
-                            ))
-                            }
-                        </div>
-                        }
-                        <div className="flex flex-wrap gap-2 pt-2">
-                        {selectedResources.length > 0 ? selectedResources.map(res => (
-                            <div key={res.id} className="bg-gray-100 rounded-full px-2 py-1 text-xs flex items-center gap-1">
-                            <span>{res.title}</span>
-                            <button type="button" onClick={() => toggleResource(res)}><X size={12} /></button>
-                            </div>
-                        )) : <p className="text-xs text-gray-400 px-1">暂未选择资源</p>}
-                        </div>
-                    </div>
-                    </div>
-                    <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">邮件正文 (Body)</label>
-                        <textarea value={emailConfig.header_note || ''} onChange={(e) => setEmailConfig(p => ({...p, header_note: e.target.value}))} rows={5} className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" placeholder="请输入邮件正文..." />
+                        <textarea value={emailConfig.header_note || ''} onChange={(e) => setEmailConfig(p => ({...p, header_note: e.target.value}))} rows={5} className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 font-mono" placeholder="请输入邮件正文..." />
                     </div>
                 </section>
             </div>
@@ -550,6 +644,62 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
                 </div>
             )}
         </div>
+        
+        {/* Issue 2: Preview Modal */}
+        {isPreviewOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+                <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col max-h-[80vh]">
+                    <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                        <div className="flex items-center gap-2">
+                            <Users size={18} className="text-indigo-600" />
+                            <h3 className="font-semibold text-gray-900">受众预览</h3>
+                        </div>
+                        <button onClick={() => setIsPreviewOpen(false)} className="p-2 text-gray-400 hover:text-gray-900 rounded-lg hover:bg-gray-200 transition-colors"><X size={18} /></button>
+                    </div>
+                    
+                    <div className="p-0 overflow-y-auto bg-white flex-1">
+                        {loadingPreview ? (
+                            <div className="flex flex-col items-center justify-center h-40 gap-2 text-gray-500">
+                                <Loader2 className="animate-spin" size={24} />
+                                <span className="text-sm">正在加载用户列表...</span>
+                            </div>
+                        ) : previewUsers.length === 0 ? (
+                            <div className="p-8 text-center text-gray-500">
+                                <Info className="mx-auto mb-2 text-gray-300" size={32} />
+                                <p>当前筛选条件未命中任何用户</p>
+                            </div>
+                        ) : (
+                            <div className="divide-y divide-gray-100">
+                                <div className="px-4 py-2 bg-gray-50 text-xs font-medium text-gray-500 flex justify-between border-b border-gray-100 sticky top-0">
+                                    <span>用户 (前 {previewUsers.length} 位)</span>
+                                    <span>注册时间</span>
+                                </div>
+                                {previewUsers.map(user => (
+                                    <div key={user.id} className="px-4 py-3 hover:bg-gray-50 flex justify-between items-center gap-4">
+                                        <div className="overflow-hidden">
+                                            <p className="text-sm font-medium text-gray-900 truncate">{user.name || '未命名'}</p>
+                                            <p className="text-xs text-gray-500 truncate font-mono">{user.email}</p>
+                                            <div className="flex gap-2 mt-1">
+                                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 border border-gray-200 capitalize">{user.user_type}</span>
+                                            </div>
+                                        </div>
+                                        <span className="text-xs text-gray-400 whitespace-nowrap">
+                                            {format(new Date(user.created_at), 'yyyy-MM-dd')}
+                                        </span>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                    
+                    <div className="p-4 bg-gray-50 border-t border-gray-100 text-xs text-gray-500 flex items-center gap-2">
+                        <Info size={14} className="text-gray-400 shrink-0" />
+                        仅预览部分用户，用于确认筛选条件是否正确。实际发送时将包含所有命中用户。
+                    </div>
+                </div>
+            </div>
+        )}
+
         <EmailConfigModal isOpen={isConfigModalOpen} onClose={() => { setIsConfigModalOpen(false); loadOptions(); }} accounts={availableAccounts} templates={availableTemplates} />
     </div>
   );
