@@ -38,12 +38,9 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
   const [isChecking, setIsChecking] = useState(false);
   const [isManualRunning, setIsManualRunning] = useState(false);
   const [preflightError, setPreflightError] = useState<string | null>(null);
-  
-  const [localLocked, setLocalLocked] = useState(hasActiveRun);
 
-  useEffect(() => {
-      setLocalLocked(hasActiveRun);
-  }, [hasActiveRun]);
+  // 1) Define executionLocked from hasActiveRun prop
+  const executionLocked = Boolean(hasActiveRun);
 
   // --- State ---
   const [basic, setBasic] = useState({
@@ -246,14 +243,9 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
         startTransition(async () => {
             const check = await preflightCheckDeliveryTask(taskData);
             
-            // Check active run status from preflight as a double check
             if (!check.success) {
                 setPreflightError(check.error || '未知校验错误');
                 setIsChecking(false);
-                // Also force lock if API says so
-                if (check.data?.has_active_run) {
-                    setLocalLocked(true);
-                }
                 return;
             }
 
@@ -273,8 +265,6 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
 
   const handleRunNow = async () => {
     if (!initialData?.id) return;
-    // Client-side guard
-    if (localLocked) { alert('任务正在执行中，无法重复触发。'); return; }
     
     if (!confirm(`确定要立即执行任务 "${initialData.name}" 吗？\n这将向预计 ${audience.estimated_count || 'N/A'} 位用户真实发送内容。`)) return;
 
@@ -284,14 +274,8 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
     
     if (result.success) {
         alert(`执行成功: ${result.message}`);
-        setLocalLocked(true); // Optimistically lock
     } else {
-        if (result.code === 'RUNNING') {
-            alert('任务正在执行中，无法重复触发。');
-            setLocalLocked(true); // Force lock on 409-ish
-        } else {
-            alert(`执行失败: ${result.error}`);
-        }
+        alert(`执行失败: ${result.error}`);
     }
     router.refresh();
   };
@@ -353,8 +337,6 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
   const isContentDisabled = isEmail && !!emailConfig.template_id && !overrideTemplate;
 
   // --- DERIVED STATE & LOCK LOGIC ---
-  const executionLocked = localLocked;
-
   // To ensure buttons render but are disabled, we get their base permissions
   // by temporarily ignoring the 'running' state for the utility function.
   const taskForDerivation: DeliveryTaskDeriveInput = {
@@ -384,13 +366,10 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
             ))}
             
             <div className="pt-6 border-t border-gray-100 mt-6 space-y-3">
+                {/* 4) Add hint message when locked */}
                 {executionLocked && (
-                    <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-lg text-center space-y-1">
-                        <div className="flex items-center justify-center gap-1 text-xs text-indigo-700 font-medium">
-                            <Loader2 size={14} className="animate-spin" />
-                            任务正在执行中
-                        </div>
-                        <p className="text-[10px] text-indigo-500">请等待完成后再操作</p>
+                    <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-lg text-center text-xs text-indigo-700 font-medium">
+                        任务正在执行中，请等待完成后再操作
                     </div>
                 )}
                 
@@ -412,6 +391,7 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
                         </button>
 
                         {canEnable ? (
+                            // 2) Update "Enable Task" button disabled condition
                             <button onClick={() => handleSave(false)} disabled={executionLocked || isPending || isChecking || isManualRunning || !!scheduleError || (isEmail && (availableAccounts.length === 0 || availableTemplates.length === 0))} className="w-full flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm">
                                 {isChecking ? <Loader2 className="animate-spin" size={16} /> : <Play size={16} />}
                                 {isChecking ? '校验中...' : '启用任务'}
@@ -425,6 +405,7 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
                         )}
 
                         {initialData && canRunNow && (
+                            // 3) Update "Run Now" button disabled condition
                             <button onClick={handleRunNow} disabled={executionLocked || isManualRunning || isPending || isChecking} className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm">
                                 {isManualRunning ? <Loader2 className="animate-spin" size={16} /> : <Send size={16} />}
                                 {isManualRunning ? '执行中...' : '立即执行'}
@@ -443,16 +424,6 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
         </div>
 
         <div className="lg:col-span-3 space-y-8 pb-20">
-            {localLocked && (
-                <div className="bg-indigo-50 border border-indigo-200 text-indigo-800 px-4 py-3 rounded-xl flex items-center gap-3 shadow-sm animate-in slide-in-from-top-2">
-                    <Loader2 className="animate-spin text-indigo-600" size={20} />
-                    <div>
-                        <p className="font-medium text-sm">任务正在后台执行中</p>
-                        <p className="text-xs text-indigo-600 mt-0.5">请等待当前执行完成后再进行“立即执行”或“启用”操作。</p>
-                    </div>
-                </div>
-            )}
-
             <div ref={sectionRefs.basic} className="scroll-mt-6">
                 <section className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm space-y-6">
                     <div className="flex items-center gap-2 pb-4 border-b border-gray-100">
