@@ -40,7 +40,7 @@ export default function AdminLayoutClient({ children }: { children: React.ReactN
       title: '官网内容',
       items: [
         { label: '内容资源 (Resources)', href: '/admin/resources', icon: FileText },
-        // Updated: Renamed to just "Delivery"
+        // Updated: Renamed to "内容分发 (Delivery)"
         { label: '内容分发 (Delivery)', href: '/admin/delivery', icon: Send },
       ]
     },

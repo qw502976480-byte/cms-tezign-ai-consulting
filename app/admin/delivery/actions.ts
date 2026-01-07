@@ -3,7 +3,7 @@
 import { createServiceClient, createClient } from '@/utils/supabase/server';
 import { revalidatePath } from 'next/cache';
 import { DeliveryTask, DeliveryTaskStatus, DeliveryAudienceRule, Resource, EmailSendingAccount, EmailTemplate } from '@/types';
-import { addDays, nextDay, set, startOfDay } from 'date-fns';
+import { addDays, nextDay, set, startOfDay, isAfter, isBefore, addWeeks, addMonths, parse } from 'date-fns';
 
 // --- Delivery Tasks ---
 
@@ -12,19 +12,63 @@ export async function upsertDeliveryTask(data: Partial<DeliveryTask>) {
   
   // Calculate next_run_at based on schedule rule
   let nextRun = null;
+  const now = new Date();
+
+  // Logic to determine next_run_at
   if (data.status === 'active' && data.schedule_rule) {
-    if (data.schedule_rule.type === 'immediate') {
-      nextRun = new Date().toISOString();
-    } else if (data.schedule_rule.type === 'scheduled' && data.schedule_rule.time) {
-      // Simple next run calculation logic for MVP
-      const [hours, minutes] = data.schedule_rule.time.split(':').map(Number);
-      const now = new Date();
-      let proposed = set(now, { hours, minutes, seconds: 0, milliseconds: 0 });
-      
-      if (proposed <= now) {
-         proposed = addDays(proposed, 1);
-      }
-      nextRun = proposed.toISOString();
+    const rule = data.schedule_rule;
+
+    if (rule.mode === 'one_time') {
+        if (rule.one_time_type === 'immediate') {
+            nextRun = now.toISOString();
+        } else if (rule.one_time_type === 'scheduled' && rule.one_time_date && rule.one_time_time) {
+            // Combine date and time
+            try {
+                const target = parse(`${rule.one_time_date} ${rule.one_time_time}`, 'yyyy-MM-dd HH:mm', new Date());
+                // Only schedule if it's in the future (or allow it to run immediately if just passed, logic handled by runner)
+                nextRun = target.toISOString();
+            } catch (e) {
+                console.error("Date parsing error", e);
+            }
+        }
+    } else if (rule.mode === 'recurring' && rule.time) {
+        // Simple Recurring Logic (Daily/Weekly/Monthly)
+        const [hours, minutes] = rule.time.split(':').map(Number);
+        let baseDate = now;
+        
+        // If start_date is in the future, start calculation from there
+        if (rule.start_date) {
+            const startDate = startOfDay(new Date(rule.start_date));
+            if (isAfter(startDate, now)) {
+                baseDate = startDate;
+            }
+        }
+
+        // Set the target time on the base date
+        let proposed = set(baseDate, { hours, minutes, seconds: 0, milliseconds: 0 });
+        
+        // If proposed time is in the past relative to "now" (and we are starting from today), move to next interval
+        if (isBefore(proposed, now)) {
+             if (rule.frequency === 'daily') {
+                 proposed = addDays(proposed, 1);
+             } else if (rule.frequency === 'weekly') {
+                 proposed = addWeeks(proposed, 1);
+             } else if (rule.frequency === 'monthly') {
+                 proposed = addMonths(proposed, 1);
+             }
+        }
+        
+        // Check end_date constraint
+        if (rule.end_date) {
+            const endDate = set(new Date(rule.end_date), { hours: 23, minutes: 59, seconds: 59 });
+            if (isAfter(proposed, endDate)) {
+                nextRun = null; // Expired
+            } else {
+                nextRun = proposed.toISOString();
+            }
+        } else {
+            nextRun = proposed.toISOString();
+        }
     }
   }
 
@@ -56,6 +100,8 @@ export async function upsertDeliveryTask(data: Partial<DeliveryTask>) {
 export async function updateTaskStatus(id: string, status: DeliveryTaskStatus) {
   const supabase = createServiceClient();
 
+  // If activating, we might need to recalculate next_run_at. 
+  // For MVP, we simply update status. Real implementation would re-run the schedule logic used in upsert.
   const { error } = await supabase
     .from('delivery_tasks')
     .update({ 

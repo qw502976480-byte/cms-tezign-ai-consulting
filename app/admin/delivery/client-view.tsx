@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useTransition } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { DeliveryTask, DeliveryTaskStatus, EmailSendingAccount, EmailTemplate } from '@/types';
-import { Search, ChevronDown, Check, MoreHorizontal, Zap, Clock, Play, Pause, Copy, Trash2, Edit2, Settings, Mail } from 'lucide-react';
+import { Search, ChevronDown, Check, MoreHorizontal, Zap, Clock, Play, Pause, Copy, Trash2, Edit2, Settings, Mail, Repeat } from 'lucide-react';
 import { format } from 'date-fns';
 import { updateTaskStatus, deleteTask, duplicateTask } from './actions';
 import Link from 'next/link';
@@ -146,9 +146,9 @@ export default function TaskClientView({
                 
                 <button
                    onClick={() => setIsConfigModalOpen(true)}
-                   className="bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center justify-center gap-2 h-auto"
+                   className="bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center justify-center gap-2 h-auto whitespace-nowrap"
                 >
-                   <Settings size={18} /> Email 配置
+                   <Settings size={18} /> 渠道配置 (Channels)
                 </button>
             </div>
 
@@ -169,19 +169,20 @@ export default function TaskClientView({
                     <tbody className="divide-y divide-gray-100">
                         {initialTasks.map((task) => {
                             const emailDetails = getEmailDetails(task);
+                            const isRecurring = task.schedule_rule?.mode === 'recurring';
                             return (
                                 <tr key={task.id} className="hover:bg-gray-50 transition-colors group">
                                     <td className="px-6 py-4 font-medium text-gray-900">
                                         <Link href={`/admin/delivery/${task.id}`} className="hover:text-indigo-600 hover:underline">{task.name}</Link>
                                     </td>
                                     <td className="px-6 py-4">
-                                        {task.type === 'automated' ? (
+                                        {isRecurring ? (
                                             <div className="flex items-center gap-1.5 text-xs text-indigo-700 bg-indigo-50 px-2 py-1 rounded border border-indigo-100 w-fit">
-                                                <Zap size={12} /> 自动化
+                                                <Repeat size={12} /> 循环
                                             </div>
                                         ) : (
                                             <div className="flex items-center gap-1.5 text-xs text-slate-700 bg-slate-50 px-2 py-1 rounded border border-slate-100 w-fit">
-                                                <Clock size={12} /> 临时
+                                                <Clock size={12} /> 一次性
                                             </div>
                                         )}
                                     </td>
@@ -192,8 +193,8 @@ export default function TaskClientView({
                                         </div>
                                         {emailDetails && (
                                             <div className="text-xs text-gray-500 mt-1 space-y-0.5">
-                                                <div title={emailDetails.accountEmail}>Using: {emailDetails.accountName}</div>
-                                                <div title="Template">Tmpl: {emailDetails.templateName}</div>
+                                                <div title={emailDetails.accountEmail} className="truncate max-w-[150px]">Using: {emailDetails.accountName}</div>
+                                                <div title="Template" className="truncate max-w-[150px]">Tmpl: {emailDetails.templateName}</div>
                                             </div>
                                         )}
                                     </td>

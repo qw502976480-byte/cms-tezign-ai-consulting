@@ -6,7 +6,7 @@ export type ResourceStatus = 'draft' | 'published' | 'archived';
 export type DemoAppointmentStatus = 'scheduled' | 'completed' | 'no_show' | 'canceled';
 
 // Delivery Task Types
-export type DeliveryTaskType = 'automated' | 'one_off';
+export type DeliveryTaskType = 'automated' | 'one_off'; // Kept for DB compatibility, but UI logic maps to ScheduleRule
 export type DeliveryTaskStatus = 'draft' | 'active' | 'paused' | 'completed';
 export type DeliveryChannel = 'email' | 'in_app';
 export type DeliveryContentMode = 'rule' | 'manual';
@@ -61,9 +61,19 @@ export interface DeliveryAudienceRule {
 }
 
 export interface DeliveryScheduleRule {
-  type?: 'immediate' | 'scheduled';
+  mode: 'one_time' | 'recurring';
+  
+  // One-time specific
+  one_time_type?: 'immediate' | 'scheduled';
+  one_time_date?: string; // YYYY-MM-DD
+  one_time_time?: string; // HH:MM
+
+  // Recurring specific
   frequency?: 'daily' | 'weekly' | 'monthly';
-  time?: string; // "10:00"
+  time?: string; // HH:MM
+  start_date?: string; // YYYY-MM-DD
+  end_date?: string; // YYYY-MM-DD (optional)
+  
   timezone?: string; // "Asia/Shanghai"
 }
 

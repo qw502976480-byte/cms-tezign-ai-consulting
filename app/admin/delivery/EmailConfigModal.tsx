@@ -62,7 +62,7 @@ export default function EmailConfigModal({ isOpen, onClose, accounts: initialAcc
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col h-[80vh]">
         {/* Header */}
         <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
-          <h3 className="font-semibold text-gray-900">Email 配置管理</h3>
+          <h3 className="font-semibold text-gray-900">渠道配置 (Channels)</h3>
           <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-900 rounded-lg hover:bg-gray-200">
             <X size={20} />
           </button>
