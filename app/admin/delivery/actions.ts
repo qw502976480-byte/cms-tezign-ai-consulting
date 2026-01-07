@@ -2,8 +2,10 @@
 
 import { createServiceClient, createClient } from '@/utils/supabase/server';
 import { revalidatePath } from 'next/cache';
-import { DeliveryTask, DeliveryTaskStatus, DeliveryAudienceRule, Resource } from '@/types';
+import { DeliveryTask, DeliveryTaskStatus, DeliveryAudienceRule, Resource, EmailSendingAccount, EmailTemplate } from '@/types';
 import { addDays, nextDay, set, startOfDay } from 'date-fns';
+
+// --- Delivery Tasks ---
 
 export async function upsertDeliveryTask(data: Partial<DeliveryTask>) {
   const supabase = createServiceClient();
@@ -114,6 +116,8 @@ export async function duplicateTask(task: DeliveryTask) {
   return { success: true };
 }
 
+// --- Helpers ---
+
 export async function estimateAudienceCount(rule: DeliveryAudienceRule) {
     const supabase = createServiceClient();
     
@@ -132,7 +136,6 @@ export async function estimateAudienceCount(rule: DeliveryAudienceRule) {
         else query = query.eq('id', '00000000-0000-0000-0000-000000000000'); // No match
     } else if (rule.scope === 'not_communicated') {
         if (communicatedIds.length > 0) {
-            // "not in" needs raw filter or specific string logic in Supabase JS
              const idsString = `(${communicatedIds.map(id => `"${id}"`).join(',')})`;
              query = query.not('id', 'in', idsString);
         }
@@ -176,4 +179,44 @@ export async function getResourcesByIds(ids: string[]) {
     const supabase = createServiceClient();
     const { data } = await supabase.from('resources').select('id, title, category').in('id', ids);
     return data || [];
+}
+
+// --- Email Config Actions ---
+
+export async function getEmailAccounts() {
+    const supabase = createServiceClient();
+    const { data } = await supabase.from('email_sending_accounts').select('*').order('created_at', { ascending: false });
+    return (data || []) as EmailSendingAccount[];
+}
+
+export async function upsertEmailAccount(data: Partial<EmailSendingAccount>) {
+    const supabase = createServiceClient();
+    const payload = { ...data, updated_at: new Date().toISOString() };
+    if (!payload.id) {
+         // @ts-ignore
+         delete payload.id; 
+    }
+    const { error } = await supabase.from('email_sending_accounts').upsert(payload);
+    if (error) return { success: false, error: error.message };
+    revalidatePath('/admin/delivery');
+    return { success: true };
+}
+
+export async function getEmailTemplates() {
+    const supabase = createServiceClient();
+    const { data } = await supabase.from('email_templates').select('*').order('created_at', { ascending: false });
+    return (data || []) as EmailTemplate[];
+}
+
+export async function upsertEmailTemplate(data: Partial<EmailTemplate>) {
+    const supabase = createServiceClient();
+    const payload = { ...data, updated_at: new Date().toISOString() };
+    if (!payload.id) {
+         // @ts-ignore
+         delete payload.id;
+    }
+    const { error } = await supabase.from('email_templates').upsert(payload);
+    if (error) return { success: false, error: error.message };
+    revalidatePath('/admin/delivery');
+    return { success: true };
 }

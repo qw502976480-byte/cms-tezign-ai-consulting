@@ -2,11 +2,12 @@
 
 import React, { useState, useEffect, useRef, useTransition } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
-import { DeliveryTask, DeliveryTaskStatus } from '@/types';
-import { Search, ChevronDown, Check, MoreHorizontal, Zap, Clock, Play, Pause, Copy, Trash2, Edit2 } from 'lucide-react';
+import { DeliveryTask, DeliveryTaskStatus, EmailSendingAccount, EmailTemplate } from '@/types';
+import { Search, ChevronDown, Check, MoreHorizontal, Zap, Clock, Play, Pause, Copy, Trash2, Edit2, Settings, Mail } from 'lucide-react';
 import { format } from 'date-fns';
 import { updateTaskStatus, deleteTask, duplicateTask } from './actions';
 import Link from 'next/link';
+import EmailConfigModal from './EmailConfigModal';
 
 function FilterDropdown({ label, value, options, onChange }: any) {
     const [isOpen, setIsOpen] = useState(false);
@@ -45,7 +46,15 @@ const statusMap: Record<DeliveryTaskStatus, { label: string, color: string }> = 
     completed: { label: '已完成', color: 'bg-blue-50 text-blue-700 border-blue-200' },
 };
 
-export default function TaskClientView({ initialTasks }: { initialTasks: DeliveryTask[] }) {
+export default function TaskClientView({ 
+    initialTasks, 
+    emailAccounts, 
+    emailTemplates 
+}: { 
+    initialTasks: DeliveryTask[], 
+    emailAccounts: EmailSendingAccount[],
+    emailTemplates: EmailTemplate[]
+}) {
     const router = useRouter();
     const pathname = usePathname();
     const searchParams = useSearchParams();
@@ -54,6 +63,7 @@ export default function TaskClientView({ initialTasks }: { initialTasks: Deliver
     const [keyword, setKeyword] = useState(searchParams.get('q') || '');
     const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
     const menuRef = useRef<HTMLDivElement>(null);
+    const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
 
     // Close menu when clicking outside
     useEffect(() => {
@@ -86,39 +96,60 @@ export default function TaskClientView({ initialTasks }: { initialTasks: Deliver
         });
     };
 
+    const getEmailDetails = (task: DeliveryTask) => {
+        if (task.channel !== 'email' || !task.channel_config?.email) return null;
+        const conf = task.channel_config.email;
+        const acct = emailAccounts.find(a => a.id === conf.account_id);
+        const tmpl = emailTemplates.find(t => t.id === conf.template_id);
+        return {
+            accountName: acct ? acct.name : 'Unknown Account',
+            accountEmail: acct ? acct.from_email : '',
+            templateName: tmpl ? tmpl.name : 'Unknown Template'
+        };
+    };
+
     return (
         <div className="space-y-6">
-            {/* Filters */}
-            <div className="bg-white p-4 rounded-xl border border-gray-200 grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div className="relative">
-                    <Search className="absolute left-3 top-2.5 text-gray-400" size={18} strokeWidth={1.5} />
-                    <input 
-                        type="text" 
-                        placeholder="搜索任务名称" 
-                        className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900 transition-all text-sm"
-                        value={keyword}
-                        onChange={(e) => setKeyword(e.target.value)}
-                        onKeyDown={handleSearch}
+            {/* Header Actions & Filters */}
+            <div className="flex flex-col md:flex-row gap-4">
+                <div className="bg-white p-4 rounded-xl border border-gray-200 grid grid-cols-1 md:grid-cols-4 gap-4 flex-1">
+                    <div className="relative">
+                        <Search className="absolute left-3 top-2.5 text-gray-400" size={18} strokeWidth={1.5} />
+                        <input 
+                            type="text" 
+                            placeholder="搜索任务名称" 
+                            className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900 transition-all text-sm"
+                            value={keyword}
+                            onChange={(e) => setKeyword(e.target.value)}
+                            onKeyDown={handleSearch}
+                        />
+                    </div>
+                    <FilterDropdown 
+                        label="状态"
+                        value={searchParams.get('status') || 'all'}
+                        options={[{label:'全部',value:'all'}, ...Object.keys(statusMap).map(k => ({label:statusMap[k as DeliveryTaskStatus].label, value:k}))]}
+                        onChange={(v: string) => updateFilter('status', v)}
+                    />
+                    <FilterDropdown 
+                        label="类型"
+                        value={searchParams.get('type') || 'all'}
+                        options={[{label:'全部',value:'all'},{label:'自动化',value:'automated'},{label:'临时任务',value:'one_off'}]}
+                        onChange={(v: string) => updateFilter('type', v)}
+                    />
+                    <FilterDropdown 
+                        label="渠道"
+                        value={searchParams.get('channel') || 'all'}
+                        options={[{label:'全部',value:'all'},{label:'Email',value:'email'},{label:'站内信',value:'in_app'}]}
+                        onChange={(v: string) => updateFilter('channel', v)}
                     />
                 </div>
-                <FilterDropdown 
-                    label="状态"
-                    value={searchParams.get('status') || 'all'}
-                    options={[{label:'全部',value:'all'}, ...Object.keys(statusMap).map(k => ({label:statusMap[k as DeliveryTaskStatus].label, value:k}))]}
-                    onChange={(v: string) => updateFilter('status', v)}
-                />
-                <FilterDropdown 
-                    label="类型"
-                    value={searchParams.get('type') || 'all'}
-                    options={[{label:'全部',value:'all'},{label:'自动化',value:'automated'},{label:'临时任务',value:'one_off'}]}
-                    onChange={(v: string) => updateFilter('type', v)}
-                />
-                <FilterDropdown 
-                    label="渠道"
-                    value={searchParams.get('channel') || 'all'}
-                    options={[{label:'全部',value:'all'},{label:'Email',value:'email'},{label:'站内信',value:'in_app'}]}
-                    onChange={(v: string) => updateFilter('channel', v)}
-                />
+                
+                <button
+                   onClick={() => setIsConfigModalOpen(true)}
+                   className="bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center justify-center gap-2 h-auto"
+                >
+                   <Settings size={18} /> Email 配置
+                </button>
             </div>
 
             {/* List */}
@@ -128,77 +159,96 @@ export default function TaskClientView({ initialTasks }: { initialTasks: Deliver
                         <tr>
                             <th className="px-6 py-4 w-[250px] font-medium">任务名称</th>
                             <th className="px-6 py-4 w-[120px] font-medium">类型</th>
-                            <th className="px-6 py-4 w-[120px] font-medium">渠道</th>
+                            <th className="px-6 py-4 w-[180px] font-medium">渠道配置</th>
                             <th className="px-6 py-4 w-[120px] font-medium">状态</th>
-                            <th className="px-6 py-4 w-[180px] font-medium">最近执行</th>
-                            <th className="px-6 py-4 w-[180px] font-medium">下次执行</th>
+                            <th className="px-6 py-4 w-[160px] font-medium">最近执行</th>
+                            <th className="px-6 py-4 w-[160px] font-medium">下次执行</th>
                             <th className="px-6 py-4 text-right font-medium">操作</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
-                        {initialTasks.map((task) => (
-                            <tr key={task.id} className="hover:bg-gray-50 transition-colors group">
-                                <td className="px-6 py-4 font-medium text-gray-900">
-                                    <Link href={`/admin/delivery/${task.id}`} className="hover:text-indigo-600 hover:underline">{task.name}</Link>
-                                </td>
-                                <td className="px-6 py-4">
-                                    {task.type === 'automated' ? (
-                                        <div className="flex items-center gap-1.5 text-xs text-indigo-700 bg-indigo-50 px-2 py-1 rounded border border-indigo-100 w-fit">
-                                            <Zap size={12} /> 自动化
+                        {initialTasks.map((task) => {
+                            const emailDetails = getEmailDetails(task);
+                            return (
+                                <tr key={task.id} className="hover:bg-gray-50 transition-colors group">
+                                    <td className="px-6 py-4 font-medium text-gray-900">
+                                        <Link href={`/admin/delivery/${task.id}`} className="hover:text-indigo-600 hover:underline">{task.name}</Link>
+                                    </td>
+                                    <td className="px-6 py-4">
+                                        {task.type === 'automated' ? (
+                                            <div className="flex items-center gap-1.5 text-xs text-indigo-700 bg-indigo-50 px-2 py-1 rounded border border-indigo-100 w-fit">
+                                                <Zap size={12} /> 自动化
+                                            </div>
+                                        ) : (
+                                            <div className="flex items-center gap-1.5 text-xs text-slate-700 bg-slate-50 px-2 py-1 rounded border border-slate-100 w-fit">
+                                                <Clock size={12} /> 临时
+                                            </div>
+                                        )}
+                                    </td>
+                                    <td className="px-6 py-4">
+                                        <div className="text-gray-900 font-medium flex items-center gap-1.5">
+                                            {task.channel === 'email' ? <Mail size={14} className="text-gray-400" /> : null}
+                                            <span className="capitalize">{task.channel}</span>
                                         </div>
-                                    ) : (
-                                        <div className="flex items-center gap-1.5 text-xs text-slate-700 bg-slate-50 px-2 py-1 rounded border border-slate-100 w-fit">
-                                            <Clock size={12} /> 临时
-                                        </div>
-                                    )}
-                                </td>
-                                <td className="px-6 py-4 text-gray-600 capitalize">
-                                    {task.channel === 'email' ? 'Email' : '站内'}
-                                </td>
-                                <td className="px-6 py-4">
-                                    <span className={`px-2 py-0.5 rounded text-[11px] font-medium border whitespace-nowrap ${statusMap[task.status].color}`}>
-                                        {statusMap[task.status].label}
-                                    </span>
-                                </td>
-                                <td className="px-6 py-4 text-gray-500 text-xs tabular-nums">
-                                    {task.last_run_at ? format(new Date(task.last_run_at), 'yyyy-MM-dd HH:mm') : '—'}
-                                </td>
-                                <td className="px-6 py-4 text-gray-500 text-xs tabular-nums">
-                                    {task.next_run_at ? format(new Date(task.next_run_at), 'yyyy-MM-dd HH:mm') : '—'}
-                                </td>
-                                <td className="px-6 py-4 text-right relative">
-                                    {/* Actions Dropdown */}
-                                     <button onClick={(e) => { e.stopPropagation(); setMenuOpenId(menuOpenId === task.id ? null : task.id); }} className="p-2 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-900 transition-colors">
-                                        <MoreHorizontal size={18} />
-                                    </button>
-                                    
-                                    {menuOpenId === task.id && (
-                                        <div className="absolute right-8 top-8 w-40 bg-white border border-gray-100 rounded-xl shadow-lg z-20 p-1">
-                                            <Link href={`/admin/delivery/${task.id}`} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-gray-50 rounded text-gray-700">
-                                                <Edit2 size={14} /> 编辑配置
-                                            </Link>
-                                            {task.status !== 'completed' && task.status !== 'draft' && (
-                                                <button onClick={() => handleAction('toggle_status', task)} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-gray-50 rounded text-gray-700">
-                                                    {task.status === 'active' ? <><Pause size={14} /> 暂停任务</> : <><Play size={14} /> 启用任务</>}
+                                        {emailDetails && (
+                                            <div className="text-xs text-gray-500 mt-1 space-y-0.5">
+                                                <div title={emailDetails.accountEmail}>Using: {emailDetails.accountName}</div>
+                                                <div title="Template">Tmpl: {emailDetails.templateName}</div>
+                                            </div>
+                                        )}
+                                    </td>
+                                    <td className="px-6 py-4">
+                                        <span className={`px-2 py-0.5 rounded text-[11px] font-medium border whitespace-nowrap ${statusMap[task.status].color}`}>
+                                            {statusMap[task.status].label}
+                                        </span>
+                                    </td>
+                                    <td className="px-6 py-4 text-gray-500 text-xs tabular-nums">
+                                        {task.last_run_at ? format(new Date(task.last_run_at), 'yyyy-MM-dd HH:mm') : '—'}
+                                    </td>
+                                    <td className="px-6 py-4 text-gray-500 text-xs tabular-nums">
+                                        {task.next_run_at ? format(new Date(task.next_run_at), 'yyyy-MM-dd HH:mm') : '—'}
+                                    </td>
+                                    <td className="px-6 py-4 text-right relative">
+                                        {/* Actions Dropdown */}
+                                        <button onClick={(e) => { e.stopPropagation(); setMenuOpenId(menuOpenId === task.id ? null : task.id); }} className="p-2 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-900 transition-colors">
+                                            <MoreHorizontal size={18} />
+                                        </button>
+                                        
+                                        {menuOpenId === task.id && (
+                                            <div className="absolute right-8 top-8 w-40 bg-white border border-gray-100 rounded-xl shadow-lg z-20 p-1">
+                                                <Link href={`/admin/delivery/${task.id}`} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-gray-50 rounded text-gray-700">
+                                                    <Edit2 size={14} /> 编辑配置
+                                                </Link>
+                                                {task.status !== 'completed' && task.status !== 'draft' && (
+                                                    <button onClick={() => handleAction('toggle_status', task)} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-gray-50 rounded text-gray-700">
+                                                        {task.status === 'active' ? <><Pause size={14} /> 暂停任务</> : <><Play size={14} /> 启用任务</>}
+                                                    </button>
+                                                )}
+                                                <button onClick={() => handleAction('duplicate', task)} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-gray-50 rounded text-gray-700">
+                                                    <Copy size={14} /> 复制任务
                                                 </button>
-                                            )}
-                                            <button onClick={() => handleAction('duplicate', task)} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-gray-50 rounded text-gray-700">
-                                                <Copy size={14} /> 复制任务
-                                            </button>
-                                            <button onClick={() => handleAction('delete', task)} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-red-50 text-red-600 rounded">
-                                                <Trash2 size={14} /> 删除任务
-                                            </button>
-                                        </div>
-                                    )}
-                                </td>
-                            </tr>
-                        ))}
+                                                <button onClick={() => handleAction('delete', task)} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-red-50 text-red-600 rounded">
+                                                    <Trash2 size={14} /> 删除任务
+                                                </button>
+                                            </div>
+                                        )}
+                                    </td>
+                                </tr>
+                            );
+                        })}
                          {initialTasks.length === 0 && (
                             <tr><td colSpan={7} className="text-center py-16 text-gray-400">暂无分发任务</td></tr>
                         )}
                     </tbody>
                 </table>
             </div>
+            
+            <EmailConfigModal 
+                isOpen={isConfigModalOpen} 
+                onClose={() => setIsConfigModalOpen(false)} 
+                accounts={emailAccounts}
+                templates={emailTemplates}
+            />
         </div>
     );
 }

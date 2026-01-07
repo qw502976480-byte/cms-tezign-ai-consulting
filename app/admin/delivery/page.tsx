@@ -3,7 +3,7 @@ import { createClient } from '@/utils/supabase/server';
 import TaskClientView from './client-view';
 import Link from 'next/link';
 import { Plus } from 'lucide-react';
-import { DeliveryTask } from '@/types';
+import { DeliveryTask, EmailSendingAccount, EmailTemplate } from '@/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,17 +32,24 @@ export default async function DeliveryListPage({ searchParams }: { searchParams:
     query = query.ilike('name', `%${searchParams.q}%`);
   }
 
-  const { data, error } = await query;
+  // Fetch Tasks and Configs concurrently
+  const [tasksRes, accountsRes, templatesRes] = await Promise.all([
+      query,
+      supabase.from('email_sending_accounts').select('*').order('created_at', { ascending: false }),
+      supabase.from('email_templates').select('*').order('created_at', { ascending: false })
+  ]);
 
-  if (error) {
+  if (tasksRes.error) {
     return (
       <div className="p-8 text-red-600 bg-red-50 rounded-lg border border-red-100">
-        Error loading delivery tasks: {error.message}
+        Error loading delivery tasks: {tasksRes.error.message}
       </div>
     );
   }
 
-  const tasks = data as DeliveryTask[];
+  const tasks = tasksRes.data as DeliveryTask[];
+  const accounts = (accountsRes.data || []) as EmailSendingAccount[];
+  const templates = (templatesRes.data || []) as EmailTemplate[];
 
   return (
     <div className="space-y-8">
@@ -61,7 +68,11 @@ export default async function DeliveryListPage({ searchParams }: { searchParams:
         </Link>
       </div>
 
-      <TaskClientView initialTasks={tasks} />
+      <TaskClientView 
+        initialTasks={tasks} 
+        emailAccounts={accounts} 
+        emailTemplates={templates} 
+      />
     </div>
   );
 }

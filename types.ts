@@ -11,6 +11,40 @@ export type DeliveryTaskStatus = 'draft' | 'active' | 'paused' | 'completed';
 export type DeliveryChannel = 'email' | 'in_app';
 export type DeliveryContentMode = 'rule' | 'manual';
 
+export interface EmailSendingAccount {
+  id: string;
+  name: string;
+  from_name: string;
+  from_email: string;
+  reply_to?: string;
+  provider: 'resend' | 'smtp';
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface EmailTemplate {
+  id: string;
+  name: string;
+  subject: string;
+  html_content: string;
+  text_content?: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface EmailChannelConfig {
+  account_id: string;
+  template_id: string;
+  subject: string;
+  header_note?: string;
+  footer_note?: string;
+}
+
+export interface DeliveryChannelConfig {
+  email?: EmailChannelConfig;
+  // future expansion: in_app?: InAppConfig
+}
+
 export interface DeliveryContentRule {
   category?: ResourceCategory[]; // categories to include
   time_range?: '7d' | '30d' | '90d' | 'all';
@@ -47,6 +81,7 @@ export interface DeliveryTask {
   
   audience_rule: DeliveryAudienceRule | null;
   schedule_rule: DeliveryScheduleRule | null;
+  channel_config: DeliveryChannelConfig | null;
   
   next_run_at: string | null;
   last_run_at: string | null;

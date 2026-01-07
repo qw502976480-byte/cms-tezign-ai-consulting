@@ -2,9 +2,9 @@
 
 import React, { useState, useTransition, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { upsertDeliveryTask, estimateAudienceCount, searchResources, getResourcesByIds } from './actions';
-import { DeliveryTask, DeliveryTaskType, DeliveryChannel, DeliveryTaskStatus, DeliveryContentMode, DeliveryAudienceRule, DeliveryContentRule, DeliveryScheduleRule } from '@/types';
-import { Loader2, Save, Play, Search, X, Check, Calculator, CalendarClock, Users, FileText, Settings, AlertTriangle } from 'lucide-react';
+import { upsertDeliveryTask, estimateAudienceCount, searchResources, getResourcesByIds, getEmailAccounts, getEmailTemplates } from './actions';
+import { DeliveryTask, DeliveryTaskType, DeliveryChannel, DeliveryTaskStatus, DeliveryContentMode, DeliveryAudienceRule, DeliveryContentRule, DeliveryScheduleRule, EmailSendingAccount, EmailTemplate, EmailChannelConfig } from '@/types';
+import { Loader2, Save, Play, Search, X, Check, Calculator, CalendarClock, Users, FileText, Settings, AlertTriangle, Mail } from 'lucide-react';
 import Link from 'next/link';
 
 interface Props {
@@ -39,7 +39,7 @@ export default function TaskForm({ initialData }: Props) {
     featured_slot: 'none'
   });
   const [selectedContentIds, setSelectedContentIds] = useState<string[]>(initialData?.content_ids || []);
-  const [selectedResourcesPreview, setSelectedResourcesPreview] = useState<any[]>([]); // For display
+  const [selectedResourcesPreview, setSelectedResourcesPreview] = useState<any[]>([]); 
 
   const [schedule, setSchedule] = useState<DeliveryScheduleRule>(initialData?.schedule_rule || {
     type: 'immediate',
@@ -48,18 +48,46 @@ export default function TaskForm({ initialData }: Props) {
     timezone: 'Asia/Shanghai'
   });
 
+  // Email Config State
+  const [emailConfig, setEmailConfig] = useState<EmailChannelConfig>(initialData?.channel_config?.email || {
+    account_id: '',
+    template_id: '',
+    subject: '',
+    header_note: '',
+    footer_note: ''
+  });
+
+  // Available Options
+  const [availableAccounts, setAvailableAccounts] = useState<EmailSendingAccount[]>([]);
+  const [availableTemplates, setAvailableTemplates] = useState<EmailTemplate[]>([]);
+
   // --- Helper State ---
   const [estimating, setEstimating] = useState(false);
   const [resourceSearchQuery, setResourceSearchQuery] = useState('');
   const [resourceSearchResults, setResourceSearchResults] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'basic'|'audience'|'content'|'schedule'>('basic');
 
-  // Load initial resources if manual mode
+  // Load initial resources if manual mode & Email Options
   useEffect(() => {
     if (initialData?.content_ids && initialData.content_ids.length > 0) {
         getResourcesByIds(initialData.content_ids).then(setSelectedResourcesPreview);
     }
+    // Load email config options
+    const loadOptions = async () => {
+        const [accs, tmps] = await Promise.all([getEmailAccounts(), getEmailTemplates()]);
+        setAvailableAccounts(accs.filter(a => a.is_active));
+        setAvailableTemplates(tmps.filter(t => t.is_active));
+    };
+    loadOptions();
   }, [initialData]);
+
+  // When template selected, auto-fill subject if empty
+  useEffect(() => {
+      if (emailConfig.template_id && !emailConfig.subject) {
+          const tmpl = availableTemplates.find(t => t.id === emailConfig.template_id);
+          if (tmpl) setEmailConfig(prev => ({ ...prev, subject: tmpl.subject }));
+      }
+  }, [emailConfig.template_id, availableTemplates, emailConfig.subject]);
 
   // --- Handlers ---
 
@@ -93,15 +121,23 @@ export default function TaskForm({ initialData }: Props) {
   const handleSave = (activate = false) => {
       if (!basic.name) return alert('请输入任务名称');
       
+      // Validation for Active Email Tasks
+      if ((activate || basic.status === 'active') && basic.channel === 'email') {
+          if (!emailConfig.account_id) return alert('启用 Email 任务必须选择发送账户');
+          if (!emailConfig.template_id) return alert('启用 Email 任务必须选择邮件模板');
+          if (!emailConfig.subject) return alert('启用 Email 任务必须填写邮件主题');
+      }
+
       const payload: Partial<DeliveryTask> = {
           id: initialData?.id,
           ...basic,
-          status: activate ? 'active' : basic.status, // If clicking 'Activate', force status
+          status: activate ? 'active' : basic.status, 
           audience_rule: audience,
           content_mode: contentMode,
           content_rule: contentMode === 'rule' ? contentRule : null,
           content_ids: contentMode === 'manual' ? selectedContentIds : null,
           schedule_rule: schedule,
+          channel_config: basic.channel === 'email' ? { email: emailConfig } : null
       };
 
       startTransition(async () => {
@@ -167,64 +203,132 @@ export default function TaskForm({ initialData }: Props) {
         <div className="lg:col-span-3 space-y-8 pb-20">
             
             {/* Section 1: Basic */}
-            <section id="basic" className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-                <div className="flex items-center gap-2 mb-6 pb-2 border-b border-gray-100">
+            <section id="basic" className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm space-y-6">
+                <div className="flex items-center gap-2 mb-2 border-b border-gray-100 pb-2">
                     <Settings className="text-gray-400" size={20} />
                     <h2 className="text-lg font-semibold text-gray-900">基础信息</h2>
                 </div>
-                <div className="space-y-6">
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">任务名称 <span className="text-red-500">*</span></label>
-                        <input 
-                            type="text" 
-                            value={basic.name}
-                            onChange={(e) => setBasic(prev => ({...prev, name: e.target.value}))}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:outline-none"
-                            placeholder="例如：2024 春季产品更新推送"
-                        />
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">任务类型</label>
-                            <select 
-                                value={basic.type} 
-                                onChange={(e) => setBasic(prev => ({...prev, type: e.target.value as DeliveryTaskType}))}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:outline-none bg-white"
-                            >
-                                <option value="automated">自动化 (Automated)</option>
-                                <option value="one_off">临时任务 (Ad-hoc)</option>
-                            </select>
-                        </div>
+                
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">任务名称 <span className="text-red-500">*</span></label>
+                    <input 
+                        type="text" 
+                        value={basic.name}
+                        onChange={(e) => setBasic(prev => ({...prev, name: e.target.value}))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:outline-none"
+                        placeholder="例如：2024 春季产品更新推送"
+                    />
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">分发渠道</label>
-                            <select 
-                                value={basic.channel} 
-                                onChange={(e) => setBasic(prev => ({...prev, channel: e.target.value as DeliveryChannel}))}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:outline-none bg-white"
-                            >
-                                <option value="email">邮件 (Email)</option>
-                                <option value="in_app">站内信 (In-App)</option>
-                            </select>
-                        </div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">任务类型</label>
+                        <select 
+                            value={basic.type} 
+                            onChange={(e) => setBasic(prev => ({...prev, type: e.target.value as DeliveryTaskType}))}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:outline-none bg-white"
+                        >
+                            <option value="automated">自动化 (Automated)</option>
+                            <option value="one_off">临时任务 (Ad-hoc)</option>
+                        </select>
                     </div>
                     <div>
-                         <label className="block text-sm font-medium text-gray-700 mb-1">当前状态</label>
-                         <div className="flex items-center gap-4">
-                            <label className="flex items-center gap-2 cursor-pointer">
-                                <input type="radio" checked={basic.status === 'draft'} onChange={() => setBasic(prev => ({...prev, status: 'draft'}))} className="text-gray-900 focus:ring-gray-900" />
-                                <span className="text-sm">草稿 (Draft)</span>
-                            </label>
-                            <label className="flex items-center gap-2 cursor-pointer">
-                                <input type="radio" checked={basic.status === 'active'} onChange={() => setBasic(prev => ({...prev, status: 'active'}))} className="text-green-600 focus:ring-green-600" />
-                                <span className="text-sm">启用 (Active)</span>
-                            </label>
-                            <label className="flex items-center gap-2 cursor-pointer">
-                                <input type="radio" checked={basic.status === 'paused'} onChange={() => setBasic(prev => ({...prev, status: 'paused'}))} className="text-yellow-600 focus:ring-yellow-600" />
-                                <span className="text-sm">暂停 (Paused)</span>
-                            </label>
-                         </div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">分发渠道</label>
+                        <select 
+                            value={basic.channel} 
+                            onChange={(e) => setBasic(prev => ({...prev, channel: e.target.value as DeliveryChannel}))}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:outline-none bg-white"
+                        >
+                            <option value="email">邮件 (Email)</option>
+                            <option value="in_app">站内信 (In-App)</option>
+                        </select>
                     </div>
                 </div>
+                <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">当前状态</label>
+                        <div className="flex items-center gap-4">
+                        <label className="flex items-center gap-2 cursor-pointer">
+                            <input type="radio" checked={basic.status === 'draft'} onChange={() => setBasic(prev => ({...prev, status: 'draft'}))} className="text-gray-900 focus:ring-gray-900" />
+                            <span className="text-sm">草稿 (Draft)</span>
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                            <input type="radio" checked={basic.status === 'active'} onChange={() => setBasic(prev => ({...prev, status: 'active'}))} className="text-green-600 focus:ring-green-600" />
+                            <span className="text-sm">启用 (Active)</span>
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                            <input type="radio" checked={basic.status === 'paused'} onChange={() => setBasic(prev => ({...prev, status: 'paused'}))} className="text-yellow-600 focus:ring-yellow-600" />
+                            <span className="text-sm">暂停 (Paused)</span>
+                        </label>
+                        </div>
+                </div>
+
+                {/* Email Config Block */}
+                {basic.channel === 'email' && (
+                     <div className="bg-indigo-50 border border-indigo-100 rounded-lg p-5 space-y-4 animate-in fade-in zoom-in-95">
+                        <div className="flex items-center gap-2 text-indigo-800 font-semibold text-sm border-b border-indigo-100 pb-2 mb-2">
+                             <Mail size={16} /> Email 配置 (Email Config)
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                             <div>
+                                <label className="block text-xs font-medium text-indigo-900 mb-1">发送账户 <span className="text-red-500">*</span></label>
+                                <select 
+                                    value={emailConfig.account_id}
+                                    onChange={(e) => setEmailConfig(prev => ({...prev, account_id: e.target.value}))}
+                                    className="w-full text-sm border-indigo-200 rounded-lg focus:ring-indigo-500"
+                                >
+                                    <option value="">-- 选择账户 --</option>
+                                    {availableAccounts.map(acc => (
+                                        <option key={acc.id} value={acc.id}>{acc.name} ({acc.from_email})</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-medium text-indigo-900 mb-1">邮件模板 <span className="text-red-500">*</span></label>
+                                <select 
+                                    value={emailConfig.template_id}
+                                    onChange={(e) => setEmailConfig(prev => ({...prev, template_id: e.target.value}))}
+                                    className="w-full text-sm border-indigo-200 rounded-lg focus:ring-indigo-500"
+                                >
+                                    <option value="">-- 选择模板 --</option>
+                                    {availableTemplates.map(tmp => (
+                                        <option key={tmp.id} value={tmp.id}>{tmp.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+                        <div>
+                             <label className="block text-xs font-medium text-indigo-900 mb-1">邮件主题 <span className="text-red-500">*</span></label>
+                             <input 
+                                type="text"
+                                value={emailConfig.subject}
+                                onChange={(e) => setEmailConfig(prev => ({...prev, subject: e.target.value}))}
+                                className="w-full text-sm border-indigo-200 rounded-lg"
+                                placeholder="输入邮件主题..."
+                             />
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                             <div>
+                                <label className="block text-xs font-medium text-indigo-900 mb-1">开头问候语 (Header Note)</label>
+                                <textarea 
+                                    rows={2}
+                                    value={emailConfig.header_note || ''}
+                                    onChange={(e) => setEmailConfig(prev => ({...prev, header_note: e.target.value}))}
+                                    className="w-full text-sm border-indigo-200 rounded-lg"
+                                    placeholder="Hi {{name}}, ..."
+                                />
+                             </div>
+                             <div>
+                                <label className="block text-xs font-medium text-indigo-900 mb-1">结尾落款 (Footer Note)</label>
+                                <textarea 
+                                    rows={2}
+                                    value={emailConfig.footer_note || ''}
+                                    onChange={(e) => setEmailConfig(prev => ({...prev, footer_note: e.target.value}))}
+                                    className="w-full text-sm border-indigo-200 rounded-lg"
+                                    placeholder="Thanks, Team"
+                                />
+                             </div>
+                        </div>
+                     </div>
+                )}
             </section>
 
              {/* Section 2: Audience */}
