@@ -334,15 +334,18 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
 
   // --- Derived State for Button Logic ---
   // Explicitly construct input for derivation logic to avoid TS union errors
+  // Check if there is an active run from the initial runs data
+  const activeRun = initialRuns.find(r => r.status === 'running');
   const taskForDerivation: DeliveryTaskDeriveInput = {
       status: initialData ? initialData.status : basic.status,
       run_count: initialData?.run_count || 0,
-      last_run_status: initialData?.last_run_status || null,
+      last_run_status: activeRun ? 'running' : (initialData?.last_run_status || null),
       schedule_rule: schedule // Always use the current live form state for schedule checks
   };
   
   const { status: derivedStatus, canEnable, canRunNow, message: stateMessage } = deriveDeliveryTaskState(taskForDerivation);
   const isOverdue = derivedStatus === 'overdue';
+  const isRunning = derivedStatus === 'running';
   const isCompleted = derivedStatus === 'completed' || derivedStatus === 'failed';
 
   return (
@@ -361,8 +364,16 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
             ))}
             
             <div className="pt-6 border-t border-gray-100 mt-6 space-y-3">
-                 {/* 1. If Completed/Failed (Executed One-time) -> Duplicate Only */}
-                 {isCompleted ? (
+                 {/* 1. Execution State Handling */}
+                 {isRunning ? (
+                    <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-lg text-center space-y-2">
+                        <div className="flex items-center justify-center gap-1 text-xs text-indigo-700 font-medium">
+                            <Loader2 size={14} className="animate-spin" />
+                            任务正在执行中...
+                        </div>
+                        <p className="text-[10px] text-indigo-500">请勿重复操作，结果将自动更新</p>
+                    </div>
+                 ) : isCompleted ? (
                     <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg text-center space-y-2">
                         <div className="flex items-center justify-center gap-1 text-xs text-gray-500">
                             <Check size={14} className="text-green-600" />
@@ -375,7 +386,7 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
                     </div>
                  ) : (
                     <>
-                        {/* 2. Save Draft (Always visible unless completed) */}
+                        {/* 2. Save Draft (Always visible unless completed/running) */}
                         <button onClick={() => handleSave(true)} disabled={isPending || isChecking || isManualRunning} className="w-full flex items-center justify-center gap-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50">
                             <Save size={16} /> 保存草稿
                         </button>
@@ -807,7 +818,7 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
                             {initialRuns.length > 0 ? initialRuns.map(run => (
                                 <div key={run.id} className="p-3 border border-gray-100 rounded-lg bg-gray-50/50">
                                     <div className="flex justify-between items-center text-xs">
-                                        <span className={`font-bold uppercase px-2 py-0.5 rounded ${run.status === 'success' ? 'bg-green-100 text-green-800' : run.status === 'skipped' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}>{run.status}</span>
+                                        <span className={`font-bold uppercase px-2 py-0.5 rounded ${run.status === 'success' ? 'bg-green-100 text-green-800' : run.status === 'skipped' ? 'bg-yellow-100 text-yellow-800' : run.status === 'running' ? 'bg-indigo-100 text-indigo-800' : 'bg-red-100 text-red-800'}`}>{run.status}</span>
                                         <span className="text-gray-500 font-mono">{format(new Date(run.started_at), 'yyyy-MM-dd HH:mm:ss')}</span>
                                     </div>
                                     <p className="text-xs text-gray-600 mt-2">{run.message}</p>

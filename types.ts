@@ -11,9 +11,9 @@ export type DeliveryTaskType = 'automated' | 'one_off'; // Legacy, use schedule_
 export type DeliveryTaskStatus = 'draft' | 'active' | 'paused' | 'completed' | 'failed';
 export type DeliveryChannel = 'email' | 'in_app';
 export type DeliveryContentMode = 'rule' | 'manual';
-export type DeliveryRunStatus = 'success' | 'failed' | 'skipped';
+export type DeliveryRunStatus = 'success' | 'failed' | 'skipped' | 'running';
 export type ScheduleType = 'one_time' | 'recurring';
-export type LastRunStatus = 'success' | 'failed' | 'skipped' | null;
+export type LastRunStatus = 'success' | 'failed' | 'skipped' | 'running' | null;
 
 export interface EmailSendingAccount {
   id: string;

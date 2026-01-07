@@ -12,26 +12,44 @@ import { deriveDeliveryTaskState } from './utils';
 export async function preflightCheckDeliveryTask(task: Partial<DeliveryTask>): Promise<{ success: boolean; error?: string; data?: PreflightCheckResult }> {
   const now = new Date();
   
-  // 1. One-time task idempotency & Overdue check (API Guard)
-  if (task.id && task.schedule_rule?.mode === 'one_time') {
-    const supabase = createServiceClient();
-    const { data: existingTask } = await supabase.from('delivery_tasks').select('*').eq('id', task.id).single();
-    
-    if (existingTask) {
-        // Construct a temporary task object merging existing with new data for state checking
-        const mergedTask = { ...existingTask, ...task } as DeliveryTask;
-        const state = deriveDeliveryTaskState(mergedTask);
+  if (task.id) {
+      const supabase = createServiceClient();
+      const { data: existingTask } = await supabase.from('delivery_tasks').select('*').eq('id', task.id).single();
+      
+      if (existingTask) {
+          // Guard: Active Run Check (API level)
+          const { data: activeRun } = await supabase
+            .from('delivery_task_runs')
+            .select('id')
+            .eq('task_id', task.id)
+            .eq('status', 'running')
+            .maybeSingle();
+            
+          if (activeRun) {
+              return { success: false, error: '任务正在执行中，无法进行修改或启用。' };
+          }
 
-        // Guard A: Already executed
-        if (existingTask.run_count > 0) {
-            return { success: false, error: '该一次性任务已执行过，无法再次启用。请复制任务。' };
-        }
+          // 1. One-time task idempotency & Overdue check (API Guard)
+          if (task.schedule_rule?.mode === 'one_time') {
+                const mergedTask = { ...existingTask, ...task } as DeliveryTask;
+                // Force last_run_status from existing to prevent client spoofing, 
+                // though usually passed task is form state. 
+                mergedTask.run_count = existingTask.run_count;
+                mergedTask.last_run_status = existingTask.last_run_status;
 
-        // Guard B: Overdue (Cannot Enable, must Run Now)
-        if (state.status === 'overdue') {
-            return { success: false, error: '任务计划时间已过期，无法启用调度。请使用“立即执行”或修改时间。' };
-        }
-    }
+                const state = deriveDeliveryTaskState(mergedTask);
+
+                // Guard A: Already executed
+                if (existingTask.run_count > 0) {
+                    return { success: false, error: '该一次性任务已执行过，无法再次启用。请复制任务。' };
+                }
+
+                // Guard B: Overdue (Cannot Enable, must Run Now)
+                if (state.status === 'overdue') {
+                    return { success: false, error: '任务计划时间已过期，无法启用调度。请使用“立即执行”或修改时间。' };
+                }
+          }
+      }
   }
 
   // 2. Time validity check (Basic format check)
@@ -146,46 +164,90 @@ export async function runDeliveryTaskNow(taskId: string): Promise<{ success: boo
   const { data: task } = await supabase.from('delivery_tasks').select('*').eq('id', taskId).single();
   if (!task) return { success: false, error: 'Task not found.' };
 
-  // Guard: Check idempotency for one-time tasks
+  // Guard 1: One-time task logic via derive
   const state = deriveDeliveryTaskState(task);
   if (!state.canRunNow) {
       return { success: false, error: state.message || '该任务当前不允许立即执行。' };
   }
 
-  // 2. Fetch Audience
-  const audienceRes = await getAudience(task.audience_rule);
-  if (audienceRes.success === false) {
-      await logRun(taskId, started_at, 'failed', 0, 0, 0, `Audience fetch failed: ${audienceRes.error}`);
-      await updateTaskOnRunCompletion(taskId, 'failed', `Audience fetch failed: ${audienceRes.error}`);
-      return { success: false, error: audienceRes.error };
-  }
-  const recipients = audienceRes.users;
-  if (recipients.length === 0) {
-      await logRun(taskId, started_at, 'skipped', 0, 0, 0, 'No recipients found matching criteria.');
-      await updateTaskOnRunCompletion(taskId, 'skipped', 'No recipients found matching criteria.');
-      return { success: true, message: 'Skipped: No recipients found.' };
-  }
-  
-  // MVP Limit
-  if (recipients.length > 50) {
-      await logRun(taskId, started_at, 'failed', recipients.length, 0, 0, 'Exceeded MVP limit of 50 recipients.');
-      await updateTaskOnRunCompletion(taskId, 'failed', 'Exceeded MVP limit of 50 recipients.');
-      return { success: false, error: 'Exceeded MVP limit of 50 recipients.' };
+  // Guard 2: Active Run Check (Execution Lock)
+  // We check if there is ANY run that is currently 'running' for this task.
+  const { data: existingRuns } = await supabase
+    .from('delivery_task_runs')
+    .select('id')
+    .eq('task_id', taskId)
+    .eq('status', 'running');
+    
+  if (existingRuns && existingRuns.length > 0) {
+      return { success: false, error: '任务正在执行中，无法重复触发。' };
   }
 
-  // 3. Send Emails
-  const { success_count, failure_count } = await sendEmailsToRecipients(task, recipients);
-  
-  const status: DeliveryRunStatus = failure_count > 0 ? 'failed' : 'success';
-  const message = status === 'success' ? `Successfully sent to ${success_count} recipients.` : `Completed with ${failure_count} failures.`;
+  try {
+      // 2. Lock: Initialize Run & Update Task Status
+      // Insert run with 'running' status
+      const { data: newRun, error: runError } = await supabase.from('delivery_task_runs').insert({
+        task_id: taskId,
+        started_at: started_at.toISOString(),
+        status: 'running',
+        message: 'Initializing...',
+        recipient_count: 0,
+        success_count: 0,
+        failure_count: 0
+      }).select().single();
 
-  // 4. Log and Update Task
-  await logRun(taskId, started_at, status, recipients.length, success_count, failure_count, message);
-  await updateTaskOnRunCompletion(taskId, status, message);
+      if (runError) throw runError;
 
-  revalidatePath('/admin/delivery');
-  revalidatePath(`/admin/delivery/${taskId}`);
-  return { success: true, message };
+      // Update task to reflect running state
+      await supabase.from('delivery_tasks').update({
+          last_run_at: started_at.toISOString(),
+          last_run_status: 'running',
+          last_run_message: 'Executing now...',
+          updated_at: new Date().toISOString()
+      }).eq('id', taskId);
+
+      // 3. Fetch Audience
+      const audienceRes = await getAudience(task.audience_rule);
+      if (audienceRes.success === false) {
+          // Fail the run
+          await updateRunStatus(newRun.id, 'failed', 0, 0, 0, `Audience error: ${audienceRes.error}`);
+          await updateTaskOnRunCompletion(taskId, 'failed', `Audience error: ${audienceRes.error}`);
+          return { success: false, error: audienceRes.error };
+      }
+      
+      const recipients = audienceRes.users;
+      if (recipients.length === 0) {
+          await updateRunStatus(newRun.id, 'skipped', 0, 0, 0, 'No recipients found.');
+          await updateTaskOnRunCompletion(taskId, 'skipped', 'No recipients found.');
+          return { success: true, message: 'Skipped: No recipients found.' };
+      }
+      
+      // MVP Limit
+      if (recipients.length > 50) {
+          await updateRunStatus(newRun.id, 'failed', recipients.length, 0, 0, 'Exceeded MVP limit of 50.');
+          await updateTaskOnRunCompletion(taskId, 'failed', 'Exceeded MVP limit of 50.');
+          return { success: false, error: 'Exceeded MVP limit of 50 recipients.' };
+      }
+
+      // 4. Send Emails (This is where the time is spent)
+      const { success_count, failure_count } = await sendEmailsToRecipients(task, recipients);
+      
+      const status: DeliveryRunStatus = failure_count > 0 ? 'failed' : 'success';
+      const message = status === 'success' ? `Successfully sent to ${success_count} recipients.` : `Completed with ${failure_count} failures.`;
+
+      // 5. Finalize Run & Task
+      await updateRunStatus(newRun.id, status, recipients.length, success_count, failure_count, message);
+      await updateTaskOnRunCompletion(taskId, status, message);
+
+      revalidatePath('/admin/delivery');
+      revalidatePath(`/admin/delivery/${taskId}`);
+      return { success: true, message };
+
+  } catch (error: any) {
+      console.error('Execution Error:', error);
+      // Try to release lock if something crashed unexpectedly
+      await supabase.from('delivery_tasks').update({ last_run_status: 'failed', last_run_message: `Crash: ${error.message}` }).eq('id', taskId);
+      return { success: false, error: `Execution crashed: ${error.message}` };
+  }
 }
 
 // --- Email Sending Logic ---
@@ -228,20 +290,18 @@ async function sendEmailsToRecipients(task: DeliveryTask, recipients: any[]) {
     return { success_count, failure_count: recipients.length - success_count };
 }
 
-// --- Task State Management ---
+// --- Task State Management Helpers ---
 
-async function logRun(taskId: string, started_at: Date, status: DeliveryRunStatus, recipient_count: number, success_count: number, failure_count: number, message: string) {
+async function updateRunStatus(runId: string, status: DeliveryRunStatus, recipient_count: number, success_count: number, failure_count: number, message: string) {
     const supabase = createServiceClient();
-    await supabase.from('delivery_task_runs').insert({
-        task_id: taskId,
-        started_at: started_at.toISOString(),
+    await supabase.from('delivery_task_runs').update({
         finished_at: new Date().toISOString(),
         status,
         recipient_count,
         success_count,
         failure_count,
         message,
-    });
+    }).eq('id', runId);
 }
 
 async function updateTaskOnRunCompletion(taskId: string, status: LastRunStatus, message: string) {

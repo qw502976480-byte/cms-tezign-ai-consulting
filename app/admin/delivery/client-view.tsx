@@ -4,13 +4,13 @@
 import React, { useState, useEffect, useRef, useTransition } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { DeliveryTask, EmailSendingAccount, EmailTemplate, DeliveryRun } from '@/types';
-import { Search, ChevronDown, Check, MoreHorizontal, Clock, Play, Pause, Copy, Trash2, Edit2, Settings, Mail, Repeat, ScrollText, AlertTriangle, UserCheck } from 'lucide-react';
+import { Search, ChevronDown, Check, MoreHorizontal, Clock, Play, Pause, Copy, Trash2, Edit2, Settings, Mail, Repeat, ScrollText, AlertTriangle, UserCheck, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { updateTaskStatus, deleteTask, duplicateTask } from './actions';
 import Link from 'next/link';
 import EmailConfigModal from './EmailConfigModal';
 import TaskRunHistoryModal from './TaskRunHistoryModal';
-import { deriveDeliveryTaskState, DerivedTaskStatus } from './utils';
+import { deriveDeliveryTaskState, DerivedTaskStatus, DeliveryTaskDeriveInput } from './utils';
 
 function FilterDropdown({ label, value, options, onChange }: any) {
     const [isOpen, setIsOpen] = useState(false);
@@ -51,6 +51,7 @@ const statusMap: Record<DerivedTaskStatus, { label: string; color: string; icon?
     completed: { label: '已完成', color: 'bg-slate-100 text-slate-600 border-slate-200', icon: Check },
     failed: { label: '失败', color: 'bg-red-50 text-red-700 border-red-200', icon: AlertTriangle },
     overdue: { label: '已逾期', color: 'bg-orange-50 text-orange-700 border-orange-200', icon: AlertTriangle },
+    running: { label: '执行中', color: 'bg-indigo-50 text-indigo-700 border-indigo-200', icon: Loader2 },
 };
 
 export default function TaskClientView({ 
@@ -202,7 +203,15 @@ export default function TaskClientView({
                             const lastRun = latestRunMap[task.id];
                             
                             // Use Central Logic for Status & Permissions
-                            const { status: derivedStatus, canEnable } = deriveDeliveryTaskState(task);
+                            // Inject last_run_status from the active runs map if available, to reflect 'running' state immediately
+                            const deriveInput: DeliveryTaskDeriveInput = {
+                                status: task.status,
+                                run_count: task.run_count,
+                                schedule_rule: task.schedule_rule,
+                                last_run_status: lastRun ? lastRun.status : task.last_run_status,
+                            };
+                            
+                            const { status: derivedStatus, canEnable } = deriveDeliveryTaskState(deriveInput);
                             
                             const statusInfo = statusMap[derivedStatus];
                             const StatusIcon = statusInfo?.icon;
@@ -258,7 +267,7 @@ export default function TaskClientView({
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
                                         <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium border whitespace-nowrap ${statusInfo?.color}`}>
-                                            {StatusIcon && <StatusIcon size={12} />}
+                                            {StatusIcon && <StatusIcon size={12} className={derivedStatus === 'running' ? 'animate-spin' : ''} />}
                                             {statusInfo?.label}
                                         </span>
                                     </td>

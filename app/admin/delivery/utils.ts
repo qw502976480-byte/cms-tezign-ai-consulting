@@ -2,7 +2,7 @@
 import { DeliveryTask, DeliveryScheduleRule, DeliveryTaskStatus, LastRunStatus } from '@/types';
 import { isBefore, parseISO, parse } from 'date-fns';
 
-export type DerivedTaskStatus = 'draft' | 'scheduled' | 'active' | 'paused' | 'completed' | 'failed' | 'overdue';
+export type DerivedTaskStatus = 'draft' | 'scheduled' | 'active' | 'paused' | 'completed' | 'failed' | 'overdue' | 'running';
 
 export interface DerivedTaskState {
   status: DerivedTaskStatus;
@@ -24,6 +24,16 @@ export function deriveDeliveryTaskState(task: DeliveryTaskDeriveInput): DerivedT
   const isOneTime = task.schedule_rule?.mode === 'one_time';
   const runCount = task.run_count || 0;
   const now = new Date();
+
+  // 0. Active Run Lock (Applies to all types, priority #1)
+  if (task.last_run_status === 'running') {
+      return {
+          status: 'running',
+          canEnable: false,
+          canRunNow: false,
+          message: '任务正在执行中，请等待完成。'
+      };
+  }
 
   // 1. One-time Task Logic
   if (isOneTime) {
