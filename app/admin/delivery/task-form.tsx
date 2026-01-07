@@ -8,7 +8,7 @@ import { DeliveryTask, DeliveryTaskType, DeliveryChannel, DeliveryTaskStatus, De
 import { Loader2, Save, Play, Search, X, Check, Calculator, CalendarClock, Users, FileText, Settings, AlertTriangle, Mail, Calendar, ArrowRight, ExternalLink, ChevronDown, Tag, Send, History, Eye, Info, PlusCircle, Lock, Unlock, Copy } from 'lucide-react';
 import EmailConfigModal from './EmailConfigModal';
 import { format } from 'date-fns';
-import { deriveDeliveryTaskState } from './utils';
+import { deriveDeliveryTaskState, DeliveryTaskDeriveInput } from './utils';
 
 interface Props {
   initialData?: DeliveryTask;
@@ -333,17 +333,13 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
   const isContentDisabled = isEmail && !!emailConfig.template_id && !overrideTemplate;
 
   // --- Derived State for Button Logic ---
-  // Create a temporary task object for state derivation if initialData is missing (new task)
-  const currentTaskState = initialData || {
-      ...basic,
-      audience_rule: audience,
-      schedule_rule: schedule,
-      run_count: 0,
-      last_run_status: null
-  } as DeliveryTask;
-
-  // IMPORTANT: We use the `schedule` state from the form, not just `initialData`, to react to live changes
-  const taskForDerivation = { ...currentTaskState, schedule_rule: schedule };
+  // Explicitly construct input for derivation logic to avoid TS union errors
+  const taskForDerivation: DeliveryTaskDeriveInput = {
+      status: initialData ? initialData.status : basic.status,
+      run_count: initialData?.run_count || 0,
+      last_run_status: initialData?.last_run_status || null,
+      schedule_rule: schedule // Always use the current live form state for schedule checks
+  };
   
   const { status: derivedStatus, canEnable, canRunNow, message: stateMessage } = deriveDeliveryTaskState(taskForDerivation);
   const isOverdue = derivedStatus === 'overdue';

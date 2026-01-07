@@ -1,5 +1,5 @@
 
-import { DeliveryTask } from '@/types';
+import { DeliveryTask, DeliveryScheduleRule, DeliveryTaskStatus, LastRunStatus } from '@/types';
 import { isBefore, parseISO, parse } from 'date-fns';
 
 export type DerivedTaskStatus = 'draft' | 'scheduled' | 'active' | 'paused' | 'completed' | 'failed' | 'overdue';
@@ -11,7 +11,16 @@ export interface DerivedTaskState {
   message?: string;
 }
 
-export function deriveDeliveryTaskState(task: DeliveryTask): DerivedTaskState {
+// Minimal input type required for derivation logic
+export interface DeliveryTaskDeriveInput {
+  status: DeliveryTaskStatus;
+  run_count?: number;
+  last_run_status?: LastRunStatus;
+  schedule_rule?: DeliveryScheduleRule | null;
+  // Optional legacy fields if needed, but we primarily use schedule_rule now
+}
+
+export function deriveDeliveryTaskState(task: DeliveryTaskDeriveInput): DerivedTaskState {
   const isOneTime = task.schedule_rule?.mode === 'one_time';
   const runCount = task.run_count || 0;
   const now = new Date();
