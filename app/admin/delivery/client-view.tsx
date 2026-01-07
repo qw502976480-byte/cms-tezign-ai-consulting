@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useTransition } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { DeliveryTask, DeliveryTaskStatus } from '@/types';
-import { Search, ChevronDown, Check, MoreHorizontal, Zap, Clock, Play, Pause, Copy, Trash2 } from 'lucide-react';
+import { Search, ChevronDown, Check, MoreHorizontal, Zap, Clock, Play, Pause, Copy, Trash2, Edit2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { updateTaskStatus, deleteTask, duplicateTask } from './actions';
 import Link from 'next/link';
@@ -173,8 +173,10 @@ export default function TaskClientView({ initialTasks }: { initialTasks: Deliver
                                     </button>
                                     
                                     {menuOpenId === task.id && (
-                                        <div className="absolute right-8 top-8 w-36 bg-white border border-gray-100 rounded-xl shadow-lg z-20 p-1">
-                                            {/* Action buttons */}
+                                        <div className="absolute right-8 top-8 w-40 bg-white border border-gray-100 rounded-xl shadow-lg z-20 p-1">
+                                            <Link href={`/admin/delivery/${task.id}`} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-gray-50 rounded text-gray-700">
+                                                <Edit2 size={14} /> 编辑配置
+                                            </Link>
                                             {task.status !== 'completed' && task.status !== 'draft' && (
                                                 <button onClick={() => handleAction('toggle_status', task)} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-gray-50 rounded text-gray-700">
                                                     {task.status === 'active' ? <><Pause size={14} /> 暂停任务</> : <><Play size={14} /> 启用任务</>}

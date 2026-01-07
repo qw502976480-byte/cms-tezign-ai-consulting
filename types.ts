@@ -12,26 +12,25 @@ export type DeliveryChannel = 'email' | 'in_app';
 export type DeliveryContentMode = 'rule' | 'manual';
 
 export interface DeliveryContentRule {
-  category?: string[]; // categories to include
-  time_range?: '7d' | '30d' | '90d' | 'custom';
-  custom_start?: string;
-  custom_end?: string;
-  only_featured?: boolean;
+  category?: ResourceCategory[]; // categories to include
+  time_range?: '7d' | '30d' | '90d' | 'all';
+  limit?: number; // How many items to pick
+  featured_slot?: 'none' | 'carousel' | 'fixed'; // If promoting to homepage
 }
 
 export interface DeliveryAudienceRule {
+  scope?: 'all' | 'communicated' | 'not_communicated';
   user_type?: 'all' | 'personal' | 'company';
-  country?: string;
+  country?: string; // Comma separated or partial match
   city?: string;
-  keyword?: string;
-  online_comm?: 'all' | 'yes' | 'no';
+  estimated_count?: number; // Snapshot of estimate when saved
 }
 
 export interface DeliveryScheduleRule {
-  frequency?: 'once' | 'daily' | 'weekly' | 'monthly';
-  time?: string; // e.g. "10:00"
-  date?: string; // for one_off e.g. "2024-01-01"
-  run_immediately?: boolean;
+  type?: 'immediate' | 'scheduled';
+  frequency?: 'daily' | 'weekly' | 'monthly';
+  time?: string; // "10:00"
+  timezone?: string; // "Asia/Shanghai"
 }
 
 export interface DeliveryTask {
@@ -40,11 +39,15 @@ export interface DeliveryTask {
   type: DeliveryTaskType;
   status: DeliveryTaskStatus;
   channel: DeliveryChannel;
+  
+  // Structured Config
   content_mode: DeliveryContentMode;
   content_rule: DeliveryContentRule | null;
-  content_ids: string[] | null;
+  content_ids: string[] | null; // For manual mode
+  
   audience_rule: DeliveryAudienceRule | null;
   schedule_rule: DeliveryScheduleRule | null;
+  
   next_run_at: string | null;
   last_run_at: string | null;
   created_at: string;
