@@ -28,8 +28,15 @@ async function cleanupHomepageModules(supabase: ReturnType<typeof createServiceC
   const updates = [];
 
   for (const mod of modules) {
-    const initialCount = mod.content_item_ids?.length || 0;
-    const cleanedIds = (mod.content_item_ids || []).filter(id => !idsToDelete.has(id));
+    const initialCount = Array.isArray(mod.content_item_ids) ? mod.content_item_ids.length : 0;
+    
+    // FIX: Safely filter and type the IDs to resolve the TypeScript error.
+    // This ensures we only process valid string IDs from the JSONB array.
+    const currentIds: string[] = Array.isArray(mod.content_item_ids)
+      ? mod.content_item_ids.filter((id): id is string => typeof id === 'string' && id !== null)
+      : [];
+      
+    const cleanedIds = currentIds.filter(id => !idsToDelete.has(id));
     
     // Only update if there's a change
     if (cleanedIds.length < initialCount) {

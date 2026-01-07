@@ -35,14 +35,14 @@ export default function ResourceList({ initialResources }: Props) {
     if (e.target.checked) {
       setSelectedIds(new Set(initialResources.map(r => r.id)));
     } else {
-      // FIX: Ensure the new Set is explicitly typed to avoid type widening to Set<any>.
       setSelectedIds(new Set<string>());
     }
   };
 
   const handleSelectOne = (id: string) => {
     setSelectedIds(prev => {
-      const newSet = new Set(prev);
+      // FIX: Explicitly type `new Set` to avoid potential type issues with `prev`.
+      const newSet = new Set<string>(prev);
       if (newSet.has(id)) {
         newSet.delete(id);
       } else {
@@ -61,7 +61,8 @@ export default function ResourceList({ initialResources }: Props) {
     }
 
     startTransition(async () => {
-      const ids = Array.from(selectedIds);
+      // FIX: Use spread operator for robust Set to Array conversion to fix type error.
+      const ids = [...selectedIds];
       let result;
       if (action === 'publish') {
         result = await bulkPublishResources(ids);
@@ -72,7 +73,8 @@ export default function ResourceList({ initialResources }: Props) {
       if (result.success) {
         // Simple feedback, a toast library would be better in a real app
         alert(`成功处理 ${result.count} 条资源`);
-        setSelectedIds(new Set());
+        // FIX: Explicitly type `new Set` to maintain state type and avoid type widening.
+        setSelectedIds(new Set<string>());
         router.refresh();
       } else {
         alert(`操作失败: ${result.error}`);
@@ -82,12 +84,14 @@ export default function ResourceList({ initialResources }: Props) {
   
   const confirmDelete = () => {
      startTransition(async () => {
-        const ids = Array.from(selectedIds);
+        // FIX: Use spread operator for robust Set to Array conversion to fix type error.
+        const ids = [...selectedIds];
         const result = await bulkDeleteResources(ids);
 
         if (result.success) {
           alert(`成功删除 ${result.count} 条资源`);
-          setSelectedIds(new Set());
+          // FIX: Explicitly type `new Set` to maintain state type and avoid type widening.
+          setSelectedIds(new Set<string>());
         } else {
           alert(`删除失败: ${result.error}`);
         }
