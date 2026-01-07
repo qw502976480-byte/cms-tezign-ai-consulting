@@ -369,7 +369,7 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
                 {/* 4) Add hint message when locked */}
                 {executionLocked && (
                     <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-lg text-center text-xs text-indigo-700 font-medium">
-                        任务正在执行中，请等待完成后再操作
+                        任务执行中，已锁定操作。请在执行记录中查看结果。
                     </div>
                 )}
                 
