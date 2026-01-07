@@ -240,10 +240,15 @@ export async function runDeliveryTaskNow(taskId: string): Promise<{ success: boo
       const recipients = audienceRes.users;
       if (recipients.length === 0) {
           // Skipped
-          await updateRunStatus(runId, 'skipped', 0, 0, 0, 'No recipients found.');
-          // Only update task if run creation was successful (runId exists)
-          await updateTaskOnRunCompletion(taskId, 'skipped', 'No recipients found.');
-          return { success: true, message: 'Skipped: No recipients found.' };
+          if (runId) {
+              await updateRunStatus(runId, 'skipped', 0, 0, 0, 'No recipients found.');
+              // Only update task if run creation was successful (runId exists)
+              await updateTaskOnRunCompletion(taskId, 'skipped', 'No recipients found.');
+              return { success: true, message: 'Skipped: No recipients found.' };
+          } else {
+              // Should not happen if insert succeeded, but satisfies TS and safety
+              return { success: false, error: 'Run record was not created; cannot update status.' };
+          }
       }
       
       // MVP Limit
@@ -253,10 +258,12 @@ export async function runDeliveryTaskNow(taskId: string): Promise<{ success: boo
 
       // 5. Send Emails
       // Update run to show we are sending
-      await supabase.from('delivery_task_runs').update({ 
-          recipient_count: recipients.length, 
-          message: `Sending to ${recipients.length} recipients...` 
-      }).eq('id', runId);
+      if (runId) {
+          await supabase.from('delivery_task_runs').update({ 
+              recipient_count: recipients.length, 
+              message: `Sending to ${recipients.length} recipients...` 
+          }).eq('id', runId);
+      }
 
       const { success_count, failure_count } = await sendEmailsToRecipients(task, recipients);
       
@@ -264,8 +271,10 @@ export async function runDeliveryTaskNow(taskId: string): Promise<{ success: boo
       const message = status === 'success' ? `Successfully sent to ${success_count} recipients.` : `Completed with ${failure_count} failures.`;
 
       // 6. Finalize Run & Task (Success Path)
-      await updateRunStatus(runId, status, recipients.length, success_count, failure_count, message);
-      await updateTaskOnRunCompletion(taskId, status, message);
+      if (runId) {
+          await updateRunStatus(runId, status, recipients.length, success_count, failure_count, message);
+          await updateTaskOnRunCompletion(taskId, status, message);
+      }
 
       revalidatePath('/admin/delivery');
       revalidatePath(`/admin/delivery/${taskId}`);
