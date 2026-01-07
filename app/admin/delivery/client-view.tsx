@@ -58,12 +58,14 @@ export default function TaskClientView({
     initialTasks, 
     emailAccounts, 
     emailTemplates,
-    latestRunMap
+    latestRunMap,
+    runningTaskIds
 }: { 
     initialTasks: DeliveryTask[], 
     emailAccounts: EmailSendingAccount[],
     emailTemplates: EmailTemplate[],
-    latestRunMap: Record<string, DeliveryRun>
+    latestRunMap: Record<string, DeliveryRun>,
+    runningTaskIds: string[]
 }) {
     const router = useRouter();
     const pathname = usePathname();
@@ -73,6 +75,7 @@ export default function TaskClientView({
     const [keyword, setKeyword] = useState(searchParams.get('q') || '');
     const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
     const menuRef = useRef<HTMLDivElement>(null);
+    const runningSet = new Set(runningTaskIds);
     
     // Modals
     const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
@@ -201,6 +204,7 @@ export default function TaskClientView({
                             const emailDetails = getEmailDetails(task);
                             const isRecurring = task.schedule_rule?.mode === 'recurring';
                             const lastRun = latestRunMap[task.id];
+                            const isLocked = runningSet.has(task.id);
                             
                             // Use Central Logic for Status & Permissions
                             // Inject last_run_status from the active runs map if available, to reflect 'running' state immediately
@@ -208,7 +212,7 @@ export default function TaskClientView({
                                 status: task.status,
                                 run_count: task.run_count,
                                 schedule_rule: task.schedule_rule,
-                                last_run_status: lastRun ? lastRun.status : task.last_run_status,
+                                last_run_status: isLocked ? 'running' : (lastRun ? lastRun.status : task.last_run_status),
                             };
                             
                             const { status: derivedStatus, canEnable } = deriveDeliveryTaskState(deriveInput);
@@ -291,18 +295,25 @@ export default function TaskClientView({
                                                 <button onClick={() => handleAction('logs', task)} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-gray-50 rounded text-gray-700">
                                                     <ScrollText size={14} /> 查看执行记录
                                                 </button>
-                                                {/* Guard: Enable/Pause */}
-                                                {canEnable && (
+                                                {/* Guard: Enable/Pause - STRICTLY HIDDEN IF RUNNING */}
+                                                {!isLocked && canEnable && (
                                                     <button onClick={() => handleAction('toggle_status', task)} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-gray-50 rounded text-gray-700">
                                                         {task.status === 'active' ? <><Pause size={14} /> 暂停任务</> : <><Play size={14} /> 启用任务</>}
                                                     </button>
                                                 )}
+                                                {isLocked && (
+                                                    <div className="px-3 py-2 text-xs text-gray-400 flex items-center gap-2 cursor-not-allowed">
+                                                        <Loader2 size={14} className="animate-spin" /> 执行中...
+                                                    </div>
+                                                )}
                                                 <button onClick={() => handleAction('duplicate', task)} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-gray-50 rounded text-gray-700">
                                                     <Copy size={14} /> 复制任务
                                                 </button>
-                                                <button onClick={() => handleAction('delete', task)} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-red-50 text-red-600 rounded">
-                                                    <Trash2 size={14} /> 删除任务
-                                                </button>
+                                                {!isLocked && (
+                                                    <button onClick={() => handleAction('delete', task)} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-red-50 text-red-600 rounded">
+                                                        <Trash2 size={14} /> 删除任务
+                                                    </button>
+                                                )}
                                             </div>
                                         )}
                                     </td>

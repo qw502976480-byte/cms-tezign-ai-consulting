@@ -13,6 +13,7 @@ import { deriveDeliveryTaskState, DeliveryTaskDeriveInput } from './utils';
 interface Props {
   initialData?: DeliveryTask;
   initialRuns?: DeliveryRun[];
+  hasActiveRun?: boolean;
 }
 
 // --- Custom Select Component (Unchanged) ---
@@ -31,7 +32,7 @@ const CustomSelect = ({ value, onChange, options, placeholder, className, disabl
 };
 
 
-export default function TaskForm({ initialData, initialRuns = [] }: Props) {
+export default function TaskForm({ initialData, initialRuns = [], hasActiveRun = false }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [isChecking, setIsChecking] = useState(false);
@@ -238,6 +239,8 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
         setIsChecking(true);
         startTransition(async () => {
             const check = await preflightCheckDeliveryTask(taskData);
+            
+            // Check active run status from preflight as a double check
             if (!check.success) {
                 setPreflightError(check.error || '未知校验错误');
                 setIsChecking(false);
@@ -260,6 +263,8 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
 
   const handleRunNow = async () => {
     if (!initialData?.id) return;
+    if (hasActiveRun) { alert('任务正在执行中，无法重复触发。'); return; }
+    
     if (!confirm(`确定要立即执行任务 "${initialData.name}" 吗？\n这将向预计 ${audience.estimated_count || 'N/A'} 位用户真实发送内容。`)) return;
 
     setIsManualRunning(true);
@@ -333,19 +338,16 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
   const isContentDisabled = isEmail && !!emailConfig.template_id && !overrideTemplate;
 
   // --- Derived State for Button Logic ---
-  // Explicitly construct input for derivation logic to avoid TS union errors
-  // Check if there is an active run from the initial runs data
-  const activeRun = initialRuns.find(r => r.status === 'running');
   const taskForDerivation: DeliveryTaskDeriveInput = {
       status: initialData ? initialData.status : basic.status,
       run_count: initialData?.run_count || 0,
-      last_run_status: activeRun ? 'running' : (initialData?.last_run_status || null),
+      last_run_status: hasActiveRun ? 'running' : (initialData?.last_run_status || null),
       schedule_rule: schedule // Always use the current live form state for schedule checks
   };
   
   const { status: derivedStatus, canEnable, canRunNow, message: stateMessage } = deriveDeliveryTaskState(taskForDerivation);
   const isOverdue = derivedStatus === 'overdue';
-  const isRunning = derivedStatus === 'running';
+  const isRunning = derivedStatus === 'running'; // Now authoritative based on hasActiveRun override
   const isCompleted = derivedStatus === 'completed' || derivedStatus === 'failed';
 
   return (
@@ -371,7 +373,11 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
                             <Loader2 size={14} className="animate-spin" />
                             任务正在执行中...
                         </div>
-                        <p className="text-[10px] text-indigo-500">请勿重复操作，结果将自动更新</p>
+                        <p className="text-[10px] text-indigo-500">请等待完成后再操作</p>
+                        {/* Disabled buttons when running */}
+                        <button disabled className="w-full flex items-center justify-center gap-2 bg-gray-100 border border-gray-200 text-gray-400 px-4 py-2.5 rounded-lg text-sm font-medium cursor-not-allowed">
+                            <Play size={16} /> 启用任务
+                        </button>
                     </div>
                  ) : isCompleted ? (
                     <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg text-center space-y-2">
@@ -423,6 +429,17 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
         </div>
 
         <div className="lg:col-span-3 space-y-8 pb-20">
+            {/* Banner for Running State */}
+            {hasActiveRun && (
+                <div className="bg-indigo-50 border border-indigo-200 text-indigo-800 px-4 py-3 rounded-xl flex items-center gap-3 shadow-sm animate-in slide-in-from-top-2">
+                    <Loader2 className="animate-spin text-indigo-600" size={20} />
+                    <div>
+                        <p className="font-medium text-sm">任务正在后台执行中</p>
+                        <p className="text-xs text-indigo-600 mt-0.5">请等待当前执行完成后再进行“立即执行”或“启用”操作。</p>
+                    </div>
+                </div>
+            )}
+
             <div ref={sectionRefs.basic} className="scroll-mt-6">
                 <section className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm space-y-6">
                     <div className="flex items-center gap-2 pb-4 border-b border-gray-100">

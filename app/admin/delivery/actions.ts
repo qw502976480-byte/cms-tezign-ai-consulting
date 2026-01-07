@@ -9,8 +9,9 @@ import { Resend } from 'resend';
 import { deriveDeliveryTaskState } from './utils';
 
 // --- Preflight Check ---
-export async function preflightCheckDeliveryTask(task: Partial<DeliveryTask>): Promise<{ success: boolean; error?: string; data?: PreflightCheckResult }> {
+export async function preflightCheckDeliveryTask(task: Partial<DeliveryTask>): Promise<{ success: boolean; error?: string; data?: PreflightCheckResult & { has_active_run: boolean } }> {
   const now = new Date();
+  let hasActiveRun = false;
   
   if (task.id) {
       const supabase = createServiceClient();
@@ -27,11 +28,11 @@ export async function preflightCheckDeliveryTask(task: Partial<DeliveryTask>): P
             .maybeSingle();
             
           if (activeRun) {
-              // Check for stale lock in preflight too (optional, but good for UX)
+              // Check for stale lock in preflight too
               const startTime = new Date(activeRun.started_at);
-              // If it's been running less than 15 mins, consider it valid. Otherwise ignore it (let RunNow handle cleanup).
               if (!isBefore(startTime, subMinutes(now, 15))) {
-                  return { success: false, error: '任务正在执行中 (Active Run Exists)，请等待执行完成。' };
+                  hasActiveRun = true;
+                  return { success: false, error: '任务正在执行中 (Active Run Exists)，请等待执行完成。', data: { estimated_recipients: 0, next_run_at: null, has_active_run: true } };
               }
           }
 
@@ -42,12 +43,12 @@ export async function preflightCheckDeliveryTask(task: Partial<DeliveryTask>): P
 
                 // Guard A: Already executed
                 if (existingTask.run_count > 0) {
-                    return { success: false, error: '该一次性任务已执行过，无法再次启用。请复制任务。' };
+                    return { success: false, error: '该一次性任务已执行过，无法再次启用。请复制任务。', data: { estimated_recipients: 0, next_run_at: null, has_active_run: false } };
                 }
 
                 // Guard B: Overdue (Cannot Enable, must Run Now)
                 if (state.status === 'overdue') {
-                    return { success: false, error: '任务计划时间已过期，无法启用调度。请使用“立即执行”或修改时间。' };
+                    return { success: false, error: '任务计划时间已过期，无法启用调度。请使用“立即执行”或修改时间。', data: { estimated_recipients: 0, next_run_at: null, has_active_run: false } };
                 }
           }
       }
@@ -105,7 +106,8 @@ export async function preflightCheckDeliveryTask(task: Partial<DeliveryTask>): P
     success: true, 
     data: { 
         estimated_recipients: audienceEstimate.count,
-        next_run_at: nextRunAt
+        next_run_at: nextRunAt,
+        has_active_run: hasActiveRun
     } 
   };
 }

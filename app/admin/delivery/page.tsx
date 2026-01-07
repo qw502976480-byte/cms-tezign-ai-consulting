@@ -35,12 +35,11 @@ export default async function DeliveryListPage({ searchParams }: { searchParams:
 
   // Fetch Tasks, Configs, and Runs concurrently
   // Note: Fetching all runs might be heavy in production, but suitable for this MVP scope.
-  // Ideally, we would fetch runs only for the visible tasks or use a dedicated SQL view.
   const [tasksRes, accountsRes, templatesRes, runsRes] = await Promise.all([
       query,
       supabase.from('email_sending_accounts').select('*').order('created_at', { ascending: false }),
       supabase.from('email_templates').select('*').order('created_at', { ascending: false }),
-      supabase.from('delivery_task_runs').select('*').order('started_at', { ascending: false })
+      supabase.from('delivery_task_runs').select('id, task_id, status, started_at, success_count, recipient_count, message').order('started_at', { ascending: false })
   ]);
 
   if (tasksRes.error) {
@@ -56,9 +55,15 @@ export default async function DeliveryListPage({ searchParams }: { searchParams:
   const templates = (templatesRes.data || []) as EmailTemplate[];
   const allRuns = (runsRes.data || []) as DeliveryRun[];
 
-  // Process latest run for each task
+  // Process latest run and active runs
   const latestRunMap: Record<string, DeliveryRun> = {};
+  const runningTaskIds = new Set<string>();
+
   allRuns.forEach(run => {
+    // Collect active runs (authority)
+    if (run.status === 'running') {
+        runningTaskIds.add(run.task_id);
+    }
     // Since runs are ordered by started_at desc, the first one encountered for a task_id is the latest
     if (!latestRunMap[run.task_id]) {
         latestRunMap[run.task_id] = run;
@@ -87,6 +92,7 @@ export default async function DeliveryListPage({ searchParams }: { searchParams:
         emailAccounts={accounts} 
         emailTemplates={templates} 
         latestRunMap={latestRunMap}
+        runningTaskIds={Array.from(runningTaskIds)}
       />
     </div>
   );

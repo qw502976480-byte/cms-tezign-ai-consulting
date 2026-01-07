@@ -1,3 +1,4 @@
+
 import React from 'react';
 import TaskForm from '../task-form';
 import Link from 'next/link';
@@ -31,6 +32,9 @@ export default async function EditDeliveryPage({ params }: { params: { id: strin
   
   const task = taskRes.data as DeliveryTask;
   const runs = (runsRes.data || []) as DeliveryRun[];
+  
+  // Calculate lock based on active runs
+  const hasActiveRun = runs.some(r => r.status === 'running');
 
   return (
     <div className="max-w-6xl mx-auto py-6 space-y-6">
@@ -44,7 +48,7 @@ export default async function EditDeliveryPage({ params }: { params: { id: strin
         </div>
       </div>
       
-      <TaskForm initialData={task} initialRuns={runs} />
+      <TaskForm initialData={task} initialRuns={runs} hasActiveRun={hasActiveRun} />
     </div>
   );
 }
