@@ -41,7 +41,6 @@ export default function ResourceList({ initialResources }: Props) {
 
   const handleSelectOne = (id: string) => {
     setSelectedIds(prev => {
-      // FIX: Explicitly type `new Set` to avoid potential type issues with `prev`.
       const newSet = new Set<string>(prev);
       if (newSet.has(id)) {
         newSet.delete(id);
@@ -61,8 +60,8 @@ export default function ResourceList({ initialResources }: Props) {
     }
 
     startTransition(async () => {
-      // FIX: Use spread operator for robust Set to Array conversion to fix type error.
-      const ids = [...selectedIds];
+      // FIX: Use Array.from() for build compatibility instead of spread syntax.
+      const ids: string[] = Array.from(selectedIds);
       let result;
       if (action === 'publish') {
         result = await bulkPublishResources(ids);
@@ -73,7 +72,6 @@ export default function ResourceList({ initialResources }: Props) {
       if (result.success) {
         // Simple feedback, a toast library would be better in a real app
         alert(`成功处理 ${result.count} 条资源`);
-        // FIX: Explicitly type `new Set` to maintain state type and avoid type widening.
         setSelectedIds(new Set<string>());
         router.refresh();
       } else {
@@ -84,13 +82,12 @@ export default function ResourceList({ initialResources }: Props) {
   
   const confirmDelete = () => {
      startTransition(async () => {
-        // FIX: Use spread operator for robust Set to Array conversion to fix type error.
-        const ids = [...selectedIds];
+        // FIX: Use Array.from() for build compatibility instead of spread syntax.
+        const ids: string[] = Array.from(selectedIds);
         const result = await bulkDeleteResources(ids);
 
         if (result.success) {
           alert(`成功删除 ${result.count} 条资源`);
-          // FIX: Explicitly type `new Set` to maintain state type and avoid type widening.
           setSelectedIds(new Set<string>());
         } else {
           alert(`删除失败: ${result.error}`);
