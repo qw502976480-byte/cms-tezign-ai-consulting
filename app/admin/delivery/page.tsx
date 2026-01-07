@@ -1,9 +1,10 @@
+
 import React from 'react';
 import { createClient } from '@/utils/supabase/server';
 import TaskClientView from './client-view';
 import Link from 'next/link';
 import { Plus } from 'lucide-react';
-import { DeliveryTask, EmailSendingAccount, EmailTemplate } from '@/types';
+import { DeliveryTask, EmailSendingAccount, EmailTemplate, DeliveryRun } from '@/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,11 +33,14 @@ export default async function DeliveryListPage({ searchParams }: { searchParams:
     query = query.ilike('name', `%${searchParams.q}%`);
   }
 
-  // Fetch Tasks and Configs concurrently
-  const [tasksRes, accountsRes, templatesRes] = await Promise.all([
+  // Fetch Tasks, Configs, and Runs concurrently
+  // Note: Fetching all runs might be heavy in production, but suitable for this MVP scope.
+  // Ideally, we would fetch runs only for the visible tasks or use a dedicated SQL view.
+  const [tasksRes, accountsRes, templatesRes, runsRes] = await Promise.all([
       query,
       supabase.from('email_sending_accounts').select('*').order('created_at', { ascending: false }),
-      supabase.from('email_templates').select('*').order('created_at', { ascending: false })
+      supabase.from('email_templates').select('*').order('created_at', { ascending: false }),
+      supabase.from('delivery_task_runs').select('*').order('started_at', { ascending: false })
   ]);
 
   if (tasksRes.error) {
@@ -50,6 +54,16 @@ export default async function DeliveryListPage({ searchParams }: { searchParams:
   const tasks = tasksRes.data as DeliveryTask[];
   const accounts = (accountsRes.data || []) as EmailSendingAccount[];
   const templates = (templatesRes.data || []) as EmailTemplate[];
+  const allRuns = (runsRes.data || []) as DeliveryRun[];
+
+  // Process latest run for each task
+  const latestRunMap: Record<string, DeliveryRun> = {};
+  allRuns.forEach(run => {
+    // Since runs are ordered by started_at desc, the first one encountered for a task_id is the latest
+    if (!latestRunMap[run.task_id]) {
+        latestRunMap[run.task_id] = run;
+    }
+  });
 
   return (
     <div className="space-y-8">
@@ -72,6 +86,7 @@ export default async function DeliveryListPage({ searchParams }: { searchParams:
         initialTasks={tasks} 
         emailAccounts={accounts} 
         emailTemplates={templates} 
+        latestRunMap={latestRunMap}
       />
     </div>
   );

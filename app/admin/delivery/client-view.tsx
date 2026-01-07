@@ -3,8 +3,8 @@
 
 import React, { useState, useEffect, useRef, useTransition } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
-import { DeliveryTask, DeliveryTaskStatus, EmailSendingAccount, EmailTemplate } from '@/types';
-import { Search, ChevronDown, Check, MoreHorizontal, Zap, Clock, Play, Pause, Copy, Trash2, Edit2, Settings, Mail, Repeat, ScrollText, AlertTriangle } from 'lucide-react';
+import { DeliveryTask, DeliveryTaskStatus, EmailSendingAccount, EmailTemplate, DeliveryRun } from '@/types';
+import { Search, ChevronDown, Check, MoreHorizontal, Zap, Clock, Play, Pause, Copy, Trash2, Edit2, Settings, Mail, Repeat, ScrollText, AlertTriangle, UserCheck } from 'lucide-react';
 import { format, isBefore, parseISO } from 'date-fns';
 import { updateTaskStatus, deleteTask, duplicateTask } from './actions';
 import Link from 'next/link';
@@ -54,11 +54,13 @@ const statusMap: Record<string, { label: string; color: string; icon?: React.Ele
 export default function TaskClientView({ 
     initialTasks, 
     emailAccounts, 
-    emailTemplates 
+    emailTemplates,
+    latestRunMap
 }: { 
     initialTasks: DeliveryTask[], 
     emailAccounts: EmailSendingAccount[],
-    emailTemplates: EmailTemplate[]
+    emailTemplates: EmailTemplate[],
+    latestRunMap: Record<string, DeliveryRun>
 }) {
     const router = useRouter();
     const pathname = usePathname();
@@ -120,63 +122,47 @@ export default function TaskClientView({
 
     // --- Derived State Logic ---
     const getDisplayStatus = (task: DeliveryTask) => {
-        // 1. Explicit DB Status (Completed/Failed/Draft/Paused)
+        // 1. Explicit DB Status
         if (['completed', 'failed', 'draft', 'paused'].includes(task.status)) {
             return task.status;
         }
 
-        // 2. Logic for 'Active' tasks (Scheduled vs Running vs Overdue)
+        // 2. Logic for 'Active' tasks
         const isOneTime = task.schedule_rule?.mode === 'one_time';
         const now = new Date();
 
         if (isOneTime) {
-            // Determine scheduled time
             let scheduledTime = null;
             if (task.schedule_rule?.one_time_type === 'scheduled') {
                 scheduledTime = task.schedule_rule.one_time_date && task.schedule_rule.one_time_time 
                     ? parseISO(`${task.schedule_rule.one_time_date}T${task.schedule_rule.one_time_time}`) 
                     : null;
             } else {
-                // Immediate one-time tasks usually complete instantly, but if stuck in active:
                 scheduledTime = task.created_at ? new Date(task.created_at) : now; 
             }
 
-            // A. If run count > 0, it should have been 'completed', but if DB missed update:
             if (task.run_count > 0) return 'completed';
 
-            // B. If not run yet
             if (scheduledTime && isBefore(scheduledTime, now)) {
-                return 'overdue'; // Past time, not run
+                return 'overdue';
             }
-            return 'scheduled'; // Future time
+            return 'scheduled';
         }
 
-        // Recurring tasks that are active
         return 'active';
     };
 
-    // FIX: Next Run Display Logic
     const getNextRunDisplay = (task: DeliveryTask, displayStatus: string) => {
-        // If status implies finished, show nothing
         if (displayStatus === 'completed' || displayStatus === 'failed') return '—';
         
         const isOneTime = task.schedule_rule?.mode === 'one_time';
-        
-        // One-time Task Logic
         if (isOneTime) {
-             // If already executed (defensive check, displayStatus should cover it), show nothing
              if (task.run_count > 0) return '—';
-
-             // If scheduled, show the specific date
              if (task.schedule_rule?.one_time_type === 'scheduled') {
                  return `${task.schedule_rule.one_time_date} ${task.schedule_rule.one_time_time}`;
              }
-             
-             // If immediate but not run yet: show "—" (do NOT show 'Immediate')
-             return '—';
+             return '—'; // Immediate, waiting for manual run
         }
-        
-        // Recurring: Use DB calculated next_run_at
         return task.next_run_at ? format(new Date(task.next_run_at), 'yyyy-MM-dd HH:mm') : 'Calculating...';
     };
 
@@ -229,12 +215,13 @@ export default function TaskClientView({
                  <table className="w-full text-sm text-left">
                     <thead className="text-gray-500 font-medium border-b border-gray-200 bg-gray-50/50">
                         <tr>
-                            <th className="px-6 py-4 w-[250px] font-medium">任务名称</th>
-                            <th className="px-6 py-4 w-[120px] font-medium">类型</th>
-                            <th className="px-6 py-4 w-[180px] font-medium">渠道配置</th>
-                            <th className="px-6 py-4 w-[140px] font-medium">状态</th>
-                            <th className="px-6 py-4 w-[160px] font-medium">最近执行</th>
-                            <th className="px-6 py-4 w-[160px] font-medium">下次执行</th>
+                            <th className="px-6 py-4 w-[220px] font-medium">任务名称</th>
+                            <th className="px-6 py-4 w-[100px] font-medium">类型</th>
+                            <th className="px-6 py-4 w-[160px] font-medium">渠道配置</th>
+                            <th className="px-6 py-4 w-[120px] font-medium">受众/触达</th>
+                            <th className="px-6 py-4 w-[120px] font-medium">状态</th>
+                            <th className="px-6 py-4 w-[150px] font-medium">最近执行</th>
+                            <th className="px-6 py-4 w-[150px] font-medium">下次执行</th>
                             <th className="px-6 py-4 text-right font-medium">操作</th>
                         </tr>
                     </thead>
@@ -244,8 +231,8 @@ export default function TaskClientView({
                             const isRecurring = task.schedule_rule?.mode === 'recurring';
                             const isOneTime = task.schedule_rule?.mode === 'one_time';
                             
-                            // Determine "Completed" state for One-Time tasks
-                            // If it has run at least once, it is considered completed in terms of lifecycle controls
+                            const lastRun = latestRunMap[task.id];
+                            // Has this one-time task been executed?
                             const isCompletedOneTime = isOneTime && task.run_count > 0;
 
                             const displayStatusKey = getDisplayStatus(task);
@@ -257,15 +244,15 @@ export default function TaskClientView({
                             return (
                                 <tr key={task.id} className="hover:bg-gray-50 transition-colors group">
                                     <td className="px-6 py-4 font-medium text-gray-900">
-                                        <Link href={`/admin/delivery/${task.id}`} className="hover:text-indigo-600 hover:underline">{task.name}</Link>
+                                        <Link href={`/admin/delivery/${task.id}`} className="hover:text-indigo-600 hover:underline block truncate max-w-[200px]" title={task.name}>{task.name}</Link>
                                         {task.last_run_message && (
-                                            <p className="text-xs text-gray-400 mt-1 truncate max-w-xs" title={task.last_run_message}>{task.last_run_message}</p>
+                                            <p className="text-xs text-gray-400 mt-1 truncate max-w-[200px]" title={task.last_run_message}>{task.last_run_message}</p>
                                         )}
                                     </td>
-                                    <td className="px-6 py-4">
+                                    <td className="px-6 py-4 whitespace-nowrap">
                                         {isRecurring ? (
                                             <div className="flex items-center gap-1.5 text-xs text-indigo-700 bg-indigo-50 px-2 py-1 rounded border border-indigo-100 w-fit">
-                                                <Repeat size={12} /> 循环
+                                                <Repeat size={12} /> 周期性
                                             </div>
                                         ) : (
                                             <div className="flex items-center gap-1.5 text-xs text-slate-700 bg-slate-50 px-2 py-1 rounded border border-slate-100 w-fit">
@@ -280,12 +267,29 @@ export default function TaskClientView({
                                         </div>
                                         {emailDetails && (
                                             <div className="text-xs text-gray-500 mt-1 space-y-0.5">
-                                                <div title={emailDetails.accountEmail} className="truncate max-w-[150px]">Using: {emailDetails.accountName}</div>
-                                                <div title="Template" className="truncate max-w-[150px]">Tmpl: {emailDetails.templateName}</div>
+                                                <div title={emailDetails.accountEmail} className="truncate max-w-[140px]">Via: {emailDetails.accountName}</div>
                                             </div>
                                         )}
                                     </td>
-                                    <td className="px-6 py-4">
+                                    <td className="px-6 py-4 whitespace-nowrap">
+                                        {lastRun ? (
+                                            <div className="flex flex-col gap-0.5">
+                                                <span className="text-sm font-medium text-gray-900 flex items-center gap-1">
+                                                    <UserCheck size={12} className="text-green-600" />
+                                                    {lastRun.success_count}
+                                                </span>
+                                                <span className="text-[10px] text-gray-400">实际触达</span>
+                                            </div>
+                                        ) : (
+                                            <div className="flex flex-col gap-0.5">
+                                                <span className="text-sm font-medium text-gray-500 flex items-center gap-1">
+                                                    ≈ {task.audience_rule?.estimated_count ?? '-'}
+                                                </span>
+                                                <span className="text-[10px] text-gray-400">预估人数</span>
+                                            </div>
+                                        )}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap">
                                         <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium border whitespace-nowrap ${statusInfo.color}`}>
                                             {StatusIcon && <StatusIcon size={12} />}
                                             {statusInfo.label}
@@ -330,7 +334,7 @@ export default function TaskClientView({
                             );
                         })}
                          {initialTasks.length === 0 && (
-                            <tr><td colSpan={7} className="text-center py-16 text-gray-400">暂无分发任务</td></tr>
+                            <tr><td colSpan={8} className="text-center py-16 text-gray-400">暂无分发任务</td></tr>
                         )}
                     </tbody>
                 </table>
