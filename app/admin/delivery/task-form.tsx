@@ -1,11 +1,82 @@
 'use client';
 
-import React, { useState, useTransition } from 'react';
+import React, { useState, useTransition, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { createDeliveryTask } from './actions';
 import { DeliveryTaskType, DeliveryChannel } from '@/types';
-import { Loader2, ArrowLeft, Save } from 'lucide-react';
+import { Loader2, ArrowLeft, Save, ChevronDown, Check } from 'lucide-react';
 import Link from 'next/link';
+
+function CustomSelect({ 
+  label, 
+  value, 
+  onChange, 
+  options 
+}: { 
+  label: string; 
+  value: string; 
+  onChange: (value: any) => void; 
+  options: { value: string; label: string; }[] 
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const selectedOption = options.find(o => o.value === value);
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className={`w-full text-left px-3 py-2 border rounded-lg flex items-center justify-between transition-all duration-200 bg-white ${isOpen ? 'border-gray-900 ring-1 ring-gray-900' : 'border-gray-300 hover:border-gray-400'}`}
+      >
+        <span className="text-sm text-gray-900">{selectedOption?.label || value}</span>
+        <ChevronDown size={16} className={`text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+
+      {isOpen && (
+        <div className="absolute top-full left-0 mt-1 w-full bg-white border border-gray-100 rounded-lg shadow-xl z-20 overflow-hidden animate-in fade-in zoom-in-95 duration-100">
+          <div className="p-1">
+            {options.map((opt) => {
+                const isSelected = value === opt.value;
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => {
+                      onChange(opt.value);
+                      setIsOpen(false);
+                    }}
+                    className={`w-full text-left px-3 py-2 text-sm rounded-md flex items-center gap-2 transition-colors ${
+                      isSelected
+                        ? 'bg-blue-500 text-white' 
+                        : 'text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    <div className={`w-4 flex items-center justify-center ${isSelected ? 'text-white' : 'opacity-0'}`}>
+                        <Check size={14} />
+                    </div>
+                    <span className="font-medium">{opt.label}</span>
+                  </button>
+                );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function TaskForm() {
   const router = useRouter();
@@ -38,7 +109,7 @@ export default function TaskForm() {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+    <form onSubmit={handleSubmit} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden min-h-[400px]">
       <div className="p-6 space-y-6">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -49,35 +120,31 @@ export default function TaskForm() {
             required
             value={formData.name}
             onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900 transition-shadow"
             placeholder="例如：2024 Q1 行业报告推送"
           />
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">任务类型</label>
-            <select 
-              value={formData.type}
-              onChange={(e) => setFormData(prev => ({ ...prev, type: e.target.value as DeliveryTaskType }))}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white"
-            >
-              <option value="automated">自动化 (Automated)</option>
-              <option value="one_off">临时任务 (One-off)</option>
-            </select>
-          </div>
+          <CustomSelect 
+            label="任务类型"
+            value={formData.type}
+            onChange={(val) => setFormData(prev => ({ ...prev, type: val as DeliveryTaskType }))}
+            options={[
+                { value: 'automated', label: '自动化 (Automated)' },
+                { value: 'one_off', label: '临时任务 (One-off)' }
+            ]}
+          />
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">分发渠道</label>
-            <select 
-              value={formData.channel}
-              onChange={(e) => setFormData(prev => ({ ...prev, channel: e.target.value as DeliveryChannel }))}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white"
-            >
-              <option value="email">邮件 (Email)</option>
-              <option value="in_app">站内信 (In-App)</option>
-            </select>
-          </div>
+          <CustomSelect 
+            label="分发渠道"
+            value={formData.channel}
+            onChange={(val) => setFormData(prev => ({ ...prev, channel: val as DeliveryChannel }))}
+            options={[
+                { value: 'email', label: '邮件 (Email)' },
+                { value: 'in_app', label: '站内信 (In-App)' }
+            ]}
+          />
         </div>
       </div>
 
