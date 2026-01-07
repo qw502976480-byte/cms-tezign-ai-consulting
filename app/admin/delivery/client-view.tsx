@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useRef, useTransition } from 'react';
@@ -39,11 +40,12 @@ function FilterDropdown({ label, value, options, onChange }: any) {
     );
 }
 
-const statusMap: Record<DeliveryTaskStatus, { label: string, color: string }> = {
+const statusMap: Record<DeliveryTaskStatus, { label: string; color: string }> = {
     draft: { label: '草稿', color: 'bg-gray-100 text-gray-600 border-gray-200' },
     active: { label: '运行中', color: 'bg-green-50 text-green-700 border-green-200' },
     paused: { label: '已暂停', color: 'bg-yellow-50 text-yellow-700 border-yellow-200' },
     completed: { label: '已完成', color: 'bg-blue-50 text-blue-700 border-blue-200' },
+    failed: { label: '失败', color: 'bg-red-50 text-red-700 border-red-200' },
 };
 
 export default function TaskClientView({ 
@@ -170,10 +172,14 @@ export default function TaskClientView({
                         {initialTasks.map((task) => {
                             const emailDetails = getEmailDetails(task);
                             const isRecurring = task.schedule_rule?.mode === 'recurring';
+                            const statusInfo = statusMap[task.status] || { label: task.status, color: 'bg-gray-100 text-gray-600 border-gray-200' };
                             return (
                                 <tr key={task.id} className="hover:bg-gray-50 transition-colors group">
                                     <td className="px-6 py-4 font-medium text-gray-900">
                                         <Link href={`/admin/delivery/${task.id}`} className="hover:text-indigo-600 hover:underline">{task.name}</Link>
+                                        {task.last_run_message && (
+                                            <p className="text-xs text-gray-400 mt-1 truncate max-w-xs" title={task.last_run_message}>{task.last_run_message}</p>
+                                        )}
                                     </td>
                                     <td className="px-6 py-4">
                                         {isRecurring ? (
@@ -199,8 +205,8 @@ export default function TaskClientView({
                                         )}
                                     </td>
                                     <td className="px-6 py-4">
-                                        <span className={`px-2 py-0.5 rounded text-[11px] font-medium border whitespace-nowrap ${statusMap[task.status].color}`}>
-                                            {statusMap[task.status].label}
+                                        <span className={`px-2 py-0.5 rounded text-[11px] font-medium border whitespace-nowrap ${statusInfo.color}`}>
+                                            {statusInfo.label}
                                         </span>
                                     </td>
                                     <td className="px-6 py-4 text-gray-500 text-xs tabular-nums">

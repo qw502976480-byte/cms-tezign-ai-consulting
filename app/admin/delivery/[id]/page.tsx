@@ -3,23 +3,34 @@ import TaskForm from '../task-form';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import { createClient } from '@/utils/supabase/server';
-import { DeliveryTask } from '@/types';
+import { DeliveryTask, DeliveryRun } from '@/types';
 
 export const dynamic = 'force-dynamic';
 
 export default async function EditDeliveryPage({ params }: { params: { id: string } }) {
   const supabase = await createClient();
-  const { data, error } = await supabase
+  
+  const taskPromise = supabase
     .from('delivery_tasks')
     .select('*')
     .eq('id', params.id)
     .single();
 
-  if (error || !data) {
+  const runsPromise = supabase
+    .from('delivery_task_runs')
+    .select('*')
+    .eq('task_id', params.id)
+    .order('started_at', { ascending: false })
+    .limit(20);
+
+  const [taskRes, runsRes] = await Promise.all([taskPromise, runsPromise]);
+
+  if (taskRes.error || !taskRes.data) {
     return <div>Task not found</div>;
   }
-
-  const task = data as DeliveryTask;
+  
+  const task = taskRes.data as DeliveryTask;
+  const runs = (runsRes.data || []) as DeliveryRun[];
 
   return (
     <div className="max-w-6xl mx-auto py-6 space-y-6">
@@ -33,7 +44,7 @@ export default async function EditDeliveryPage({ params }: { params: { id: strin
         </div>
       </div>
       
-      <TaskForm initialData={task} />
+      <TaskForm initialData={task} initialRuns={runs} />
     </div>
   );
 }

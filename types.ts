@@ -1,3 +1,4 @@
+
 export type ResourceCategory = 'report' | 'announcement' | 'case_study' | 'methodology';
 export type DemoRequestStatus = 'pending' | 'processed';
 export type DemoRequestOutcome = 'completed' | 'cancelled' | null;
@@ -6,11 +7,13 @@ export type ResourceStatus = 'draft' | 'published' | 'archived';
 export type DemoAppointmentStatus = 'scheduled' | 'completed' | 'no_show' | 'canceled';
 
 // Delivery Task Types
-export type DeliveryTaskType = 'automated' | 'one_off'; // Kept for DB compatibility, but UI logic maps to ScheduleRule
-export type DeliveryTaskStatus = 'draft' | 'active' | 'paused' | 'completed';
+export type DeliveryTaskType = 'automated' | 'one_off'; // Legacy, use schedule_rule.mode
+export type DeliveryTaskStatus = 'draft' | 'active' | 'paused' | 'completed' | 'failed';
 export type DeliveryChannel = 'email' | 'in_app';
 export type DeliveryContentMode = 'rule' | 'manual';
-export type DeliveryRunStatus = 'running' | 'completed' | 'failed';
+export type DeliveryRunStatus = 'success' | 'failed' | 'skipped';
+export type ScheduleType = 'one_time' | 'recurring';
+export type LastRunStatus = 'success' | 'failed' | 'skipped' | null;
 
 export interface EmailSendingAccount {
   id: string;
@@ -45,61 +48,49 @@ export interface EmailChannelConfig {
 
 export interface DeliveryChannelConfig {
   email?: EmailChannelConfig;
-  // future expansion: in_app?: InAppConfig
 }
 
 export interface DeliveryContentRule {
-  category?: ResourceCategory[]; // categories to include
+  category?: ResourceCategory[];
   time_range?: '7d' | '30d' | '90d' | 'all';
-  limit?: number; // How many items to pick
-  featured_slot?: 'none' | 'carousel' | 'fixed'; // If promoting to homepage
+  limit?: number;
+  featured_slot?: 'none' | 'carousel' | 'fixed';
 }
 
 export interface DeliveryAudienceRule {
-  // 1. Basic Scope
   scope: 'all' | 'logged_in' | 'never_logged_in'; 
   user_type: 'all' | 'personal' | 'company';
-
-  // 2. Compliance & Tags
   marketing_opt_in: 'all' | 'yes' | 'no';
-  interest_tags?: string[]; // New: Array of tags to match
-
-  // 3. Behavior
+  interest_tags?: string[];
   has_communicated: 'all' | 'yes' | 'no';
   has_demo_request: 'all' | 'yes' | 'no';
-  
   last_login_range: 'all' | '7d' | '30d' | 'custom';
   last_login_start?: string;
   last_login_end?: string;
-
-  // 4. Attributes (Geo & Professional)
   country?: string; 
   city?: string;
-  company?: string; // New
-  title?: string;   // New
-  
-  // 5. Registration Time
-  registered_from?: string; // New
-  registered_to?: string;   // New
-
-  estimated_count?: number; // Snapshot of estimate when saved
+  company?: string;
+  title?: string;
+  registered_from?: string;
+  registered_to?: string;
+  estimated_count?: number;
 }
 
 export interface DeliveryScheduleRule {
   mode: 'one_time' | 'recurring';
-  
-  // One-time specific
   one_time_type?: 'immediate' | 'scheduled';
-  one_time_date?: string; // YYYY-MM-DD
-  one_time_time?: string; // HH:MM
-
-  // Recurring specific
+  one_time_date?: string;
+  one_time_time?: string;
   frequency?: 'daily' | 'weekly' | 'monthly';
-  time?: string; // HH:MM
-  start_date?: string; // YYYY-MM-DD
-  end_date?: string; // YYYY-DD (optional)
-  
-  timezone?: string; // "Asia/Shanghai"
+  time?: string;
+  start_date?: string;
+  end_date?: string;
+  timezone?: string;
+}
+
+export interface PreflightCheckResult {
+  estimated_recipients: number;
+  next_run_at: string | null;
 }
 
 export interface DeliveryTask {
@@ -108,18 +99,23 @@ export interface DeliveryTask {
   type: DeliveryTaskType;
   status: DeliveryTaskStatus;
   channel: DeliveryChannel;
-  
-  // Structured Config
   content_mode: DeliveryContentMode;
   content_rule: DeliveryContentRule | null;
-  content_ids: string[] | null; // For manual mode
-  
+  content_ids: string[] | null;
   audience_rule: DeliveryAudienceRule | null;
   schedule_rule: DeliveryScheduleRule | null;
   channel_config: DeliveryChannelConfig | null;
   
+  // New State Machine Fields
+  schedule_type: ScheduleType | null;
   next_run_at: string | null;
   last_run_at: string | null;
+  last_run_status: LastRunStatus;
+  last_run_message: string | null;
+  run_count: number;
+  completed_at: string | null;
+  preflight_result: PreflightCheckResult | null;
+
   created_at: string;
   updated_at: string;
 }
@@ -127,14 +123,17 @@ export interface DeliveryTask {
 export interface DeliveryRun {
   id: string;
   task_id: string;
-  status: DeliveryRunStatus;
   started_at: string;
   finished_at: string | null;
+  status: DeliveryRunStatus;
+  recipient_count: number;
   success_count: number;
   failure_count: number;
-  error_summary: string | null;
+  message: string | null;
+  created_at: string;
 }
 
+// --- Other types (unchanged for brevity) ---
 export interface Resource {
   id: string;
   title: string;
@@ -147,17 +146,6 @@ export interface Resource {
   created_at: string;
 }
 
-export interface Registration {
-  id: string;
-  created_at: string;
-  name: string;
-  email: string;
-  locale?: string | null;
-  consent_marketing?: boolean;
-  interests?: string[];
-}
-
-// Renamed from RegisteredUser to UserProfile to match DB table 'user_profiles'
 export interface UserProfile {
   id: string;
   created_at: string;
@@ -167,46 +155,45 @@ export interface UserProfile {
   user_type: 'personal' | 'company';
   company_name: string | null;
   title: string | null;
-  
-  // Location info
   country?: string | null;
-  region?: string | null;
-  city?: string | null;
-  language?: string | null;
-  locale?: string | null; 
-
-  use_case_tags: string[];
+  city?: string | null; 
   interest_tags: string[];
-  pain_points: string | null;
-  
-  // Computed/Enriched fields
-  has_communicated?: boolean; // Derived from existence of demo_requests
-  last_login_at?: string | null; // From auth.users.last_sign_in_at
+  has_communicated?: boolean;
+  last_login_at?: string | null;
+  // This field may not exist in DB, handle gracefully
+  marketing_opt_in?: boolean;
+  // FIX: Add missing optional properties for UserDetailModal component
+  use_case_tags?: string[];
+  pain_points?: string | null;
 }
 
-// Alias for backward compatibility if needed, but we try to use UserProfile
+// The rest of the types remain unchanged.
+// ...
+export interface Registration {
+  id: string;
+  created_at: string;
+  name: string;
+  email: string;
+  locale?: string | null;
+  consent_marketing?: boolean;
+  interests?: string[];
+}
 export type RegisteredUser = UserProfile;
-
 export interface DemoRequest {
   id: string;
-  user_id: string; // Foreign Key to user_profiles
-  // Joined data (optional because it depends on the query)
+  user_id: string;
   user_profile?: UserProfile; 
-  
-  // Snapshot fields (legacy or fallback)
   name: string;
   email: string;
   phone: string | null;
   company: string | null;
   title: string | null;
-
   notes: string | null;
   status: DemoRequestStatus;
   outcome?: DemoRequestOutcome;
   created_at: string;
   processed_at: string | null;
 }
-
 export interface DemoAppointment {
   id: string;
   demo_request_id: string;
@@ -214,7 +201,6 @@ export interface DemoAppointment {
   status: DemoAppointmentStatus;
   created_at: string;
 }
-
 export interface DemoRequestLog {
   id: string;
   demo_request_id: string;
@@ -226,8 +212,6 @@ export interface DemoRequestLog {
   actor: string | null;
   created_at: string;
 }
-
-// --- Homepage Configuration Types (Unchanged) ---
 export interface HomepageHeroConfig { title: string; subtitle: string; cta_text: string; }
 export interface HomepageGptSearchConfig { placeholder_text: string; example_prompts: string[]; }
 export interface HomepageLatestNewsConfig { featured_items: string[]; list_items: string[]; }
