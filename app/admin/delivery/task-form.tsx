@@ -374,7 +374,7 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
                         <button onClick={handleDuplicate} disabled={isPending} className="w-full flex items-center justify-center gap-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50">
                             <Copy size={16} /> 复制任务
                         </button>
-                        <p className="text-[10px] text-gray-400">如需再次发送，请复制创建新任务</p>
+                        <p className="text-[10px] text-gray-400">一次性任务已执行完成，如需再次发送，请复制该任务</p>
                     </div>
                  )}
 

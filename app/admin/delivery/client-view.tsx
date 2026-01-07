@@ -155,19 +155,28 @@ export default function TaskClientView({
         return 'active';
     };
 
+    // FIX: Next Run Display Logic
     const getNextRunDisplay = (task: DeliveryTask, displayStatus: string) => {
-        if (displayStatus === 'completed' || displayStatus === 'failed') return '-';
+        // If status implies finished, show nothing
+        if (displayStatus === 'completed' || displayStatus === 'failed') return '—';
         
         const isOneTime = task.schedule_rule?.mode === 'one_time';
+        
+        // One-time Task Logic
         if (isOneTime) {
+             // If already executed (defensive check, displayStatus should cover it), show nothing
+             if (task.run_count > 0) return '—';
+
+             // If scheduled, show the specific date
              if (task.schedule_rule?.one_time_type === 'scheduled') {
-                 const dt = `${task.schedule_rule.one_time_date} ${task.schedule_rule.one_time_time}`;
-                 return dt;
+                 return `${task.schedule_rule.one_time_date} ${task.schedule_rule.one_time_time}`;
              }
-             return 'Immediate';
+             
+             // If immediate but not run yet: show "—" (do NOT show 'Immediate')
+             return '—';
         }
         
-        // Recurring
+        // Recurring: Use DB calculated next_run_at
         return task.next_run_at ? format(new Date(task.next_run_at), 'yyyy-MM-dd HH:mm') : 'Calculating...';
     };
 
@@ -233,7 +242,12 @@ export default function TaskClientView({
                         {initialTasks.map((task) => {
                             const emailDetails = getEmailDetails(task);
                             const isRecurring = task.schedule_rule?.mode === 'recurring';
+                            const isOneTime = task.schedule_rule?.mode === 'one_time';
                             
+                            // Determine "Completed" state for One-Time tasks
+                            // If it has run at least once, it is considered completed in terms of lifecycle controls
+                            const isCompletedOneTime = isOneTime && task.run_count > 0;
+
                             const displayStatusKey = getDisplayStatus(task);
                             const statusInfo = statusMap[displayStatusKey] || statusMap['draft'];
                             const StatusIcon = statusInfo.icon;
@@ -278,7 +292,7 @@ export default function TaskClientView({
                                         </span>
                                     </td>
                                     <td className="px-6 py-4 text-gray-500 text-xs tabular-nums">
-                                        {task.last_run_at ? format(new Date(task.last_run_at), 'yyyy-MM-dd HH:mm') : '-'}
+                                        {task.last_run_at ? format(new Date(task.last_run_at), 'yyyy-MM-dd HH:mm') : '—'}
                                     </td>
                                     <td className="px-6 py-4 text-gray-500 text-xs tabular-nums">
                                         {nextRunText}
@@ -297,7 +311,8 @@ export default function TaskClientView({
                                                 <button onClick={() => handleAction('logs', task)} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-gray-50 rounded text-gray-700">
                                                     <ScrollText size={14} /> 查看执行记录
                                                 </button>
-                                                {task.status !== 'completed' && task.status !== 'draft' && (
+                                                {/* Disable enable/pause for completed one-time tasks */}
+                                                {!isCompletedOneTime && task.status !== 'completed' && task.status !== 'draft' && (
                                                     <button onClick={() => handleAction('toggle_status', task)} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-gray-50 rounded text-gray-700">
                                                         {task.status === 'active' ? <><Pause size={14} /> 暂停任务</> : <><Play size={14} /> 启用任务</>}
                                                     </button>
