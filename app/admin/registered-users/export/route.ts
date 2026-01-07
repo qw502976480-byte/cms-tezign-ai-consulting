@@ -36,7 +36,6 @@ export async function GET(request: NextRequest) {
 
   try {
     // 2. Parse and Sanitize Search Params
-    // Filter params
     const keyword = searchParams.get('q') || '';
     const userType = searchParams.get('type') || 'all';
     const country = searchParams.get('country') || '';
@@ -45,28 +44,25 @@ export async function GET(request: NextRequest) {
     const reg_to = searchParams.get('reg_to') || '';
     const onlineStatus = searchParams.get('online') || 'all';
     
-    // Export control params
     const scope = searchParams.get('scope') || 'filtered';
     const page = parseInt(searchParams.get('page') || '1');
     const pageSize = parseInt(searchParams.get('pageSize') || '20');
     const topN = parseInt(searchParams.get('top') || '500');
     const rawFields = searchParams.get('fields') || '';
+    const fileFormat = searchParams.get('format') || 'xlsx';
     
     // 3. Prepare requested fields
     const requestedFields = rawFields ? rawFields.split(',') : Object.keys(FIELD_CONFIG);
     const exportFields = Array.from(new Set(['email', 'phone', ...requestedFields]));
 
-    // 4. Pre-filter Data (similar to the page logic)
+    // 4. Pre-filter Data
     const { data: demoRequests } = await serviceSupabase.from('demo_requests').select('user_id');
     const communicatedUserIdSet = new Set((demoRequests || []).map(r => r.user_id).filter(Boolean));
 
     // 5. Build and Execute Main Query
     let query = serviceSupabase.from('user_profiles').select('*');
 
-    if (keyword) {
-      const pattern = `%${keyword}%`;
-      query = query.or(`name.ilike.${pattern},email.ilike.${pattern},phone.ilike.${pattern},company_name.ilike.${pattern}`);
-    }
+    if (keyword) query = query.or(`name.ilike.%${keyword}%,email.ilike.%${keyword}%,phone.ilike.%${keyword}%,company_name.ilike.%${keyword}%`);
     if (userType !== 'all') query = query.eq('user_type', userType);
     if (country) query = query.ilike('country', `%${country}%`);
     if (city) query = query.ilike('city', `%${city}%`);
@@ -84,63 +80,73 @@ export async function GET(request: NextRequest) {
     
     // 6. Apply Scope
     const MAX_EXPORT_LIMIT = 5000;
-    if (scope === 'page') {
-      const from = (page - 1) * pageSize;
-      const to = from + pageSize - 1;
-      query = query.range(from, to);
-    } else if (scope === 'top') {
-      const limit = Math.min(Math.max(1, topN), MAX_EXPORT_LIMIT);
-      query = query.limit(limit);
-    } else { // 'filtered' or default
-      query = query.limit(MAX_EXPORT_LIMIT);
-    }
+    if (scope === 'page') query = query.range((page - 1) * pageSize, page * pageSize - 1);
+    else if (scope === 'top') query = query.limit(Math.min(Math.max(1, topN), MAX_EXPORT_LIMIT));
+    else query = query.limit(MAX_EXPORT_LIMIT);
     
     const { data: rawUsers, error } = await query.order('created_at', { ascending: false });
     if (error) throw error;
     
-    // 7. Enrich data with last_login_at
+    // 7. Enrich data
     const authUserIds = (rawUsers || []).map(u => u.id).filter(Boolean);
     const lastLoginMap = new Map<string, string>();
     if (authUserIds.length > 0) {
         const { data: authUsersData } = await serviceSupabase.from('users').select('id, last_sign_in_at').in('id', authUserIds);
-        if (authUsersData) {
-            authUsersData.forEach(u => lastLoginMap.set(u.id, u.last_sign_in_at));
-        }
+        if (authUsersData) authUsersData.forEach(u => lastLoginMap.set(u.id, u.last_sign_in_at));
+    }
+    const context = { communicatedUserIdSet, lastLoginMap };
+
+    // 8. Generate file based on format
+    const filename = `user-profiles_${format(new Date(), 'yyyy-MM-dd_HH-mm')}.${fileFormat}`;
+    const headers = new Headers();
+    headers.set('Content-Disposition', `attachment; filename="${filename}"`);
+    let body: any;
+    
+    switch (fileFormat) {
+      case 'json':
+        const enrichedUsers = (rawUsers as UserProfile[] || []).map(user => {
+          const row: { [key: string]: any } = {};
+          for (const key of exportFields) {
+            if (FIELD_CONFIG[key]) row[key] = FIELD_CONFIG[key].getValue(user, context);
+          }
+          return row;
+        });
+        body = JSON.stringify(enrichedUsers, null, 2);
+        headers.set('Content-Type', 'application/json');
+        break;
+
+      case 'csv':
+        const dataForSheet = (rawUsers as UserProfile[] || []).map(user => {
+          const row: { [key: string]: any } = {};
+          for (const key of exportFields) {
+            if (FIELD_CONFIG[key]) row[FIELD_CONFIG[key].header] = FIELD_CONFIG[key].getValue(user, context);
+          }
+          return row;
+        });
+        const csvWorksheet = XLSX.utils.json_to_sheet(dataForSheet);
+        body = XLSX.utils.sheet_to_csv(csvWorksheet);
+        headers.set('Content-Type', 'text/csv');
+        break;
+
+      case 'xlsx':
+      default:
+        const xlsxData = (rawUsers as UserProfile[] || []).map(user => {
+          const row: { [key: string]: any } = {};
+          for (const key of exportFields) {
+            if (FIELD_CONFIG[key]) row[FIELD_CONFIG[key].header] = FIELD_CONFIG[key].getValue(user, context);
+          }
+          return row;
+        });
+        const worksheet = XLSX.utils.json_to_sheet(xlsxData);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, 'User Profiles');
+        worksheet['!cols'] = exportFields.map(key => ({ wch: (FIELD_CONFIG[key]?.header.length || 10) + 5 }));
+        body = XLSX.write(workbook, { bookType: 'xlsx', type: 'buffer' });
+        headers.set('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        break;
     }
     
-    // 8. Format Data for Excel based on selected fields
-    const context = { communicatedUserIdSet, lastLoginMap };
-    const dataToExport = (rawUsers as UserProfile[] || []).map(user => {
-      const row: { [key: string]: any } = {};
-      for (const key of exportFields) {
-        if (FIELD_CONFIG[key]) {
-          row[FIELD_CONFIG[key].header] = FIELD_CONFIG[key].getValue(user, context);
-        }
-      }
-      return row;
-    });
-
-    // 9. Generate Excel File
-    const worksheet = XLSX.utils.json_to_sheet(dataToExport);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'User Profiles');
-    
-    // Set column widths for better readability
-    worksheet['!cols'] = exportFields.map(key => {
-        const header = FIELD_CONFIG[key]?.header || '';
-        const widths: { [key: string]: number } = { email: 30, company_name: 25, name: 20, phone: 15, created_at: 18, last_login_at: 18 };
-        return { wch: widths[key] || header.length + 5 };
-    });
-
-    const buf = XLSX.write(workbook, { bookType: 'xlsx', type: 'buffer' });
-
-    // 10. Create Response
-    const filename = `user-profiles_${format(new Date(), 'yyyy-MM-dd_HH-mm')}.xlsx`;
-    const headers = new Headers();
-    headers.set('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    headers.set('Content-Disposition', `attachment; filename="${filename}"`);
-    
-    return new NextResponse(buf, { headers });
+    return new NextResponse(body, { headers });
 
   } catch (err: any) {
     console.error('[EXPORT ERROR]', err);

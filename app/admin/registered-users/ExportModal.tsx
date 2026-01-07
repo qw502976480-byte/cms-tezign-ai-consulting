@@ -14,6 +14,7 @@ interface ExportModalProps {
 }
 
 type Scope = 'filtered' | 'page' | 'top';
+type FileFormat = 'xlsx' | 'csv' | 'json';
 
 const ALL_FIELDS = [
   { key: 'name', label: '姓名' },
@@ -35,6 +36,7 @@ export default function ExportModal({ isOpen, onClose, currentFilters, currentPa
   const [selectedFields, setSelectedFields] = useState<Set<string>>(
     new Set(ALL_FIELDS.map(f => f.key))
   );
+  const [fileFormat, setFileFormat] = useState<FileFormat>('xlsx');
   
   const [isExporting, setIsExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -58,6 +60,7 @@ export default function ExportModal({ isOpen, onClose, currentFilters, currentPa
     const params = new URLSearchParams(currentFilters.toString());
     params.set('scope', scope);
     params.set('fields', Array.from(selectedFields).join(','));
+    params.set('format', fileFormat);
 
     if (scope === 'page') {
       params.set('page', String(currentPage));
@@ -76,7 +79,7 @@ export default function ExportModal({ isOpen, onClose, currentFilters, currentPa
 
       const blob = await res.blob();
       
-      let filename = `user-profiles_${format(new Date(), 'yyyy-MM-dd')}.xlsx`;
+      let filename = `user-profiles_${format(new Date(), 'yyyy-MM-dd')}.${fileFormat}`;
       const disposition = res.headers.get('Content-Disposition');
       if (disposition && disposition.indexOf('attachment') !== -1) {
           const filenameRegex = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/;
@@ -177,7 +180,20 @@ export default function ExportModal({ isOpen, onClose, currentFilters, currentPa
             {/* Format */}
             <div className="space-y-3">
                 <h4 className="text-sm font-semibold text-gray-800">文件格式</h4>
-                <div className="p-3 bg-gray-100 rounded-lg text-sm text-gray-700 font-medium">Excel (.xlsx)</div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <label className={`flex items-center p-3 border rounded-lg cursor-pointer transition-colors ${fileFormat === 'xlsx' ? 'bg-gray-50 border-gray-900' : 'hover:bg-gray-50'}`}>
+                        <input type="radio" name="format" value="xlsx" checked={fileFormat === 'xlsx'} onChange={() => setFileFormat('xlsx')} className="h-4 w-4 text-gray-900 focus:ring-gray-900" />
+                        <span className="ml-3 text-sm font-medium text-gray-700">Excel (.xlsx)</span>
+                    </label>
+                    <label className={`flex items-center p-3 border rounded-lg cursor-pointer transition-colors ${fileFormat === 'csv' ? 'bg-gray-50 border-gray-900' : 'hover:bg-gray-50'}`}>
+                        <input type="radio" name="format" value="csv" checked={fileFormat === 'csv'} onChange={() => setFileFormat('csv')} className="h-4 w-4 text-gray-900 focus:ring-gray-900" />
+                        <span className="ml-3 text-sm font-medium text-gray-700">CSV (.csv)</span>
+                    </label>
+                    <label className={`flex items-center p-3 border rounded-lg cursor-pointer transition-colors ${fileFormat === 'json' ? 'bg-gray-50 border-gray-900' : 'hover:bg-gray-50'}`}>
+                        <input type="radio" name="format" value="json" checked={fileFormat === 'json'} onChange={() => setFileFormat('json')} className="h-4 w-4 text-gray-900 focus:ring-gray-900" />
+                        <span className="ml-3 text-sm font-medium text-gray-700">JSON (.json)</span>
+                    </label>
+                </div>
             </div>
         </div>
 
