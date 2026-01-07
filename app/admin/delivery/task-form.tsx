@@ -4,12 +4,25 @@ import React, { useState, useTransition, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { upsertDeliveryTask, estimateAudienceCount, searchResources, getResourcesByIds, getEmailAccounts, getEmailTemplates } from './actions';
 import { DeliveryTask, DeliveryTaskType, DeliveryChannel, DeliveryTaskStatus, DeliveryContentMode, DeliveryAudienceRule, DeliveryContentRule, DeliveryScheduleRule, EmailSendingAccount, EmailTemplate, EmailChannelConfig } from '@/types';
-import { Loader2, Save, Play, Search, X, Check, Calculator, CalendarClock, Users, FileText, Settings, AlertTriangle, Mail, Calendar, ArrowRight, ExternalLink } from 'lucide-react';
+import { Loader2, Save, Play, Search, X, Check, Calculator, CalendarClock, Users, FileText, Settings, AlertTriangle, Mail, Calendar, ArrowRight, ExternalLink, ChevronDown } from 'lucide-react';
 import EmailConfigModal from './EmailConfigModal';
 
 interface Props {
   initialData?: DeliveryTask;
 }
+
+// Reusable styled select component to unify design
+const FormSelect = ({ children, className, ...props }: React.SelectHTMLAttributes<HTMLSelectElement>) => (
+  <div className={`relative ${className || ''}`}>
+    <select
+      {...props}
+      className="w-full appearance-none px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:outline-none bg-white pr-10 text-sm disabled:bg-gray-100 disabled:text-gray-400 transition-shadow"
+    >
+      {children}
+    </select>
+    <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+  </div>
+);
 
 export default function TaskForm({ initialData }: Props) {
   const router = useRouter();
@@ -26,6 +39,10 @@ export default function TaskForm({ initialData }: Props) {
   const [audience, setAudience] = useState<DeliveryAudienceRule>(initialData?.audience_rule || {
     scope: 'all',
     user_type: 'all',
+    marketing_opt_in: 'yes', // Default to 'yes' per requirements
+    has_communicated: 'all',
+    has_demo_request: 'all',
+    last_login_range: 'all',
     country: '',
     city: '',
     estimated_count: 0
@@ -84,6 +101,19 @@ export default function TaskForm({ initialData }: Props) {
     loadOptions();
   }, [initialData]);
 
+  // Real-time Audience Estimation (Debounced)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+        handleAudienceEstimate();
+    }, 800); // 800ms debounce
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+      audience.scope, audience.user_type, audience.marketing_opt_in, 
+      audience.has_communicated, audience.last_login_range, 
+      audience.country, audience.city, audience.last_login_start, audience.last_login_end
+  ]);
+
   const loadOptions = async () => {
     const [accs, tmps] = await Promise.all([getEmailAccounts(), getEmailTemplates()]);
     setAvailableAccounts(accs.filter(a => a.is_active));
@@ -125,8 +155,6 @@ export default function TaskForm({ initialData }: Props) {
     const res = await estimateAudienceCount(audience);
     if (res.success) {
         setAudience(prev => ({ ...prev, estimated_count: res.count }));
-    } else {
-        alert('预估失败');
     }
     setEstimating(false);
   };
@@ -282,25 +310,23 @@ export default function TaskForm({ initialData }: Props) {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">任务类型</label>
-                            <select 
+                            <FormSelect 
                                 value={basic.type} 
                                 onChange={(e) => setBasic(prev => ({...prev, type: e.target.value as DeliveryTaskType}))}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:outline-none bg-white"
                             >
                                 <option value="automated">自动化 (Automated)</option>
                                 <option value="one_off">临时任务 (Ad-hoc)</option>
-                            </select>
+                            </FormSelect>
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">分发渠道</label>
-                            <select 
+                            <FormSelect 
                                 value={basic.channel} 
                                 onChange={(e) => setBasic(prev => ({...prev, channel: e.target.value as DeliveryChannel}))}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:outline-none bg-white"
                             >
                                 <option value="email">邮件 (Email)</option>
                                 <option value="in_app">站内信 (In-App)</option>
-                            </select>
+                            </FormSelect>
                         </div>
                     </div>
 
@@ -333,29 +359,29 @@ export default function TaskForm({ initialData }: Props) {
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-xs font-medium text-indigo-900 mb-1">发送账户 <span className="text-red-500">*</span></label>
-                                    <select 
+                                    <FormSelect 
                                         value={emailConfig.account_id}
                                         onChange={(e) => setEmailConfig(prev => ({...prev, account_id: e.target.value}))}
-                                        className="w-full text-sm border-indigo-200 rounded-lg focus:ring-indigo-500"
+                                        className="border-indigo-200 focus-within:ring-indigo-500"
                                     >
                                         <option value="">-- 选择账户 --</option>
                                         {availableAccounts.map(acc => (
                                             <option key={acc.id} value={acc.id}>{acc.name} ({acc.from_email})</option>
                                         ))}
-                                    </select>
+                                    </FormSelect>
                                 </div>
                                 <div>
                                     <label className="block text-xs font-medium text-indigo-900 mb-1">邮件模板 <span className="text-red-500">*</span></label>
-                                    <select 
+                                    <FormSelect 
                                         value={emailConfig.template_id}
                                         onChange={(e) => setEmailConfig(prev => ({...prev, template_id: e.target.value}))}
-                                        className="w-full text-sm border-indigo-200 rounded-lg focus:ring-indigo-500"
+                                        className="border-indigo-200 focus-within:ring-indigo-500"
                                     >
                                         <option value="">-- 选择模板 --</option>
                                         {availableTemplates.map(tmp => (
                                             <option key={tmp.id} value={tmp.id}>{tmp.name}</option>
                                         ))}
-                                    </select>
+                                    </FormSelect>
                                 </div>
                             </div>
                             <div>
@@ -364,7 +390,7 @@ export default function TaskForm({ initialData }: Props) {
                                     type="text"
                                     value={emailConfig.subject}
                                     onChange={(e) => setEmailConfig(prev => ({...prev, subject: e.target.value}))}
-                                    className="w-full text-sm border-indigo-200 rounded-lg"
+                                    className="w-full text-sm border-indigo-200 border rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                                     placeholder="输入邮件主题..."
                                 />
                             </div>
@@ -375,7 +401,7 @@ export default function TaskForm({ initialData }: Props) {
                                         rows={2}
                                         value={emailConfig.header_note || ''}
                                         onChange={(e) => setEmailConfig(prev => ({...prev, header_note: e.target.value}))}
-                                        className="w-full text-sm border-indigo-200 rounded-lg"
+                                        className="w-full text-sm border-indigo-200 border rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                                         placeholder="Hi {{name}}, ..."
                                     />
                                 </div>
@@ -385,7 +411,7 @@ export default function TaskForm({ initialData }: Props) {
                                         rows={2}
                                         value={emailConfig.footer_note || ''}
                                         onChange={(e) => setEmailConfig(prev => ({...prev, footer_note: e.target.value}))}
-                                        className="w-full text-sm border-indigo-200 rounded-lg"
+                                        className="w-full text-sm border-indigo-200 border rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                                         placeholder="Thanks, Team"
                                     />
                                 </div>
@@ -402,70 +428,163 @@ export default function TaskForm({ initialData }: Props) {
                         <Users className="text-gray-400" size={20} />
                         <h2 className="text-lg font-semibold text-gray-900">目标受众 (Audience)</h2>
                     </div>
+                    
                     <div className="space-y-6">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">受众范围</label>
-                                <select 
-                                    value={audience.scope} 
-                                    onChange={(e) => setAudience(prev => ({...prev, scope: e.target.value as any}))}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:outline-none bg-white"
-                                >
-                                    <option value="all">全部注册用户</option>
-                                    <option value="communicated">仅发生过线上沟通</option>
-                                    <option value="not_communicated">未发生过线上沟通</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">用户类型</label>
-                                <select 
-                                    value={audience.user_type} 
-                                    onChange={(e) => setAudience(prev => ({...prev, user_type: e.target.value as any}))}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:outline-none bg-white"
-                                >
-                                    <option value="all">不限</option>
-                                    <option value="company">企业用户</option>
-                                    <option value="personal">个人用户</option>
-                                </select>
+                        
+                        {/* Group 1: Basic Scope */}
+                        <div className="bg-gray-50/50 p-4 rounded-lg border border-gray-100">
+                            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">1. 基础范围</h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">受众范围 (Scope)</label>
+                                    <FormSelect 
+                                        value={audience.scope} 
+                                        onChange={(e) => setAudience(prev => ({...prev, scope: e.target.value as any}))}
+                                    >
+                                        <option value="all">全部注册用户 (All Registered)</option>
+                                        <option value="logged_in">仅已登录过的用户 (Logged In)</option>
+                                        <option value="never_logged_in">仅从未登录的用户 (Never Logged In)</option>
+                                    </FormSelect>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">用户类型 (User Type)</label>
+                                    <FormSelect 
+                                        value={audience.user_type} 
+                                        onChange={(e) => setAudience(prev => ({...prev, user_type: e.target.value as any}))}
+                                    >
+                                        <option value="all">不限 (All)</option>
+                                        <option value="company">企业用户 (Company)</option>
+                                        <option value="personal">个人用户 (Personal)</option>
+                                    </FormSelect>
+                                </div>
                             </div>
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">国家 (模糊匹配)</label>
-                                <input 
-                                    type="text"
-                                    value={audience.country || ''}
-                                    onChange={(e) => setAudience(prev => ({...prev, country: e.target.value}))}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:outline-none"
-                                    placeholder="e.g. China" 
-                                />
+
+                        {/* Group 2: Compliance */}
+                        <div className="bg-gray-50/50 p-4 rounded-lg border border-gray-100">
+                            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">2. 推荐与合规 (Compliance)</h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">是否接受推荐 (Marketing Opt-in)</label>
+                                    <FormSelect 
+                                        value={audience.marketing_opt_in} 
+                                        onChange={(e) => setAudience(prev => ({...prev, marketing_opt_in: e.target.value as any}))}
+                                    >
+                                        <option value="yes">已接受推荐 (Opted-in) [默认]</option>
+                                        <option value="no">未接受推荐 (Opted-out)</option>
+                                        <option value="all">不限 (All) [慎用]</option>
+                                    </FormSelect>
+                                    <p className="text-xs text-gray-400 mt-1">仅用于系统通知时才可选择“不限”，营销内容必须选“已接受”。</p>
+                                </div>
                             </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">城市 (模糊匹配)</label>
-                                <input 
-                                    type="text"
-                                    value={audience.city || ''}
-                                    onChange={(e) => setAudience(prev => ({...prev, city: e.target.value}))}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:outline-none"
-                                    placeholder="e.g. Shanghai" 
-                                />
+                        </div>
+
+                        {/* Group 3: User Behavior */}
+                        <div className="bg-gray-50/50 p-4 rounded-lg border border-gray-100">
+                            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">3. 行为状态 (Behavior)</h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">是否发生过线上沟通</label>
+                                    <FormSelect 
+                                        value={audience.has_communicated} 
+                                        onChange={(e) => setAudience(prev => ({...prev, has_communicated: e.target.value as any}))}
+                                    >
+                                        <option value="all">不限 (All)</option>
+                                        <option value="yes">已发生 (Yes)</option>
+                                        <option value="no">未发生 (No)</option>
+                                    </FormSelect>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">是否提交过演示申请</label>
+                                    <FormSelect 
+                                        value={audience.has_demo_request} 
+                                        onChange={(e) => setAudience(prev => ({...prev, has_demo_request: e.target.value as any}))}
+                                    >
+                                        <option value="all">不限 (All)</option>
+                                        <option value="yes">已提交 (Yes)</option>
+                                        <option value="no">未提交 (No)</option>
+                                    </FormSelect>
+                                </div>
+                                <div className="md:col-span-2">
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">最近一次登录时间</label>
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                        <FormSelect 
+                                            value={audience.last_login_range} 
+                                            onChange={(e) => setAudience(prev => ({...prev, last_login_range: e.target.value as any}))}
+                                        >
+                                            <option value="all">不限 (All)</option>
+                                            <option value="7d">近 7 天 (Last 7 days)</option>
+                                            <option value="30d">近 30 天 (Last 30 days)</option>
+                                            <option value="custom">自定义 (Custom)</option>
+                                        </FormSelect>
+                                        
+                                        {audience.last_login_range === 'custom' && (
+                                            <>
+                                                <input 
+                                                    type="date" 
+                                                    value={audience.last_login_start || ''}
+                                                    onChange={(e) => setAudience(prev => ({...prev, last_login_start: e.target.value}))}
+                                                    className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                                                />
+                                                <input 
+                                                    type="date" 
+                                                    value={audience.last_login_end || ''}
+                                                    onChange={(e) => setAudience(prev => ({...prev, last_login_end: e.target.value}))}
+                                                    className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                                                />
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Group 4: Geography */}
+                        <div className="bg-gray-50/50 p-4 rounded-lg border border-gray-100">
+                            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">4. 地域信息 (Geography)</h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">国家 (模糊匹配)</label>
+                                    <input 
+                                        type="text"
+                                        value={audience.country || ''}
+                                        onChange={(e) => setAudience(prev => ({...prev, country: e.target.value}))}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:outline-none"
+                                        placeholder="e.g. China, USA" 
+                                    />
+                                    <p className="text-xs text-gray-400 mt-1">支持多个国家，用逗号分隔。</p>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">城市 (模糊匹配)</label>
+                                    <input 
+                                        type="text"
+                                        value={audience.city || ''}
+                                        onChange={(e) => setAudience(prev => ({...prev, city: e.target.value}))}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:outline-none"
+                                        placeholder="e.g. Shanghai" 
+                                    />
+                                    <p className="text-xs text-gray-400 mt-1">支持多个城市，用逗号分隔。</p>
+                                </div>
                             </div>
                         </div>
                         
-                        <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-200">
+                        {/* Estimate Result */}
+                        <div className="flex items-center justify-between p-4 bg-indigo-50 rounded-lg border border-indigo-100 sticky bottom-0">
                             <div className="flex items-center gap-2">
-                                <span className="text-sm text-gray-600">预估覆盖人数:</span>
-                                <span className="text-xl font-bold text-gray-900">{audience.estimated_count ?? '-'}</span>
-                                <span className="text-xs text-gray-400">人</span>
+                                <span className="text-sm text-indigo-800">当前条件下预计触达:</span>
+                                <span className="text-xl font-bold text-indigo-900">
+                                    {estimating ? <Loader2 className="animate-spin inline" size={16}/> : (audience.estimated_count ?? '-')}
+                                </span>
+                                <span className="text-xs text-indigo-600">位用户</span>
                             </div>
                             <button 
                                 type="button"
                                 onClick={handleAudienceEstimate}
                                 disabled={estimating}
-                                className="flex items-center gap-2 text-sm text-blue-600 font-medium hover:underline disabled:opacity-50"
+                                className="flex items-center gap-2 text-xs text-indigo-700 font-medium hover:underline disabled:opacity-50"
                             >
-                                {estimating && <Loader2 className="animate-spin" size={14} />}
-                                重新计算
+                                <Calculator size={12} />
+                                手动刷新
                             </button>
                         </div>
                     </div>
@@ -514,16 +633,15 @@ export default function TaskForm({ initialData }: Props) {
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div>
                                         <label className="block text-xs font-medium text-gray-500 mb-1">时间范围</label>
-                                        <select 
+                                        <FormSelect 
                                             value={contentRule.time_range}
                                             onChange={(e) => setContentRule(prev => ({...prev, time_range: e.target.value as any}))}
-                                            className="w-full text-sm border-gray-300 rounded-lg"
                                         >
                                             <option value="7d">最近 7 天</option>
                                             <option value="30d">最近 30 天</option>
                                             <option value="90d">最近 90 天</option>
                                             <option value="all">不限时间</option>
-                                        </select>
+                                        </FormSelect>
                                     </div>
                                     <div>
                                         <label className="block text-xs font-medium text-gray-500 mb-1">选取数量限制</label>
@@ -533,7 +651,7 @@ export default function TaskForm({ initialData }: Props) {
                                             max={10}
                                             value={contentRule.limit}
                                             onChange={(e) => setContentRule(prev => ({...prev, limit: parseInt(e.target.value)}))}
-                                            className="w-full text-sm border-gray-300 rounded-lg"
+                                            className="w-full text-sm border-gray-300 rounded-lg px-3 py-2 border focus:ring-2 focus:ring-gray-900 focus:outline-none"
                                         />
                                     </div>
                                 </div>
@@ -552,7 +670,7 @@ export default function TaskForm({ initialData }: Props) {
                                         value={resourceSearchQuery}
                                         onChange={(e) => setResourceSearchQuery(e.target.value)}
                                         placeholder="输入标题搜索资源..."
-                                        className="flex-1 text-sm border-gray-300 rounded-lg"
+                                        className="flex-1 text-sm border-gray-300 border rounded-lg px-3 py-2 focus:ring-2 focus:ring-gray-900 focus:outline-none"
                                     />
                                     <button type="button" onClick={handleResourceSearch} className="bg-gray-900 text-white px-3 py-2 rounded-lg text-sm font-medium">
                                         <Search size={16} />
@@ -596,15 +714,14 @@ export default function TaskForm({ initialData }: Props) {
                         {/* Homepage Promotion Slot */}
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-2">首页推广位 (可选)</label>
-                            <select 
+                            <FormSelect 
                                 value={contentRule.featured_slot || 'none'}
                                 onChange={(e) => setContentRule(prev => ({...prev, featured_slot: e.target.value as any}))}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
                             >
                                 <option value="none">不推广</option>
                                 <option value="carousel">Feature Carousel (轮播位)</option>
                                 <option value="fixed">Fixed List (固定列表)</option>
-                            </select>
+                            </FormSelect>
                             <p className="text-xs text-gray-400 mt-1">若选择推广，任务执行时将自动把选中内容更新到首页对应模块。</p>
                         </div>
 
@@ -688,7 +805,7 @@ export default function TaskForm({ initialData }: Props) {
                                                 type="date"
                                                 value={schedule.one_time_date || ''}
                                                 onChange={(e) => setSchedule(prev => ({...prev, one_time_date: e.target.value}))}
-                                                className="w-full text-sm border-gray-300 rounded-lg focus:ring-gray-900 focus:border-gray-900"
+                                                className="w-full text-sm border-gray-300 border rounded-lg px-3 py-2 focus:ring-gray-900 focus:border-gray-900 focus:outline-none"
                                             />
                                         </div>
                                         <div>
@@ -697,7 +814,7 @@ export default function TaskForm({ initialData }: Props) {
                                                 type="time"
                                                 value={schedule.one_time_time || ''}
                                                 onChange={(e) => setSchedule(prev => ({...prev, one_time_time: e.target.value}))}
-                                                className="w-full text-sm border-gray-300 rounded-lg focus:ring-gray-900 focus:border-gray-900"
+                                                className="w-full text-sm border-gray-300 border rounded-lg px-3 py-2 focus:ring-gray-900 focus:border-gray-900 focus:outline-none"
                                             />
                                         </div>
                                     </div>
@@ -710,15 +827,14 @@ export default function TaskForm({ initialData }: Props) {
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-4 border border-gray-200 rounded-lg bg-gray-50/50 animate-in fade-in zoom-in-95">
                                 <div>
                                     <label className="block text-xs font-medium text-gray-500 mb-1">频率 (Frequency)</label>
-                                    <select 
+                                    <FormSelect 
                                         value={schedule.frequency}
                                         onChange={(e) => setSchedule(prev => ({...prev, frequency: e.target.value as any}))}
-                                        className="w-full text-sm border-gray-300 rounded-lg"
                                     >
                                         <option value="daily">每天 (Daily)</option>
                                         <option value="weekly">每周 (Weekly)</option>
                                         <option value="monthly">每月 (Monthly)</option>
-                                    </select>
+                                    </FormSelect>
                                 </div>
                                 <div>
                                     <label className="block text-xs font-medium text-gray-500 mb-1">执行时间 (Time)</label>
@@ -726,7 +842,7 @@ export default function TaskForm({ initialData }: Props) {
                                         type="time"
                                         value={schedule.time || ''}
                                         onChange={(e) => setSchedule(prev => ({...prev, time: e.target.value}))}
-                                        className="w-full text-sm border-gray-300 rounded-lg"
+                                        className="w-full text-sm border-gray-300 border rounded-lg px-3 py-2 focus:ring-gray-900 focus:border-gray-900 focus:outline-none"
                                     />
                                 </div>
                                 <div>
@@ -735,7 +851,7 @@ export default function TaskForm({ initialData }: Props) {
                                         type="date"
                                         value={schedule.start_date || new Date().toISOString().split('T')[0]}
                                         onChange={(e) => setSchedule(prev => ({...prev, start_date: e.target.value}))}
-                                        className="w-full text-sm border-gray-300 rounded-lg"
+                                        className="w-full text-sm border-gray-300 border rounded-lg px-3 py-2 focus:ring-gray-900 focus:border-gray-900 focus:outline-none"
                                     />
                                 </div>
                                 <div>
@@ -744,7 +860,7 @@ export default function TaskForm({ initialData }: Props) {
                                         type="date"
                                         value={schedule.end_date || ''}
                                         onChange={(e) => setSchedule(prev => ({...prev, end_date: e.target.value}))}
-                                        className="w-full text-sm border-gray-300 rounded-lg"
+                                        className="w-full text-sm border-gray-300 border rounded-lg px-3 py-2 focus:ring-gray-900 focus:border-gray-900 focus:outline-none"
                                     />
                                 </div>
                                 <div className="md:col-span-2 text-xs text-gray-500 flex items-center gap-1">

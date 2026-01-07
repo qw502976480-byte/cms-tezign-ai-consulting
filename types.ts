@@ -53,10 +53,24 @@ export interface DeliveryContentRule {
 }
 
 export interface DeliveryAudienceRule {
-  scope?: 'all' | 'communicated' | 'not_communicated';
-  user_type?: 'all' | 'personal' | 'company';
-  country?: string; // Comma separated or partial match
+  // 1. Basic Scope
+  scope: 'all' | 'logged_in' | 'never_logged_in'; 
+  user_type: 'all' | 'personal' | 'company';
+
+  // 2. Compliance
+  marketing_opt_in: 'all' | 'yes' | 'no';
+
+  // 3. Behavior
+  has_communicated: 'all' | 'yes' | 'no'; // Has demo request record
+  has_demo_request: 'all' | 'yes' | 'no'; // Synonym for above in this context, but kept for future granularity (e.g. status=completed)
+  last_login_range: 'all' | '7d' | '30d' | 'custom';
+  last_login_start?: string;
+  last_login_end?: string;
+
+  // 4. Geo
+  country?: string; // Comma separated for fuzzy match
   city?: string;
+
   estimated_count?: number; // Snapshot of estimate when saved
 }
 

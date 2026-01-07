@@ -3,7 +3,7 @@
 import { createServiceClient, createClient } from '@/utils/supabase/server';
 import { revalidatePath } from 'next/cache';
 import { DeliveryTask, DeliveryTaskStatus, DeliveryAudienceRule, Resource, EmailSendingAccount, EmailTemplate } from '@/types';
-import { addDays, nextDay, set, startOfDay, isAfter, isBefore, addWeeks, addMonths, parse } from 'date-fns';
+import { addDays, nextDay, set, startOfDay, isAfter, isBefore, addWeeks, addMonths, parse, subDays } from 'date-fns';
 
 // --- Delivery Tasks ---
 
@@ -100,8 +100,6 @@ export async function upsertDeliveryTask(data: Partial<DeliveryTask>) {
 export async function updateTaskStatus(id: string, status: DeliveryTaskStatus) {
   const supabase = createServiceClient();
 
-  // If activating, we might need to recalculate next_run_at. 
-  // For MVP, we simply update status. Real implementation would re-run the schedule logic used in upsert.
   const { error } = await supabase
     .from('delivery_tasks')
     .update({ 
@@ -165,45 +163,109 @@ export async function duplicateTask(task: DeliveryTask) {
 // --- Helpers ---
 
 export async function estimateAudienceCount(rule: DeliveryAudienceRule) {
-    const supabase = createServiceClient();
+    const supabase = createServiceClient(); // Use service client to query cross-table including auth.users
     
-    // 1. Get user IDs who have communicated (if needed)
-    let communicatedIds: string[] = [];
-    if (rule.scope !== 'all') {
-        const { data } = await supabase.from('demo_requests').select('user_id');
-        communicatedIds = Array.from(new Set((data || []).map(r => r.user_id)));
-    }
+    // 1. Base Query on User Profiles
+    let query = supabase.from('user_profiles').select('id, email, user_type, country, city');
 
-    let query = supabase.from('user_profiles').select('id', { count: 'exact', head: true });
-
-    // Scope Filter
-    if (rule.scope === 'communicated') {
-        if (communicatedIds.length > 0) query = query.in('id', communicatedIds);
-        else query = query.eq('id', '00000000-0000-0000-0000-000000000000'); // No match
-    } else if (rule.scope === 'not_communicated') {
-        if (communicatedIds.length > 0) {
-             const idsString = `(${communicatedIds.map(id => `"${id}"`).join(',')})`;
-             query = query.not('id', 'in', idsString);
-        }
-    }
-
-    // Type Filter
+    // Filter: User Type
     if (rule.user_type && rule.user_type !== 'all') {
         query = query.eq('user_type', rule.user_type);
     }
 
-    // Location Filter (Simple ILIKE)
+    // Filter: Geography (Partial match)
     if (rule.country) {
-        query = query.ilike('country', `%${rule.country}%`);
+        // Support comma separated
+        const countries = rule.country.split(/,|，/).map(s => s.trim()).filter(Boolean);
+        if (countries.length > 0) {
+             const orQuery = countries.map(c => `country.ilike.%${c}%`).join(',');
+             query = query.or(orQuery);
+        }
     }
     if (rule.city) {
-        query = query.ilike('city', `%${rule.city}%`);
+        const cities = rule.city.split(/,|，/).map(s => s.trim()).filter(Boolean);
+        if (cities.length > 0) {
+             const orQuery = cities.map(c => `city.ilike.%${c}%`).join(',');
+             query = query.or(orQuery);
+        }
     }
 
-    const { count, error } = await query;
-    
+    // Execute Base Query
+    const { data: profiles, error } = await query;
     if (error) return { success: false, error: error.message };
-    return { success: true, count: count || 0 };
+    
+    // Perform In-Memory Intersection for other complex filters (MVP Approach)
+    // This avoids complex SQL joins which might be restricted or require views.
+    let validProfiles = profiles || [];
+
+    // Filter: Marketing Opt-in (Requires joining 'registrations')
+    if (rule.marketing_opt_in && rule.marketing_opt_in !== 'all') {
+        const { data: registrations } = await supabase.from('registrations').select('email, consent_marketing');
+        const regMap = new Map(registrations?.map(r => [r.email, r.consent_marketing]));
+        
+        validProfiles = validProfiles.filter(p => {
+            const consent = regMap.get(p.email) ?? false; // Default to false if not found
+            return rule.marketing_opt_in === 'yes' ? consent : !consent;
+        });
+    }
+
+    // Filter: Communication Status (Requires checking 'demo_requests')
+    if ((rule.has_communicated && rule.has_communicated !== 'all') || 
+        (rule.has_demo_request && rule.has_demo_request !== 'all')) {
+        
+        const { data: demos } = await supabase.from('demo_requests').select('user_id');
+        const demoUserIds = new Set(demos?.map(d => d.user_id));
+        
+        // Logic: has_communicated AND has_demo_request (intersection)
+        if (rule.has_communicated !== 'all') {
+            validProfiles = validProfiles.filter(p => rule.has_communicated === 'yes' ? demoUserIds.has(p.id) : !demoUserIds.has(p.id));
+        }
+        if (rule.has_demo_request !== 'all') {
+             validProfiles = validProfiles.filter(p => rule.has_demo_request === 'yes' ? demoUserIds.has(p.id) : !demoUserIds.has(p.id));
+        }
+    }
+
+    // Filter: Login Scope & Last Login Time (Requires checking 'auth.users')
+    const needsLoginCheck = rule.scope !== 'all' || (rule.last_login_range && rule.last_login_range !== 'all');
+    
+    if (needsLoginCheck) {
+        let authQuery = supabase.from('users').select('id, last_sign_in_at');
+        
+        // Time range filter optimization
+        if (rule.last_login_range !== 'all' && rule.last_login_range) {
+            let start: Date | null = null;
+            let end: Date | null = null;
+            const now = new Date();
+
+            if (rule.last_login_range === '7d') start = subDays(now, 7);
+            else if (rule.last_login_range === '30d') start = subDays(now, 30);
+            else if (rule.last_login_range === 'custom') {
+                if (rule.last_login_start) start = new Date(rule.last_login_start);
+                if (rule.last_login_end) end = new Date(rule.last_login_end);
+            }
+
+            if (start) authQuery = authQuery.gte('last_sign_in_at', start.toISOString());
+            if (end) authQuery = authQuery.lte('last_sign_in_at', end.toISOString());
+        }
+
+        const { data: authUsers } = await authQuery;
+        const loggedInUserMap = new Map(authUsers?.map(u => [u.id, u.last_sign_in_at]));
+
+        // Apply Scope Filter
+        if (rule.scope === 'logged_in') {
+            validProfiles = validProfiles.filter(p => loggedInUserMap.has(p.id));
+        } else if (rule.scope === 'never_logged_in') {
+            validProfiles = validProfiles.filter(p => !loggedInUserMap.has(p.id));
+        }
+
+        // Apply Time Filter (Refine if scope was 'all' but time range was set)
+        if (rule.last_login_range !== 'all') {
+             // If authQuery already filtered by time, just checking existence in map is enough
+             validProfiles = validProfiles.filter(p => loggedInUserMap.has(p.id));
+        }
+    }
+
+    return { success: true, count: validProfiles.length };
 }
 
 export async function searchResources(keyword: string) {
