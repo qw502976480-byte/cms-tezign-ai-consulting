@@ -1,11 +1,13 @@
+
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useTransition } from 'react';
 import { createClient } from '@/utils/supabase/client';
 import { useRouter } from 'next/navigation';
-import { Loader2, ArrowLeft, Save, Globe, Layout, FileText, RefreshCw, Calendar as CalendarIcon } from 'lucide-react';
+import { Loader2, ArrowLeft, Save, Globe, Layout, FileText, RefreshCw, Calendar as CalendarIcon, Trash2 } from 'lucide-react';
 import { Resource } from '@/types';
 import Link from 'next/link';
+import { deleteResource } from './actions';
 
 /**
  * Reusable function to update a homepage module's content IDs.
@@ -42,12 +44,14 @@ interface ResourceFormProps {
 }
 
 export default function ResourceForm({ initialData }: ResourceFormProps) {
-  const supabase = createClient();
   const router = useRouter();
-  const [loading, setLoading] = useState(false);
+  const supabase = createClient();
+  const [isPending, startTransition] = useTransition();
+  
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-  // Form State
-  const [formData, setFormData] = useState({
+  // Derives the form's default state from initialData or sets defaults for a new resource.
+  const getDefaultFormData = () => ({
     title: initialData?.title || '',
     slug: initialData?.slug || '',
     category: initialData?.category || 'report',
@@ -58,6 +62,9 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
       ? new Date(initialData.published_at).toISOString().split('T')[0] 
       : new Date().toISOString().split('T')[0],
   });
+
+  // Form State
+  const [formData, setFormData] = useState(getDefaultFormData());
 
   // Homepage Slots State
   const [homepageFlags, setHomepageFlags] = useState({
@@ -138,99 +145,77 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
       status: prev.status === 'published' ? 'draft' : 'published'
     }));
   };
+  
+  const handleDiscardChanges = () => {
+     if (confirm("确定要丢弃所有未保存的更改吗？")) {
+        setFormData(getDefaultFormData());
+     }
+  };
 
-  const handleSave = async () => {
-    if (!formData.title) {
-        alert("请输入标题");
-        return;
-    }
-
-    setLoading(true);
-
-    try {
-      // 1. Prepare Payload
-      const payload: any = {
-        title: formData.title,
-        slug: formData.slug || `resource-${Date.now()}`, 
-        category: formData.category,
-        summary: formData.summary,
-        content: formData.content,
-        status: formData.status,
-      };
-
-      if (formData.status === 'published') {
-         payload.published_at = formData.published_at 
-            ? new Date(formData.published_at).toISOString() 
-            : new Date().toISOString();
-      } else {
-         if (formData.published_at) {
-             payload.published_at = new Date(formData.published_at).toISOString();
-         }
+  const handleSave = () => {
+    startTransition(async () => {
+      if (!formData.title) {
+          alert("请输入标题");
+          return;
       }
 
-      let resourceId = initialData?.id;
-
-      // 2. Save Resource
-      if (resourceId) {
-        const { error } = await supabase
-          .from('resources')
-          .update(payload)
-          .eq('id', resourceId);
-        if (error) throw error;
-      } else {
-        const { data, error } = await supabase
-          .from('resources')
-          .insert({ ...payload, created_at: new Date().toISOString() })
-          .select('id')
-          .single();
-        if (error) throw error;
-        resourceId = data.id;
-      }
-
-      // 3. Update Homepage Slots in homepage_modules
-      if (resourceId) {
-        const { data: modules, error: fetchError } = await supabase
-          .from('homepage_modules')
-          .select('type, content_item_ids')
-          .in('type', ['latest_updates_carousel', 'latest_updates_fixed']);
-        
-        if (fetchError) throw fetchError;
-
-        const carouselModule = modules?.find(m => m.type === 'latest_updates_carousel');
-        const fixedModule = modules?.find(m => m.type === 'latest_updates_fixed');
-
-        const carouselIds = new Set(carouselModule?.content_item_ids || []);
-        const fixedIds = new Set(fixedModule?.content_item_ids || []);
-
-        // Update carousel set based on the current resource's flag
-        if (homepageFlags.carousel) {
-          carouselIds.add(resourceId);
-        } else {
-          carouselIds.delete(resourceId);
+      try {
+        const payload: any = { ...formData };
+        if (formData.status === 'published') {
+          payload.published_at = formData.published_at ? new Date(formData.published_at).toISOString() : new Date().toISOString();
+        } else if (formData.published_at) {
+          payload.published_at = new Date(formData.published_at).toISOString();
         }
 
-        // Update fixed list set based on the current resource's flag
-        if (homepageFlags.sidebar) {
-          fixedIds.add(resourceId);
-        } else {
-          fixedIds.delete(resourceId);
-        }
-        
-        // Use the new reusable function to save the updated lists
-        // FIX: Cast array from Set to string[] to satisfy the function's type requirement.
-        // Supabase data can be inferred as `any` or `unknown`, so an explicit cast is needed.
-        await updateHomepageModuleIds(supabase, 'latest_updates_carousel', Array.from(carouselIds) as string[]);
-        await updateHomepageModuleIds(supabase, 'latest_updates_fixed', Array.from(fixedIds) as string[]);
-      }
+        let resourceId = initialData?.id;
 
-      router.push('/admin/resources');
-      router.refresh();
-    } catch (error: any) {
-      console.error(error);
-      alert(`保存失败: ${error.message || 'Unknown error'}`);
-    } finally {
-      setLoading(false);
-    }
+        if (resourceId) {
+          const { error } = await supabase.from('resources').update(payload).eq('id', resourceId);
+          if (error) throw error;
+        } else {
+          const { data, error } = await supabase.from('resources').insert({ ...payload, created_at: new Date().toISOString() }).select('id').single();
+          if (error) throw error;
+          resourceId = data.id;
+        }
+
+        if (resourceId) {
+          const { data: modules } = await supabase.from('homepage_modules').select('type, content_item_ids').in('type', ['latest_updates_carousel', 'latest_updates_fixed']);
+          // FIX: Explicitly type the Set as Set<string> to ensure correct type inference.
+          const carouselIds = new Set<string>(modules?.find(m => m.type === 'latest_updates_carousel')?.content_item_ids || []);
+          const fixedIds = new Set<string>(modules?.find(m => m.type === 'latest_updates_fixed')?.content_item_ids || []);
+
+          homepageFlags.carousel ? carouselIds.add(resourceId) : carouselIds.delete(resourceId);
+          homepageFlags.sidebar ? fixedIds.add(resourceId) : fixedIds.delete(resourceId);
+
+          await Promise.all([
+            updateHomepageModuleIds(supabase, 'latest_updates_carousel', Array.from(carouselIds)),
+            updateHomepageModuleIds(supabase, 'latest_updates_fixed', Array.from(fixedIds)),
+          ]);
+        }
+
+        alert("保存成功!");
+        router.push('/admin/resources');
+        router.refresh();
+      } catch (error: any) {
+        console.error(error);
+        alert(`保存失败: ${error.message || 'Unknown error'}`);
+      }
+    });
+  };
+  
+  const handleDelete = () => {
+    if (!initialData?.id) return;
+    startTransition(async () => {
+        const result = await deleteResource(initialData.id);
+        if (result.success) {
+            alert("资源已删除");
+            router.push('/admin/resources');
+            router.refresh();
+        } else {
+            alert(`删除失败: ${result.error}`);
+        }
+        setShowDeleteConfirm(false);
+    });
   };
 
   return (
@@ -241,54 +226,24 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
           <Link href="/admin/resources" className="p-2 hover:bg-gray-100 rounded-lg text-gray-500">
             <ArrowLeft size={20} />
           </Link>
-          <div className="flex flex-col">
+          <div>
             <h1 className="text-2xl font-bold text-gray-900">{initialData ? '编辑资源' : '新建资源'}</h1>
-            {initialData && (
-                <div className="flex items-center gap-2 mt-1">
-                  <span className={`text-xs font-bold uppercase tracking-wider ${formData.status === 'published' ? 'text-gray-900' : 'text-gray-400'}`}>
-                    {formData.status}
-                  </span>
-                  {formData.published_at && (
-                    <span className="text-xs text-gray-400">
-                      {formData.published_at}
-                    </span>
-                  )}
-                </div>
-            )}
           </div>
         </div>
         
-        {/* Right Actions: Toggle + Save */}
         <div className="flex items-center gap-4">
-            {/* Status Toggle */}
+            {initialData && (
+                <button onClick={() => setShowDeleteConfirm(true)} disabled={isPending} className="text-sm text-red-600 hover:text-red-800 disabled:opacity-50 transition-colors">删除</button>
+            )}
+            <button onClick={handleDiscardChanges} disabled={isPending} className="text-sm text-gray-600 hover:text-gray-900 disabled:opacity-50 transition-colors">丢弃更改</button>
             <div className="flex items-center gap-3 bg-white border border-gray-200 rounded-full px-4 py-2 shadow-sm">
                 <span className={`text-sm font-medium transition-colors ${formData.status === 'published' ? 'text-gray-900' : 'text-gray-400'}`}>
-                    {formData.status === 'published' ? '已发布 (On)' : '草稿 (Off)'}
+                    {formData.status === 'published' ? '已发布' : '草稿'}
                 </span>
-                <button
-                    type="button"
-                    onClick={toggleStatus}
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 ${
-                        formData.status === 'published' ? 'bg-gray-900' : 'bg-gray-200'
-                    }`}
-                >
-                    <span className="sr-only">Toggle publish status</span>
-                    <span
-                        className={`${
-                            formData.status === 'published' ? 'translate-x-6' : 'translate-x-1'
-                        } inline-block h-4 w-4 transform rounded-full bg-white transition-transform`}
-                    />
-                </button>
+                <button type="button" onClick={toggleStatus} className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 ${formData.status === 'published' ? 'bg-gray-900' : 'bg-gray-200'}`}><span className={`${formData.status === 'published' ? 'translate-x-6' : 'translate-x-1'} inline-block h-4 w-4 transform rounded-full bg-white transition-transform`} /></button>
             </div>
-
-            {/* Save Button */}
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={loading}
-              className="flex items-center gap-2 bg-gray-900 hover:bg-black text-white px-6 py-2 rounded-full font-medium transition disabled:opacity-50 shadow-md"
-            >
-              {loading ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
+            <button type="button" onClick={handleSave} disabled={isPending} className="flex items-center gap-2 bg-gray-900 hover:bg-black text-white px-6 py-2 rounded-full font-medium transition disabled:opacity-50 shadow-md">
+              {isPending ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
               保存更改
             </button>
         </div>
@@ -297,47 +252,26 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 pb-10">
         <div className="lg:col-span-2 space-y-8">
           
-          {/* Block 1: Basic Information */}
           <section className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 flex items-center gap-2">
-              <FileText size={18} className="text-gray-400" />
-              <h2 className="font-semibold text-gray-900">基础信息 (Basic Info)</h2>
+              <FileText size={18} className="text-gray-400" /><h2 className="font-semibold text-gray-900">基础信息</h2>
             </div>
             <div className="p-6 space-y-5">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">标题 (Title) <span className="text-red-500">*</span></label>
-                <input
-                  name="title"
-                  required
-                  value={formData.title}
-                  onChange={handleChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"
-                  placeholder="请输入资源标题"
-                />
+                <label className="block text-sm font-medium text-gray-700 mb-1">标题 <span className="text-red-500">*</span></label>
+                <input name="title" required value={formData.title} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900" />
               </div>
-
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                  <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">发布日期 (Date)</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">发布日期</label>
                   <div className="relative">
-                    <input
-                        type="date"
-                        name="published_at"
-                        value={formData.published_at}
-                        onChange={handleChange}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900 pl-10"
-                    />
+                    <input type="date" name="published_at" value={formData.published_at} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900 pl-10" />
                     <CalendarIcon className="absolute left-3 top-2.5 text-gray-400" size={18} />
                   </div>
                 </div>
                  <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">内容类型 (Category) <span className="text-red-500">*</span></label>
-                  <select
-                    name="category"
-                    value={formData.category}
-                    onChange={handleChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white"
-                  >
+                  <label className="block text-sm font-medium text-gray-700 mb-1">内容类型 <span className="text-red-500">*</span></label>
+                  <select name="category" value={formData.category} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white">
                     <option value="report">Report</option>
                     <option value="announcement">Announcement</option>
                     <option value="case_study">Case Study</option>
@@ -345,109 +279,69 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
                   </select>
                 </div>
               </div>
-
               <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
                   <div className="flex items-center justify-between mb-1">
                       <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">URL Preview</label>
-                      <button 
-                        type="button" 
-                        onClick={handleRegenerateSlug}
-                        className="text-xs flex items-center gap-1 text-gray-500 hover:text-gray-900 transition-colors"
-                        title="Regenerate based on title"
-                      >
+                      <button type="button" onClick={handleRegenerateSlug} className="text-xs flex items-center gap-1 text-gray-500 hover:text-gray-900 transition-colors" title="Regenerate based on title">
                           <RefreshCw size={12} /> Regenerate
                       </button>
                   </div>
                   <div className="flex items-center gap-1 text-sm text-gray-600 font-mono break-all">
                       <span className="text-gray-400">/library/</span>
-                      <span className="text-gray-900 font-medium">{formData.slug || '{slug}'}</span>
+                      <input type="text" name="slug" value={formData.slug} onChange={handleChange} className="text-gray-900 font-medium bg-transparent p-0 border-0 focus:ring-0" />
                   </div>
               </div>
             </div>
           </section>
 
-          {/* Block 2: Content */}
           <section className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 flex items-center gap-2">
-              <Layout size={18} className="text-gray-400" />
-              <h2 className="font-semibold text-gray-900">内容编辑 (Content)</h2>
+              <Layout size={18} className="text-gray-400" /><h2 className="font-semibold text-gray-900">内容编辑</h2>
             </div>
             <div className="p-6 space-y-5">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">摘要 (Summary)</label>
-                <textarea
-                  name="summary"
-                  rows={3}
-                  value={formData.summary}
-                  onChange={handleChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"
-                  placeholder="用于列表卡片展示的简短描述..."
-                />
+                <label className="block text-sm font-medium text-gray-700 mb-1">摘要</label>
+                <textarea name="summary" rows={3} value={formData.summary} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900" />
               </div>
-
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">正文 (Body)</label>
-                <textarea
-                  name="content"
-                  rows={15}
-                  value={formData.content}
-                  onChange={handleChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900 font-mono text-sm"
-                  placeholder="在此输入正文内容 (支持 Markdown)..."
-                />
+                <label className="block text-sm font-medium text-gray-700 mb-1">正文 (Markdown)</label>
+                <textarea name="content" rows={15} value={formData.content} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900 font-mono text-sm" />
               </div>
             </div>
           </section>
         </div>
 
-        {/* Right Column: Settings */}
         <div className="space-y-8">
-           <section className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden sticky top-24">
+           <section className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden sticky top-36">
             <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 flex items-center gap-2">
-              <Globe size={18} className="text-gray-900" />
-              <h2 className="font-semibold text-gray-900">首页推广 (Homepage)</h2>
+              <Globe size={18} className="text-gray-900" /><h2 className="font-semibold text-gray-900">首页推广</h2>
             </div>
-            <div className="p-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-900 mb-3">首页位置 (Homepage Slots)</label>
-                <div className="space-y-3">
-                  <label className="flex items-start gap-3 p-3 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
-                    <input
-                      type="checkbox"
-                      name="carousel"
-                      checked={homepageFlags.carousel}
-                      onChange={handleHomepageFlagChange}
-                      className="mt-1 h-4 w-4 text-gray-900 rounded border-gray-300 focus:ring-gray-900"
-                    />
-                    <div>
-                      <span className="block text-sm font-medium text-gray-900">最新动态 · 轮播位</span>
-                      <span className="block text-xs text-gray-500 mt-0.5">Top Carousel (Featured)</span>
-                    </div>
-                  </label>
-
-                  <label className="flex items-start gap-3 p-3 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
-                    <input
-                      type="checkbox"
-                      name="sidebar"
-                      checked={homepageFlags.sidebar}
-                      onChange={handleHomepageFlagChange}
-                      className="mt-1 h-4 w-4 text-gray-900 rounded border-gray-300 focus:ring-gray-900"
-                    />
-                    <div>
-                      <span className="block text-sm font-medium text-gray-900">最新动态 · 固定位</span>
-                      <span className="block text-xs text-gray-500 mt-0.5">Sidebar List (Fixed)</span>
-                    </div>
-                  </label>
-                </div>
-                <p className="text-xs text-gray-400 mt-3">
-                  勾选即自动加入首页对应列表。
-                </p>
-              </div>
-
+            <div className="p-6 space-y-3">
+              <label className="flex items-start gap-3 p-3 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50"><input type="checkbox" name="carousel" checked={homepageFlags.carousel} onChange={handleHomepageFlagChange} className="mt-1 h-4 w-4 text-gray-900 rounded border-gray-300 focus:ring-gray-900" /><div><span className="block text-sm font-medium text-gray-900">最新动态 · 轮播位</span><span className="block text-xs text-gray-500 mt-0.5">Top Carousel (Featured)</span></div></label>
+              <label className="flex items-start gap-3 p-3 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50"><input type="checkbox" name="sidebar" checked={homepageFlags.sidebar} onChange={handleHomepageFlagChange} className="mt-1 h-4 w-4 text-gray-900 rounded border-gray-300 focus:ring-gray-900" /><div><span className="block text-sm font-medium text-gray-900">最新动态 · 固定位</span><span className="block text-xs text-gray-500 mt-0.5">Sidebar List (Fixed)</span></div></label>
+              <p className="text-xs text-gray-400 mt-3">勾选即自动加入首页对应列表。</p>
             </div>
           </section>
         </div>
       </div>
+      
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowDeleteConfirm(false)}>
+          <div className="bg-white rounded-xl shadow-lg p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-gray-900">确认删除资源</h3>
+            <p className="mt-2 text-sm text-gray-500">
+              确定要永久删除「{initialData?.title}」吗？此操作不可撤销。
+            </p>
+            <div className="mt-6 flex justify-end gap-3">
+              <button onClick={() => setShowDeleteConfirm(false)} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">取消</button>
+              <button onClick={handleDelete} disabled={isPending} className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-50">
+                {isPending ? <Loader2 className="animate-spin" size={16} /> : '确认删除'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
