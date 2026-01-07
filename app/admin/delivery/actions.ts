@@ -3,7 +3,7 @@
 
 import { createServiceClient } from '@/utils/supabase/server';
 import { revalidatePath } from 'next/cache';
-import { DeliveryTask, DeliveryTaskStatus, DeliveryAudienceRule, Resource, EmailSendingAccount, EmailTemplate, PreflightCheckResult, DeliveryRunStatus, LastRunStatus, UserProfile } from '@/types';
+import { DeliveryTask, DeliveryTaskStatus, DeliveryAudienceRule, Resource, EmailSendingAccount, EmailTemplate, PreflightCheckResult, DeliveryRunStatus, LastRunStatus, UserProfile, DeliveryRun } from '@/types';
 import { addMinutes, isAfter, isBefore, parse, subDays, startOfDay, endOfDay } from 'date-fns';
 import { Resend } from 'resend';
 
@@ -240,9 +240,11 @@ async function logRun(taskId: string, started_at: Date, status: DeliveryRunStatu
 
 async function updateTaskOnRunCompletion(taskId: string, status: LastRunStatus, message: string) {
     const supabase = createServiceClient();
-    // We don't select 'schedule_type' here to avoid error if column missing, we look at payload logic or JSON rule
+    
+    // 1. Fetch current task to check rule
     const { data: currentTask } = await supabase.from('delivery_tasks').select('run_count, schedule_rule').eq('id', taskId).single();
     
+    // 2. Determine updated status
     const updatePayload: Partial<DeliveryTask> = {
         last_run_at: new Date().toISOString(),
         last_run_status: status,
@@ -250,20 +252,38 @@ async function updateTaskOnRunCompletion(taskId: string, status: LastRunStatus, 
         run_count: (currentTask?.run_count || 0) + 1,
     };
 
-    // Determine if it was one-time based on schedule_rule (JSONB)
-    const isOneTime = currentTask?.schedule_rule?.mode === 'one_time';
+    // Determine if it was one-time based on schedule_rule (JSONB) to avoid missing column issues
+    // Type checking carefully
+    const scheduleRule = currentTask?.schedule_rule as any;
+    const isOneTime = scheduleRule?.mode === 'one_time';
 
+    // If one-time task finishes (success or skipped), mark as completed
     if (isOneTime && (status === 'success' || status === 'skipped')) {
-        updatePayload.status = status === 'success' ? 'completed' : 'failed';
-        if (status === 'skipped') updatePayload.status = 'completed'; // Treat skipped one-offs as completed
+        updatePayload.status = 'completed';
         updatePayload.completed_at = new Date().toISOString();
-        updatePayload.next_run_at = null;
-    }
-     if (status === 'failed') {
-        updatePayload.status = 'failed';
+        updatePayload.next_run_at = null; // No next run
     }
     
+    // If it failed, we might keep it active to retry, or set to failed. 
+    // Usually 'active' (with error) or 'failed' is fine. Let's set 'active' but last_run_status shows error.
+    // But if strictly asked to reflect completion:
+    if (status === 'failed' && isOneTime) {
+        updatePayload.status = 'failed'; 
+    }
+    
+    // 3. Update DB
     await supabase.from('delivery_tasks').update(updatePayload as any).eq('id', taskId);
+}
+
+// New Action: Get Runs for a Task
+export async function getTaskRuns(taskId: string): Promise<DeliveryRun[]> {
+    const supabase = createServiceClient();
+    const { data } = await supabase
+        .from('delivery_task_runs')
+        .select('*')
+        .eq('task_id', taskId)
+        .order('started_at', { ascending: false });
+    return (data || []) as DeliveryRun[];
 }
 
 // --- Audience Calculation ---

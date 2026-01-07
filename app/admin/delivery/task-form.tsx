@@ -3,9 +3,9 @@
 
 import React, { useState, useTransition, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { upsertDeliveryTask, estimateAudienceCount, previewAudience, searchResources, getResourcesByIds, getEmailAccounts, getEmailTemplates, getUniqueInterestTags, preflightCheckDeliveryTask, runDeliveryTaskNow } from './actions';
+import { upsertDeliveryTask, estimateAudienceCount, previewAudience, searchResources, getResourcesByIds, getEmailAccounts, getEmailTemplates, getUniqueInterestTags, preflightCheckDeliveryTask, runDeliveryTaskNow, duplicateTask } from './actions';
 import { DeliveryTask, DeliveryTaskType, DeliveryChannel, DeliveryTaskStatus, DeliveryContentMode, DeliveryAudienceRule, DeliveryContentRule, DeliveryScheduleRule, EmailSendingAccount, EmailTemplate, EmailChannelConfig, DeliveryRun, UserProfile } from '@/types';
-import { Loader2, Save, Play, Search, X, Check, Calculator, CalendarClock, Users, FileText, Settings, AlertTriangle, Mail, Calendar, ArrowRight, ExternalLink, ChevronDown, Tag, Send, History, Eye, Info, PlusCircle, Lock, Unlock } from 'lucide-react';
+import { Loader2, Save, Play, Search, X, Check, Calculator, CalendarClock, Users, FileText, Settings, AlertTriangle, Mail, Calendar, ArrowRight, ExternalLink, ChevronDown, Tag, Send, History, Eye, Info, PlusCircle, Lock, Unlock, Copy } from 'lucide-react';
 import EmailConfigModal from './EmailConfigModal';
 import { format } from 'date-fns';
 
@@ -274,6 +274,21 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
     router.refresh();
   };
 
+  const handleDuplicate = async () => {
+    if (!initialData) return;
+    if (!confirm('确定要复制此任务吗？')) return;
+    
+    startTransition(async () => {
+        const res = await duplicateTask(initialData);
+        if (res.success) {
+            router.push('/admin/delivery');
+            router.refresh();
+        } else {
+            alert(`复制失败: ${res.error}`);
+        }
+    });
+  };
+
   const handleResourceSearch = async (keyword: string) => {
     setSearchKeyword(keyword);
     if (keyword.length < 2) {
@@ -315,8 +330,13 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
   const placeholderBody = isEmail ? '请输入邮件正文内容...' : '请输入消息正文内容...';
   
   // Logic: Inputs are disabled if we have a template selected AND we are NOT overriding.
-  // If no template is selected, inputs are active (though for Email, we enforce template selection in Basic Info).
   const isContentDisabled = isEmail && !!emailConfig.template_id && !overrideTemplate;
+
+  // --- Derived State for Button Logic ---
+  const isOneTime = schedule.mode === 'one_time';
+  const runCount = initialData?.run_count || 0;
+  // A one-time task is considered "Executed/Completed" if it has at least one run record.
+  const isCompletedOneTime = isOneTime && runCount > 0;
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 relative">
@@ -334,19 +354,38 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
             ))}
             
             <div className="pt-6 border-t border-gray-100 mt-6 space-y-3">
-                 <button onClick={() => handleSave(true)} disabled={isPending || isChecking || isManualRunning} className="w-full flex items-center justify-center gap-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50">
-                    <Save size={16} /> 保存草稿
-                 </button>
-                 <button onClick={() => handleSave(false)} disabled={isPending || isChecking || isManualRunning || !!scheduleError || (isEmail && (availableAccounts.length === 0 || availableTemplates.length === 0))} className="w-full flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 shadow-sm">
-                    {isChecking ? <Loader2 className="animate-spin" size={16} /> : <Play size={16} />}
-                    {isChecking ? '校验中...' : '启用任务'}
-                 </button>
-                 {initialData && (
+                 {/* Show different controls based on task state */}
+                 {!isCompletedOneTime ? (
+                    <>
+                        <button onClick={() => handleSave(true)} disabled={isPending || isChecking || isManualRunning} className="w-full flex items-center justify-center gap-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50">
+                            <Save size={16} /> 保存草稿
+                        </button>
+                        <button onClick={() => handleSave(false)} disabled={isPending || isChecking || isManualRunning || !!scheduleError || (isEmail && (availableAccounts.length === 0 || availableTemplates.length === 0))} className="w-full flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 shadow-sm">
+                            {isChecking ? <Loader2 className="animate-spin" size={16} /> : <Play size={16} />}
+                            {isChecking ? '校验中...' : '启用任务'}
+                        </button>
+                    </>
+                 ) : (
+                    <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg text-center space-y-2">
+                        <div className="flex items-center justify-center gap-1 text-xs text-gray-500">
+                            <Check size={14} className="text-green-600" />
+                            一次性任务已执行
+                        </div>
+                        <button onClick={handleDuplicate} disabled={isPending} className="w-full flex items-center justify-center gap-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50">
+                            <Copy size={16} /> 复制任务
+                        </button>
+                        <p className="text-[10px] text-gray-400">如需再次发送，请复制创建新任务</p>
+                    </div>
+                 )}
+
+                 {/* Run Now is only available for existing, non-completed tasks */}
+                 {initialData && !isCompletedOneTime && (
                      <button onClick={handleRunNow} disabled={isManualRunning || isPending || isChecking} className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 shadow-sm">
                         {isManualRunning ? <Loader2 className="animate-spin" size={16} /> : <Send size={16} />}
                         {isManualRunning ? '执行中...' : '立即执行'}
                      </button>
                  )}
+                 
                  {preflightError && (
                     <div className="p-3 bg-red-50 border border-red-200 rounded text-red-800 text-xs flex items-start gap-2">
                         <span title="Error"><AlertTriangle size={14} className="mt-0.5 shrink-0" /></span>

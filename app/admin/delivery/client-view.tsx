@@ -4,11 +4,12 @@
 import React, { useState, useEffect, useRef, useTransition } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { DeliveryTask, DeliveryTaskStatus, EmailSendingAccount, EmailTemplate } from '@/types';
-import { Search, ChevronDown, Check, MoreHorizontal, Zap, Clock, Play, Pause, Copy, Trash2, Edit2, Settings, Mail, Repeat } from 'lucide-react';
-import { format } from 'date-fns';
+import { Search, ChevronDown, Check, MoreHorizontal, Zap, Clock, Play, Pause, Copy, Trash2, Edit2, Settings, Mail, Repeat, ScrollText, AlertTriangle } from 'lucide-react';
+import { format, isBefore, parseISO } from 'date-fns';
 import { updateTaskStatus, deleteTask, duplicateTask } from './actions';
 import Link from 'next/link';
 import EmailConfigModal from './EmailConfigModal';
+import TaskRunHistoryModal from './TaskRunHistoryModal';
 
 function FilterDropdown({ label, value, options, onChange }: any) {
     const [isOpen, setIsOpen] = useState(false);
@@ -40,12 +41,14 @@ function FilterDropdown({ label, value, options, onChange }: any) {
     );
 }
 
-const statusMap: Record<DeliveryTaskStatus, { label: string; color: string }> = {
+const statusMap: Record<string, { label: string; color: string; icon?: React.ElementType }> = {
     draft: { label: '草稿', color: 'bg-gray-100 text-gray-600 border-gray-200' },
     active: { label: '运行中', color: 'bg-green-50 text-green-700 border-green-200' },
+    scheduled: { label: 'Scheduled', color: 'bg-blue-50 text-blue-700 border-blue-200', icon: Clock },
     paused: { label: '已暂停', color: 'bg-yellow-50 text-yellow-700 border-yellow-200' },
-    completed: { label: '已完成', color: 'bg-blue-50 text-blue-700 border-blue-200' },
-    failed: { label: '失败', color: 'bg-red-50 text-red-700 border-red-200' },
+    completed: { label: '已完成', color: 'bg-slate-100 text-slate-600 border-slate-200', icon: Check },
+    failed: { label: '失败', color: 'bg-red-50 text-red-700 border-red-200', icon: AlertTriangle },
+    overdue: { label: '未执行 (Overdue)', color: 'bg-orange-50 text-orange-700 border-orange-200', icon: AlertTriangle },
 };
 
 export default function TaskClientView({ 
@@ -65,7 +68,10 @@ export default function TaskClientView({
     const [keyword, setKeyword] = useState(searchParams.get('q') || '');
     const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
     const menuRef = useRef<HTMLDivElement>(null);
+    
+    // Modals
     const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
+    const [historyModalTask, setHistoryModalTask] = useState<{id: string, name: string} | null>(null);
 
     // Close menu when clicking outside
     useEffect(() => {
@@ -94,6 +100,8 @@ export default function TaskClientView({
                 if (confirm('确定要删除此任务吗？')) await deleteTask(task.id);
             } else if (action === 'duplicate') {
                 await duplicateTask(task);
+            } else if (action === 'logs') {
+                setHistoryModalTask({ id: task.id, name: task.name });
             }
         });
     };
@@ -108,6 +116,59 @@ export default function TaskClientView({
             accountEmail: acct ? acct.from_email : '',
             templateName: tmpl ? tmpl.name : 'Unknown Template'
         };
+    };
+
+    // --- Derived State Logic ---
+    const getDisplayStatus = (task: DeliveryTask) => {
+        // 1. Explicit DB Status (Completed/Failed/Draft/Paused)
+        if (['completed', 'failed', 'draft', 'paused'].includes(task.status)) {
+            return task.status;
+        }
+
+        // 2. Logic for 'Active' tasks (Scheduled vs Running vs Overdue)
+        const isOneTime = task.schedule_rule?.mode === 'one_time';
+        const now = new Date();
+
+        if (isOneTime) {
+            // Determine scheduled time
+            let scheduledTime = null;
+            if (task.schedule_rule?.one_time_type === 'scheduled') {
+                scheduledTime = task.schedule_rule.one_time_date && task.schedule_rule.one_time_time 
+                    ? parseISO(`${task.schedule_rule.one_time_date}T${task.schedule_rule.one_time_time}`) 
+                    : null;
+            } else {
+                // Immediate one-time tasks usually complete instantly, but if stuck in active:
+                scheduledTime = task.created_at ? new Date(task.created_at) : now; 
+            }
+
+            // A. If run count > 0, it should have been 'completed', but if DB missed update:
+            if (task.run_count > 0) return 'completed';
+
+            // B. If not run yet
+            if (scheduledTime && isBefore(scheduledTime, now)) {
+                return 'overdue'; // Past time, not run
+            }
+            return 'scheduled'; // Future time
+        }
+
+        // Recurring tasks that are active
+        return 'active';
+    };
+
+    const getNextRunDisplay = (task: DeliveryTask, displayStatus: string) => {
+        if (displayStatus === 'completed' || displayStatus === 'failed') return '-';
+        
+        const isOneTime = task.schedule_rule?.mode === 'one_time';
+        if (isOneTime) {
+             if (task.schedule_rule?.one_time_type === 'scheduled') {
+                 const dt = `${task.schedule_rule.one_time_date} ${task.schedule_rule.one_time_time}`;
+                 return dt;
+             }
+             return 'Immediate';
+        }
+        
+        // Recurring
+        return task.next_run_at ? format(new Date(task.next_run_at), 'yyyy-MM-dd HH:mm') : 'Calculating...';
     };
 
     return (
@@ -129,7 +190,7 @@ export default function TaskClientView({
                     <FilterDropdown 
                         label="状态"
                         value={searchParams.get('status') || 'all'}
-                        options={[{label:'全部',value:'all'}, ...Object.keys(statusMap).map(k => ({label:statusMap[k as DeliveryTaskStatus].label, value:k}))]}
+                        options={[{label:'全部',value:'all'}, ...Object.keys(statusMap).map(k => ({label:statusMap[k].label, value:k}))]}
                         onChange={(v: string) => updateFilter('status', v)}
                     />
                     <FilterDropdown 
@@ -162,7 +223,7 @@ export default function TaskClientView({
                             <th className="px-6 py-4 w-[250px] font-medium">任务名称</th>
                             <th className="px-6 py-4 w-[120px] font-medium">类型</th>
                             <th className="px-6 py-4 w-[180px] font-medium">渠道配置</th>
-                            <th className="px-6 py-4 w-[120px] font-medium">状态</th>
+                            <th className="px-6 py-4 w-[140px] font-medium">状态</th>
                             <th className="px-6 py-4 w-[160px] font-medium">最近执行</th>
                             <th className="px-6 py-4 w-[160px] font-medium">下次执行</th>
                             <th className="px-6 py-4 text-right font-medium">操作</th>
@@ -172,7 +233,13 @@ export default function TaskClientView({
                         {initialTasks.map((task) => {
                             const emailDetails = getEmailDetails(task);
                             const isRecurring = task.schedule_rule?.mode === 'recurring';
-                            const statusInfo = statusMap[task.status] || { label: task.status, color: 'bg-gray-100 text-gray-600 border-gray-200' };
+                            
+                            const displayStatusKey = getDisplayStatus(task);
+                            const statusInfo = statusMap[displayStatusKey] || statusMap['draft'];
+                            const StatusIcon = statusInfo.icon;
+
+                            const nextRunText = getNextRunDisplay(task, displayStatusKey);
+
                             return (
                                 <tr key={task.id} className="hover:bg-gray-50 transition-colors group">
                                     <td className="px-6 py-4 font-medium text-gray-900">
@@ -205,15 +272,16 @@ export default function TaskClientView({
                                         )}
                                     </td>
                                     <td className="px-6 py-4">
-                                        <span className={`px-2 py-0.5 rounded text-[11px] font-medium border whitespace-nowrap ${statusInfo.color}`}>
+                                        <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium border whitespace-nowrap ${statusInfo.color}`}>
+                                            {StatusIcon && <StatusIcon size={12} />}
                                             {statusInfo.label}
                                         </span>
                                     </td>
                                     <td className="px-6 py-4 text-gray-500 text-xs tabular-nums">
-                                        {task.last_run_at ? format(new Date(task.last_run_at), 'yyyy-MM-dd HH:mm') : '—'}
+                                        {task.last_run_at ? format(new Date(task.last_run_at), 'yyyy-MM-dd HH:mm') : '-'}
                                     </td>
                                     <td className="px-6 py-4 text-gray-500 text-xs tabular-nums">
-                                        {task.next_run_at ? format(new Date(task.next_run_at), 'yyyy-MM-dd HH:mm') : '—'}
+                                        {nextRunText}
                                     </td>
                                     <td className="px-6 py-4 text-right relative">
                                         {/* Actions Dropdown */}
@@ -222,10 +290,13 @@ export default function TaskClientView({
                                         </button>
                                         
                                         {menuOpenId === task.id && (
-                                            <div className="absolute right-8 top-8 w-40 bg-white border border-gray-100 rounded-xl shadow-lg z-20 p-1">
+                                            <div className="absolute right-8 top-8 w-44 bg-white border border-gray-100 rounded-xl shadow-lg z-20 p-1">
                                                 <Link href={`/admin/delivery/${task.id}`} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-gray-50 rounded text-gray-700">
                                                     <Edit2 size={14} /> 编辑配置
                                                 </Link>
+                                                <button onClick={() => handleAction('logs', task)} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-gray-50 rounded text-gray-700">
+                                                    <ScrollText size={14} /> 查看执行记录
+                                                </button>
                                                 {task.status !== 'completed' && task.status !== 'draft' && (
                                                     <button onClick={() => handleAction('toggle_status', task)} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-gray-50 rounded text-gray-700">
                                                         {task.status === 'active' ? <><Pause size={14} /> 暂停任务</> : <><Play size={14} /> 启用任务</>}
@@ -250,11 +321,19 @@ export default function TaskClientView({
                 </table>
             </div>
             
+            {/* Modals */}
             <EmailConfigModal 
                 isOpen={isConfigModalOpen} 
                 onClose={() => setIsConfigModalOpen(false)} 
                 accounts={emailAccounts}
                 templates={emailTemplates}
+            />
+            
+            <TaskRunHistoryModal 
+                isOpen={!!historyModalTask} 
+                onClose={() => setHistoryModalTask(null)}
+                taskId={historyModalTask?.id || ''}
+                taskName={historyModalTask?.name || ''}
             />
         </div>
     );
