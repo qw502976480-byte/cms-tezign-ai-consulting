@@ -140,7 +140,7 @@ export default function ResourceList({ initialResources }: Props) {
               <th className="px-6 py-4 font-medium text-left">首页推荐</th>
               <th className="px-6 py-4 font-medium text-left">发布日期</th>
               <th className="px-6 py-4 font-medium text-left">分类</th>
-              <th className="px-6 py-4 font-medium text-right">操作</th>
+              <th className="px-6 py-4 font-medium text-right">编辑</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">

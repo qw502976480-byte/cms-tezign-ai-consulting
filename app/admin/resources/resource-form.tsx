@@ -1,10 +1,10 @@
 
 'use client';
 
-import React, { useState, useEffect, useTransition } from 'react';
+import React, { useState, useEffect, useTransition, useMemo, useRef } from 'react';
 import { createClient } from '@/utils/supabase/client';
 import { useRouter } from 'next/navigation';
-import { Loader2, ArrowLeft, Save, Globe, Layout, FileText, RefreshCw, Calendar as CalendarIcon, Trash2 } from 'lucide-react';
+import { Loader2, ArrowLeft, Save, Globe, Layout, FileText, RefreshCw, Calendar as CalendarIcon, Trash2, MoreHorizontal, ChevronDown, Check } from 'lucide-react';
 import { Resource } from '@/types';
 import Link from 'next/link';
 import { deleteResource } from './actions';
@@ -12,32 +12,22 @@ import { deleteResource } from './actions';
 /**
  * Reusable function to update a homepage module's content IDs.
  * It handles upserting, deduplication, and ensures required fields are set.
- * @param supabase The Supabase client instance.
- * @param type The type of the module to update (e.g., 'latest_updates_carousel').
- * @param ids The full array of resource IDs for the module.
  */
 async function updateHomepageModuleIds(
   supabase: ReturnType<typeof createClient>,
   type: string,
   ids: string[]
 ) {
-  // Ensure IDs are unique
   const uniqueIds = Array.from(new Set(ids));
-  
   const { error } = await supabase
     .from('homepage_modules')
-    .upsert({
-      type: type,
-      content_item_ids: uniqueIds,
-      status: 'draft', // Always write status, default to 'draft'
-    }, { onConflict: 'type' });
+    .upsert({ type, content_item_ids: uniqueIds, status: 'draft' }, { onConflict: 'type' });
 
   if (error) {
     console.error(`Error updating homepage module ${type}:`, error);
     throw error;
   }
 }
-
 
 interface ResourceFormProps {
   initialData?: Resource;
@@ -47,10 +37,7 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
   const router = useRouter();
   const supabase = createClient();
   const [isPending, startTransition] = useTransition();
-  
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-  // Derives the form's default state from initialData or sets defaults for a new resource.
   const getDefaultFormData = () => ({
     title: initialData?.title || '',
     slug: initialData?.slug || '',
@@ -63,70 +50,72 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
       : new Date().toISOString().split('T')[0],
   });
 
-  // Form State
   const [formData, setFormData] = useState(getDefaultFormData());
+  const [homepageFlags, setHomepageFlags] = useState({ carousel: false, sidebar: false });
 
-  // Homepage Slots State
-  const [homepageFlags, setHomepageFlags] = useState({
-    carousel: false, // Corresponds to latest_updates_carousel
-    sidebar: false,  // Corresponds to latest_updates_fixed
-  });
+  // State for dirty check
+  const [initialFormState, setInitialFormState] = useState(getDefaultFormData());
+  const [initialHomepageFlags, setInitialHomepageFlags] = useState({ carousel: false, sidebar: false });
 
-  // Load Homepage Config from homepage_modules
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isSaveMenuOpen, setIsSaveMenuOpen] = useState(false);
+  const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
+  const saveMenuRef = useRef<HTMLDivElement>(null);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
+
+  const isDirty = useMemo(() => {
+    return JSON.stringify(formData) !== JSON.stringify(initialFormState) ||
+           JSON.stringify(homepageFlags) !== JSON.stringify(initialHomepageFlags);
+  }, [formData, homepageFlags, initialFormState, initialHomepageFlags]);
+  
+  // Custom hook to handle clicks outside of a ref
+  const useClickOutside = (ref: React.RefObject<HTMLDivElement>, handler: () => void) => {
+    useEffect(() => {
+      const listener = (event: MouseEvent) => {
+        if (!ref.current || ref.current.contains(event.target as Node)) return;
+        handler();
+      };
+      document.addEventListener('mousedown', listener);
+      return () => document.removeEventListener('mousedown', listener);
+    }, [ref, handler]);
+  };
+
+  useClickOutside(saveMenuRef, () => setIsSaveMenuOpen(false));
+  useClickOutside(moreMenuRef, () => setIsMoreMenuOpen(false));
+
   useEffect(() => {
     if (!initialData?.id) return;
-
     const fetchHomepageSlots = async () => {
       const { data: modules, error } = await supabase
         .from('homepage_modules')
         .select('type, content_item_ids')
         .in('type', ['latest_updates_carousel', 'latest_updates_fixed']);
       
-      if (error) {
-        console.error("Error fetching homepage modules:", error);
-        return;
-      }
+      if (error) { console.error("Error fetching homepage modules:", error); return; }
 
       const carouselModule = modules.find(m => m.type === 'latest_updates_carousel');
       const fixedModule = modules.find(m => m.type === 'latest_updates_fixed');
 
-      setHomepageFlags({
+      const flags = {
         carousel: carouselModule?.content_item_ids?.includes(initialData.id) || false,
         sidebar: fixedModule?.content_item_ids?.includes(initialData.id) || false,
-      });
+      };
+      setHomepageFlags(flags);
+      setInitialHomepageFlags(flags);
     };
-    
     fetchHomepageSlots();
   }, [initialData?.id, supabase]);
 
-  // Slug auto-generation logic
   useEffect(() => {
-    const generateSlug = (text: string) => {
-      return text
-        .toString()
-        .toLowerCase()
-        .trim()
-        .replace(/\s+/g, '-')     
-        .replace(/[^\w\-]+/g, '') 
-        .replace(/\-\-+/g, '-');  
-    };
-    
+    const generateSlug = (text: string) => text.toString().toLowerCase().trim().replace(/\s+/g, '-').replace(/[^\w\-]+/g, '').replace(/\-\-+/g, '-');
     if (!initialData?.id && formData.title) {
        setFormData(prev => ({ ...prev, slug: generateSlug(prev.title) }));
     }
   }, [formData.title, initialData?.id]);
 
   const handleRegenerateSlug = () => {
-    const generateSlug = (text: string) => {
-        return text
-          .toString()
-          .toLowerCase()
-          .trim()
-          .replace(/\s+/g, '-')
-          .replace(/[^\w\-]+/g, '')
-          .replace(/\-\-+/g, '-');
-      };
-      setFormData(prev => ({ ...prev, slug: generateSlug(prev.title) }));
+    const generateSlug = (text: string) => text.toString().toLowerCase().trim().replace(/\s+/g, '-').replace(/[^\w\-]+/g, '').replace(/\-\-+/g, '-');
+    setFormData(prev => ({ ...prev, slug: generateSlug(prev.title) }));
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -138,33 +127,36 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
     const { name, checked } = e.target;
     setHomepageFlags(prev => ({ ...prev, [name]: checked }));
   };
-
-  const toggleStatus = () => {
-    setFormData(prev => ({
-      ...prev,
-      status: prev.status === 'published' ? 'draft' : 'published'
-    }));
-  };
   
   const handleDiscardChanges = () => {
      if (confirm("确定要丢弃所有未保存的更改吗？")) {
-        setFormData(getDefaultFormData());
+        setFormData(initialFormState);
+        setHomepageFlags(initialHomepageFlags);
+        setIsMoreMenuOpen(false);
      }
   };
 
-  const handleSave = () => {
-    startTransition(async () => {
-      if (!formData.title) {
-          alert("请输入标题");
-          return;
+  const handleBackNavigation = (e: React.MouseEvent) => {
+    if (isDirty) {
+      if (!confirm("您有未保存的更改。确定要离开吗？")) {
+        e.preventDefault();
       }
+    }
+  };
+
+  const handleSave = (options: { publish?: boolean; unpublish?: boolean } = {}) => {
+    startTransition(async () => {
+      if (!formData.title) { alert("请输入标题"); return; }
 
       try {
-        const payload: any = { ...formData };
-        if (formData.status === 'published') {
-          payload.published_at = formData.published_at ? new Date(formData.published_at).toISOString() : new Date().toISOString();
+        const payload = { ...formData };
+        if (options.publish) payload.status = 'published';
+        if (options.unpublish) payload.status = 'draft';
+        
+        if (payload.status === 'published' && (!initialData || initialData.status !== 'published')) {
+          payload.published_at = new Date().toISOString().split('T')[0];
         } else if (formData.published_at) {
-          payload.published_at = new Date(formData.published_at).toISOString();
+          payload.published_at = new Date(formData.published_at).toISOString().split('T')[0];
         }
 
         let resourceId = initialData?.id;
@@ -180,7 +172,6 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
 
         if (resourceId) {
           const { data: modules } = await supabase.from('homepage_modules').select('type, content_item_ids').in('type', ['latest_updates_carousel', 'latest_updates_fixed']);
-          // FIX: Explicitly type the Set as Set<string> to ensure correct type inference.
           const carouselIds = new Set<string>(modules?.find(m => m.type === 'latest_updates_carousel')?.content_item_ids || []);
           const fixedIds = new Set<string>(modules?.find(m => m.type === 'latest_updates_fixed')?.content_item_ids || []);
 
@@ -223,7 +214,7 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
       {/* Header Actions */}
       <div className="flex items-center justify-between sticky top-0 bg-gray-50/95 backdrop-blur z-20 py-4 border-b border-gray-200">
         <div className="flex items-center gap-4">
-          <Link href="/admin/resources" className="p-2 hover:bg-gray-100 rounded-lg text-gray-500">
+          <Link href="/admin/resources" onClick={handleBackNavigation} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500">
             <ArrowLeft size={20} />
           </Link>
           <div>
@@ -232,20 +223,52 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
         </div>
         
         <div className="flex items-center gap-4">
-            {initialData && (
-                <button onClick={() => setShowDeleteConfirm(true)} disabled={isPending} className="text-sm text-red-600 hover:text-red-800 disabled:opacity-50 transition-colors">删除</button>
-            )}
-            <button onClick={handleDiscardChanges} disabled={isPending} className="text-sm text-gray-600 hover:text-gray-900 disabled:opacity-50 transition-colors">丢弃更改</button>
-            <div className="flex items-center gap-3 bg-white border border-gray-200 rounded-full px-4 py-2 shadow-sm">
-                <span className={`text-sm font-medium transition-colors ${formData.status === 'published' ? 'text-gray-900' : 'text-gray-400'}`}>
-                    {formData.status === 'published' ? '已发布' : '草稿'}
-                </span>
-                <button type="button" onClick={toggleStatus} className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 ${formData.status === 'published' ? 'bg-gray-900' : 'bg-gray-200'}`}><span className={`${formData.status === 'published' ? 'translate-x-6' : 'translate-x-1'} inline-block h-4 w-4 transform rounded-full bg-white transition-transform`} /></button>
+            <span className={`text-xs font-medium px-2.5 py-1 rounded-full border ${formData.status === 'published' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-gray-100 text-gray-600 border-gray-200'} capitalize`}>
+                {formData.status}
+            </span>
+            <div className="relative inline-flex shadow-sm rounded-full" ref={saveMenuRef}>
+                <button
+                    type="button"
+                    onClick={() => handleSave()}
+                    disabled={isPending || !isDirty}
+                    className="flex items-center gap-2 bg-gray-900 hover:bg-black text-white px-6 py-2 rounded-l-full font-medium transition disabled:opacity-50"
+                >
+                    {isPending ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
+                    保存 (Save)
+                </button>
+                <button
+                    type="button"
+                    onClick={() => setIsSaveMenuOpen(prev => !prev)}
+                    disabled={isPending || !isDirty}
+                    className="px-3 py-2 bg-gray-900 hover:bg-black text-white rounded-r-full border-l border-gray-700 disabled:opacity-50"
+                >
+                    <ChevronDown size={16} />
+                </button>
+                {isSaveMenuOpen && (
+                    <div className="absolute top-full right-0 mt-2 w-48 bg-white border rounded-lg shadow-lg z-10 p-1">
+                        {formData.status !== 'published' && (
+                            <button onClick={() => { handleSave({ publish: true }); setIsSaveMenuOpen(false); }} className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded">保存并发布</button>
+                        )}
+                        {formData.status === 'published' && (
+                            <button onClick={() => { handleSave({ unpublish: true }); setIsSaveMenuOpen(false); }} className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded">保存并下架</button>
+                        )}
+                    </div>
+                )}
             </div>
-            <button type="button" onClick={handleSave} disabled={isPending} className="flex items-center gap-2 bg-gray-900 hover:bg-black text-white px-6 py-2 rounded-full font-medium transition disabled:opacity-50 shadow-md">
-              {isPending ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
-              保存更改
-            </button>
+            
+            <div className="relative" ref={moreMenuRef}>
+                <button onClick={() => setIsMoreMenuOpen(prev => !prev)} className="p-2 text-gray-500 hover:bg-gray-100 rounded-full">
+                    <MoreHorizontal size={20} />
+                </button>
+                {isMoreMenuOpen && (
+                     <div className="absolute top-full right-0 mt-2 w-40 bg-white border rounded-lg shadow-lg z-10 p-1">
+                        <button onClick={handleDiscardChanges} className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded">丢弃更改</button>
+                         {initialData && (
+                            <button onClick={() => { setShowDeleteConfirm(true); setIsMoreMenuOpen(false); }} className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded">删除</button>
+                         )}
+                    </div>
+                )}
+            </div>
         </div>
       </div>
 
@@ -325,7 +348,6 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
         </div>
       </div>
       
-      {/* Delete Confirmation Modal */}
       {showDeleteConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowDeleteConfirm(false)}>
           <div className="bg-white rounded-xl shadow-lg p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}>
