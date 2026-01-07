@@ -74,13 +74,13 @@ export default function EmailConfigModal({ isOpen, onClose, accounts: initialAcc
              onClick={() => { setActiveTab('accounts'); setEditingAccount(null); setEditingTemplate(null); }}
              className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 ${activeTab === 'accounts' ? 'text-gray-900 border-b-2 border-gray-900' : 'text-gray-500 hover:bg-gray-50'}`}
            >
-             <Mail size={16} /> 发送账户 (Sending Accounts)
+             <Mail size={16} /> 发送账户
            </button>
            <button 
              onClick={() => { setActiveTab('templates'); setEditingAccount(null); setEditingTemplate(null); }}
              className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 ${activeTab === 'templates' ? 'text-gray-900 border-b-2 border-gray-900' : 'text-gray-500 hover:bg-gray-50'}`}
            >
-             <File size={16} /> 邮件模板 (Email Templates)
+             <File size={16} /> 邮件模板
            </button>
         </div>
 

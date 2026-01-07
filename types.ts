@@ -10,6 +10,7 @@ export type DeliveryTaskType = 'automated' | 'one_off'; // Kept for DB compatibi
 export type DeliveryTaskStatus = 'draft' | 'active' | 'paused' | 'completed';
 export type DeliveryChannel = 'email' | 'in_app';
 export type DeliveryContentMode = 'rule' | 'manual';
+export type DeliveryRunStatus = 'running' | 'completed' | 'failed';
 
 export interface EmailSendingAccount {
   id: string;
@@ -20,6 +21,7 @@ export interface EmailSendingAccount {
   provider: 'resend' | 'smtp';
   is_active: boolean;
   created_at: string;
+  updated_at?: string;
 }
 
 export interface EmailTemplate {
@@ -30,6 +32,7 @@ export interface EmailTemplate {
   text_content?: string;
   is_active: boolean;
   created_at: string;
+  updated_at?: string;
 }
 
 export interface EmailChannelConfig {
@@ -94,7 +97,7 @@ export interface DeliveryScheduleRule {
   frequency?: 'daily' | 'weekly' | 'monthly';
   time?: string; // HH:MM
   start_date?: string; // YYYY-MM-DD
-  end_date?: string; // YYYY-MM-DD (optional)
+  end_date?: string; // YYYY-DD (optional)
   
   timezone?: string; // "Asia/Shanghai"
 }
@@ -119,6 +122,17 @@ export interface DeliveryTask {
   last_run_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface DeliveryRun {
+  id: string;
+  task_id: string;
+  status: DeliveryRunStatus;
+  started_at: string;
+  finished_at: string | null;
+  success_count: number;
+  failure_count: number;
+  error_summary: string | null;
 }
 
 export interface Resource {
