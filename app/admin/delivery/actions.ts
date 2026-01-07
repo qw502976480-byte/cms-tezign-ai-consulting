@@ -4,7 +4,7 @@
 import { createServiceClient } from '@/utils/supabase/server';
 import { revalidatePath } from 'next/cache';
 import { DeliveryTask, DeliveryTaskStatus, DeliveryAudienceRule, Resource, EmailSendingAccount, EmailTemplate, PreflightCheckResult, DeliveryRunStatus, LastRunStatus, UserProfile, DeliveryRun } from '@/types';
-import { addMinutes, isAfter, isBefore, parse, subDays, startOfDay, endOfDay } from 'date-fns';
+import { addMinutes, isAfter, isBefore, parse, subDays, startOfDay, endOfDay, subMinutes } from 'date-fns';
 import { Resend } from 'resend';
 import { deriveDeliveryTaskState } from './utils';
 
@@ -17,26 +17,27 @@ export async function preflightCheckDeliveryTask(task: Partial<DeliveryTask>): P
       const { data: existingTask } = await supabase.from('delivery_tasks').select('*').eq('id', task.id).single();
       
       if (existingTask) {
-          // Guard: Active Run Check (API level)
+          // Guard: Active Run Check (API level - Authority Source: Run Table)
+          // We strictly check if there is a run currently in 'running' state.
           const { data: activeRun } = await supabase
             .from('delivery_task_runs')
-            .select('id')
+            .select('id, started_at')
             .eq('task_id', task.id)
             .eq('status', 'running')
             .maybeSingle();
             
           if (activeRun) {
-              return { success: false, error: '任务正在执行中，无法进行修改或启用。' };
+              // Check for stale lock in preflight too (optional, but good for UX)
+              const startTime = new Date(activeRun.started_at);
+              // If it's been running less than 15 mins, consider it valid. Otherwise ignore it (let RunNow handle cleanup).
+              if (!isBefore(startTime, subMinutes(now, 15))) {
+                  return { success: false, error: '任务正在执行中 (Active Run Exists)，请等待执行完成。' };
+              }
           }
 
           // 1. One-time task idempotency & Overdue check (API Guard)
           if (task.schedule_rule?.mode === 'one_time') {
                 const mergedTask = { ...existingTask, ...task } as DeliveryTask;
-                // Force last_run_status from existing to prevent client spoofing, 
-                // though usually passed task is form state. 
-                mergedTask.run_count = existingTask.run_count;
-                mergedTask.last_run_status = existingTask.last_run_status;
-
                 const state = deriveDeliveryTaskState(mergedTask);
 
                 // Guard A: Already executed
@@ -59,8 +60,7 @@ export async function preflightCheckDeliveryTask(task: Partial<DeliveryTask>): P
       return { success: false, error: '定时任务必须设置执行日期和时间。' };
     }
     const targetTime = parse(`${one_time_date} ${one_time_time}`, 'yyyy-MM-dd HH:mm', new Date());
-    // Allow saving if it's strictly future, but the 'Overdue' check above handles the logic for existing tasks.
-    // For NEW tasks, we ensure it's in the future.
+    // Allow saving if it's strictly future
     if (!task.id && !isAfter(targetTime, addMinutes(now, 1))) {
       return { success: false, error: '一次性任务的执行时间必须晚于当前时间至少1分钟。' };
     }
@@ -146,9 +146,6 @@ export async function upsertDeliveryTask(data: Partial<DeliveryTask>, preflightR
 
   if (result.error) {
     console.error("Upsert Error:", result.error);
-    if (result.error.message.includes('column "schedule_type" does not exist')) {
-        return { success: false, error: "Database schema mismatch: schedule_type column missing." };
-    }
     return { success: false, error: result.error.message };
   }
 
@@ -156,48 +153,75 @@ export async function upsertDeliveryTask(data: Partial<DeliveryTask>, preflightR
   return { success: true, data: result.data };
 }
 
+// --- CORE EXECUTION ACTION ---
 export async function runDeliveryTaskNow(taskId: string): Promise<{ success: boolean, error?: string, message?: string }> {
   const supabase = createServiceClient();
   const started_at = new Date();
+  const LOCK_TIMEOUT_MINUTES = 15;
 
   // 1. Fetch Task
   const { data: task } = await supabase.from('delivery_tasks').select('*').eq('id', taskId).single();
   if (!task) return { success: false, error: 'Task not found.' };
 
-  // Guard 1: One-time task logic via derive
+  // Guard 1: One-time task logic
   const state = deriveDeliveryTaskState(task);
   if (!state.canRunNow) {
       return { success: false, error: state.message || '该任务当前不允许立即执行。' };
   }
 
-  // Guard 2: Active Run Check (Execution Lock)
-  // We check if there is ANY run that is currently 'running' for this task.
+  // Guard 2: Active Run Check with Stale Lock Release
   const { data: existingRuns } = await supabase
     .from('delivery_task_runs')
-    .select('id')
+    .select('id, started_at')
     .eq('task_id', taskId)
     .eq('status', 'running');
     
   if (existingRuns && existingRuns.length > 0) {
-      return { success: false, error: '任务正在执行中，无法重复触发。' };
+      let isLocked = false;
+      const now = new Date();
+
+      for (const run of existingRuns) {
+          const runStart = new Date(run.started_at);
+          // Check if lock is stale (older than X minutes)
+          if (isBefore(runStart, subMinutes(now, LOCK_TIMEOUT_MINUTES))) {
+              console.warn(`[Auto-Release] Found stale lock for run ${run.id}. Marking as failed.`);
+              // Release the lock
+              await supabase.from('delivery_task_runs').update({
+                  status: 'failed',
+                  finished_at: now.toISOString(),
+                  message: 'System: Execution timed out (Stale Lock released).'
+              }).eq('id', run.id);
+              // Reset task status locally to allow proceed
+              await supabase.from('delivery_tasks').update({ last_run_status: 'failed' }).eq('id', taskId);
+          } else {
+              isLocked = true;
+          }
+      }
+
+      if (isLocked) {
+          return { success: false, error: '任务正在执行中 (DB Lock)，无法重复触发。' };
+      }
   }
 
+  // --- START EXECUTION TRANSACTION ---
+  let runId: string | null = null;
+
   try {
-      // 2. Lock: Initialize Run & Update Task Status
-      // Insert run with 'running' status
+      // 2. Lock: Initialize Run
       const { data: newRun, error: runError } = await supabase.from('delivery_task_runs').insert({
         task_id: taskId,
         started_at: started_at.toISOString(),
-        status: 'running',
+        status: 'running', // <--- ACTIVE LOCK CREATED
         message: 'Initializing...',
         recipient_count: 0,
         success_count: 0,
         failure_count: 0
-      }).select().single();
+      }).select('id').single();
 
-      if (runError) throw runError;
+      if (runError) throw new Error(`Failed to create run record: ${runError.message}`);
+      runId = newRun.id; // CRITICAL: Only proceed if we have a Run ID
 
-      // Update task to reflect running state
+      // 3. Update Task Status (Redundancy for UI list)
       await supabase.from('delivery_tasks').update({
           last_run_at: started_at.toISOString(),
           last_run_status: 'running',
@@ -205,37 +229,42 @@ export async function runDeliveryTaskNow(taskId: string): Promise<{ success: boo
           updated_at: new Date().toISOString()
       }).eq('id', taskId);
 
-      // 3. Fetch Audience
+      // --- EXECUTION PHASE ---
+
+      // 4. Fetch Audience
       const audienceRes = await getAudience(task.audience_rule);
       if (audienceRes.success === false) {
-          // Fail the run
-          await updateRunStatus(newRun.id, 'failed', 0, 0, 0, `Audience error: ${audienceRes.error}`);
-          await updateTaskOnRunCompletion(taskId, 'failed', `Audience error: ${audienceRes.error}`);
-          return { success: false, error: audienceRes.error };
+          throw new Error(`Audience fetch failed: ${audienceRes.error}`);
       }
       
       const recipients = audienceRes.users;
       if (recipients.length === 0) {
-          await updateRunStatus(newRun.id, 'skipped', 0, 0, 0, 'No recipients found.');
+          // Skipped
+          await updateRunStatus(runId, 'skipped', 0, 0, 0, 'No recipients found.');
+          // Only update task if run creation was successful (runId exists)
           await updateTaskOnRunCompletion(taskId, 'skipped', 'No recipients found.');
           return { success: true, message: 'Skipped: No recipients found.' };
       }
       
       // MVP Limit
       if (recipients.length > 50) {
-          await updateRunStatus(newRun.id, 'failed', recipients.length, 0, 0, 'Exceeded MVP limit of 50.');
-          await updateTaskOnRunCompletion(taskId, 'failed', 'Exceeded MVP limit of 50.');
-          return { success: false, error: 'Exceeded MVP limit of 50 recipients.' };
+          throw new Error('Exceeded MVP limit of 50 recipients.');
       }
 
-      // 4. Send Emails (This is where the time is spent)
+      // 5. Send Emails
+      // Update run to show we are sending
+      await supabase.from('delivery_task_runs').update({ 
+          recipient_count: recipients.length, 
+          message: `Sending to ${recipients.length} recipients...` 
+      }).eq('id', runId);
+
       const { success_count, failure_count } = await sendEmailsToRecipients(task, recipients);
       
       const status: DeliveryRunStatus = failure_count > 0 ? 'failed' : 'success';
       const message = status === 'success' ? `Successfully sent to ${success_count} recipients.` : `Completed with ${failure_count} failures.`;
 
-      // 5. Finalize Run & Task
-      await updateRunStatus(newRun.id, status, recipients.length, success_count, failure_count, message);
+      // 6. Finalize Run & Task (Success Path)
+      await updateRunStatus(runId, status, recipients.length, success_count, failure_count, message);
       await updateTaskOnRunCompletion(taskId, status, message);
 
       revalidatePath('/admin/delivery');
@@ -244,9 +273,25 @@ export async function runDeliveryTaskNow(taskId: string): Promise<{ success: boo
 
   } catch (error: any) {
       console.error('Execution Error:', error);
-      // Try to release lock if something crashed unexpectedly
-      await supabase.from('delivery_tasks').update({ last_run_status: 'failed', last_run_message: `Crash: ${error.message}` }).eq('id', taskId);
-      return { success: false, error: `Execution crashed: ${error.message}` };
+      
+      const errorMessage = error.message || 'Unknown error occurred';
+      
+      // 7. Failure Recovery (Release Lock)
+      if (runId) {
+          // If we created a run, mark it failed
+          await updateRunStatus(runId, 'failed', 0, 0, 0, `Crash: ${errorMessage}`);
+          // And update the task
+          await supabase.from('delivery_tasks').update({ 
+              last_run_status: 'failed', 
+              last_run_message: `Execution Failed: ${errorMessage}` 
+          }).eq('id', taskId);
+      } else {
+          // If Run creation failed, we do NOT touch the task status/run_count
+          // This prevents the task from getting "locked" or incrementing counts phantomly
+          console.error('Run creation failed, skipping task status update.');
+      }
+
+      return { success: false, error: errorMessage };
   }
 }
 
