@@ -15,7 +15,7 @@ interface Props {
 }
 
 // --- Custom Select Component (Unchanged) ---
-interface Option { label: string; value: string | number; }
+interface Option { label: string; value: string | number; disabled?: boolean; }
 interface CustomSelectProps { value: string | number | undefined; onChange: (value: string) => void; options: Option[]; placeholder?: string; className?: string; disabled?: boolean; }
 const CustomSelect = ({ value, onChange, options, placeholder, className, disabled }: CustomSelectProps) => {
   const [isOpen, setIsOpen] = useState(false); const containerRef = useRef<HTMLDivElement>(null);
@@ -24,7 +24,7 @@ const CustomSelect = ({ value, onChange, options, placeholder, className, disabl
   return (
     <div className={`relative ${className || ''}`} ref={containerRef}>
       <button type="button" disabled={disabled} onClick={() => !disabled && setIsOpen(!isOpen)} className={`w-full flex items-center justify-between px-3 py-2 border rounded-lg text-sm transition-all duration-200 bg-white ${isOpen ? 'border-gray-900 ring-1 ring-gray-900' : 'border-gray-300 hover:border-gray-400'} ${disabled ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'text-gray-900'}`}>{selectedOption ? selectedOption.label : (placeholder || '请选择...')} <ChevronDown size={16} className={`flex-shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-180' : 'text-gray-400'}`} /></button>
-      {isOpen && !disabled && ( <div className="absolute z-50 top-full left-0 mt-1 w-full bg-white border border-gray-100 rounded-xl shadow-xl max-h-60 overflow-y-auto"><div className="p-1">{options.map(opt => (<button key={opt.value} type="button" onClick={() => { onChange(String(opt.value)); setIsOpen(false);}} className={`w-full flex items-center justify-between px-3 py-2 text-sm rounded-lg transition-colors text-left ${String(value) === String(opt.value) ? 'bg-gray-50 text-gray-900 font-medium' : 'text-gray-600 hover:bg-gray-50'}`}>{opt.label}{String(value) === String(opt.value) && <Check size={14} />}</button>))}</div></div>)}
+      {isOpen && !disabled && ( <div className="absolute z-50 top-full left-0 mt-1 w-full bg-white border border-gray-100 rounded-xl shadow-xl max-h-60 overflow-y-auto"><div className="p-1">{options.map(opt => (<button key={opt.value} disabled={opt.disabled} type="button" onClick={() => { if(!opt.disabled) { onChange(String(opt.value)); setIsOpen(false); }}} className={`w-full flex items-center justify-between px-3 py-2 text-sm rounded-lg transition-colors text-left ${String(value) === String(opt.value) ? 'bg-gray-50 text-gray-900 font-medium' : opt.disabled ? 'text-gray-300 cursor-not-allowed' : 'text-gray-600 hover:bg-gray-50'}`}>{opt.label}{String(value) === String(opt.value) && <Check size={14} />}</button>))}</div></div>)}
     </div>
   );
 };
@@ -43,6 +43,7 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
     type: initialData?.type || 'automated' as DeliveryTaskType,
     channel: initialData?.channel || 'email' as DeliveryChannel,
     status: initialData?.status || 'draft' as DeliveryTaskStatus,
+    locale: 'zh-CN', // Default locale
   });
 
   const [audience, setAudience] = useState<DeliveryAudienceRule>(initialData?.audience_rule || {
@@ -58,6 +59,7 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
   const [availableAccounts, setAvailableAccounts] = useState<EmailSendingAccount[]>([]);
   const [availableTemplates, setAvailableTemplates] = useState<EmailTemplate[]>([]);
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
+  const [availableInterestTags, setAvailableInterestTags] = useState<string[]>([]);
 
   // --- Helper State ---
   const [estimating, setEstimating] = useState(false);
@@ -97,28 +99,34 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
   }, [selectedResources]);
 
   useEffect(() => {
+    // Schedule Validation Logic
+    let error = null;
+
     if (schedule.mode === 'one_time' && schedule.one_time_type === 'scheduled') {
         const { one_time_date, one_time_time } = schedule;
         if (one_time_date && one_time_time) {
             const targetTime = new Date(`${one_time_date} ${one_time_time}`);
             if (targetTime < new Date()) {
-                setScheduleError('定时执行时间不能早于当前时间。');
-            } else {
-                setScheduleError(null);
+                error = '定时执行时间不能早于当前时间。';
             }
-        } else {
-            setScheduleError(null);
         }
-    } else {
-        setScheduleError(null);
+    } else if (schedule.mode === 'recurring') {
+        if (schedule.start_date && schedule.end_date) {
+            if (new Date(schedule.end_date) < new Date(schedule.start_date)) {
+                error = '结束日期不能早于开始日期。';
+            }
+        }
     }
+    
+    setScheduleError(error);
   }, [schedule]);
 
 
   const loadOptions = async () => {
-    const [accs, tmps] = await Promise.all([ getEmailAccounts(), getEmailTemplates() ]);
+    const [accs, tmps, tags] = await Promise.all([ getEmailAccounts(), getEmailTemplates(), getUniqueInterestTags() ]);
     setAvailableAccounts(accs.filter(a => a.is_active));
     setAvailableTemplates(tmps.filter(t => t.is_active));
+    setAvailableInterestTags(tags);
   };
 
   const scrollToSection = (id: string) => {
@@ -131,6 +139,8 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
     const res = await estimateAudienceCount(audience);
     if (res.success) {
         setAudience(prev => ({ ...prev, estimated_count: res.count }));
+    } else {
+        // Handle error gracefully, maybe set count to 0 or show toast
     }
     setEstimating(false);
   };
@@ -158,6 +168,7 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
             }
         });
     } else {
+        if (scheduleError) return; // Block
         setIsChecking(true);
         startTransition(async () => {
             const check = await preflightCheckDeliveryTask(taskData);
@@ -219,6 +230,17 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
     });
   };
 
+  const toggleInterestTag = (tag: string) => {
+    setAudience(prev => {
+        const current = prev.interest_tags || [];
+        if (current.includes(tag)) {
+            return { ...prev, interest_tags: current.filter(t => t !== tag) };
+        } else {
+            return { ...prev, interest_tags: [...current, tag] };
+        }
+    });
+  };
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 relative">
         <div className="hidden lg:block space-y-2 sticky top-6 h-fit">
@@ -271,11 +293,25 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">渠道</label>
-                            <CustomSelect value={basic.channel} onChange={(v) => setBasic(p => ({...p, channel: v as any}))} options={[{label:'Email', value:'email'}]} disabled />
+                            <CustomSelect 
+                                value={basic.channel} 
+                                onChange={(v) => setBasic(p => ({...p, channel: v as any}))} 
+                                options={[
+                                    {label:'Email', value:'email'},
+                                    {label:'站内信 (Coming Soon)', value:'in_app', disabled: true}
+                                ]} 
+                            />
                         </div>
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">语言/地区 (Optional)</label>
-                            <CustomSelect value="zh-CN" onChange={() => {}} options={[{label:'Auto (zh-CN)', value:'zh-CN'}]} disabled />
+                            <label className="block text-sm font-medium text-gray-700 mb-1">语言/地区</label>
+                            <CustomSelect 
+                                value={basic.locale} 
+                                onChange={(v) => setBasic(p => ({...p, locale: v}))} 
+                                options={[
+                                    {label:'Auto (zh-CN)', value:'zh-CN'},
+                                    {label:'English (en-US)', value:'en-US'}
+                                ]} 
+                            />
                         </div>
                         <div className="md:col-span-2">
                             <label className="block text-sm font-medium text-gray-700 mb-1">备注 (Optional)</label>
@@ -291,7 +327,8 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
                         <Users className="text-gray-400" size={20} />
                         <h2 className="text-lg font-semibold text-gray-900">目标受众 (Audience)</h2>
                     </div>
-                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                        {/* Row 1 */}
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">用户类型</label>
                             <CustomSelect value={audience.user_type} onChange={(v) => setAudience(p => ({...p, user_type: v as any}))} options={[{label:'全部',value:'all'},{label:'个人',value:'personal'},{label:'企业',value:'company'}]} />
@@ -304,6 +341,55 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
                             <label className="block text-sm font-medium text-gray-700 mb-1">是否发生过演示申请</label>
                             <CustomSelect value={audience.has_communicated} onChange={(v) => setAudience(p => ({...p, has_communicated: v as any}))} options={[{label:'不限',value:'all'},{label:'是',value:'yes'},{label:'否',value:'no'}]} />
                         </div>
+
+                        {/* Row 2: Interests */}
+                        <div className="md:col-span-2 lg:col-span-3">
+                             <label className="block text-sm font-medium text-gray-700 mb-2">兴趣标签 (Tags)</label>
+                             <div className="flex flex-wrap gap-2">
+                                {availableInterestTags.length > 0 ? availableInterestTags.map(tag => (
+                                    <button
+                                        key={tag}
+                                        type="button"
+                                        onClick={() => toggleInterestTag(tag)}
+                                        className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${audience.interest_tags?.includes(tag) ? 'bg-indigo-100 text-indigo-700 border-indigo-200' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'}`}
+                                    >
+                                        {tag}
+                                    </button>
+                                )) : <span className="text-sm text-gray-400">暂无标签数据</span>}
+                             </div>
+                        </div>
+
+                        {/* Row 3: Location */}
+                        <div>
+                             <label className="block text-sm font-medium text-gray-700 mb-1">国家 (Country)</label>
+                             <input type="text" value={audience.country || ''} onChange={(e) => setAudience(p => ({...p, country: e.target.value}))} className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" placeholder="包含..." />
+                        </div>
+                        <div>
+                             <label className="block text-sm font-medium text-gray-700 mb-1">城市 (City)</label>
+                             <input type="text" value={audience.city || ''} onChange={(e) => setAudience(p => ({...p, city: e.target.value}))} className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" placeholder="包含..." />
+                        </div>
+                        <div className="hidden lg:block"></div>
+
+                        {/* Row 4: Registration Time */}
+                        <div className="md:col-span-2 lg:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-5">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">注册时间 (From - To)</label>
+                                <div className="flex items-center gap-2">
+                                    <input type="date" value={audience.registered_from || ''} onChange={(e) => setAudience(p => ({...p, registered_from: e.target.value}))} className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
+                                    <span className="text-gray-400">-</span>
+                                    <input type="date" value={audience.registered_to || ''} onChange={(e) => setAudience(p => ({...p, registered_to: e.target.value}))} className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">最近登录 (From - To)</label>
+                                <div className="flex items-center gap-2">
+                                    <input type="date" value={audience.last_login_start || ''} onChange={(e) => setAudience(p => ({...p, last_login_start: e.target.value}))} className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
+                                    <span className="text-gray-400">-</span>
+                                    <input type="date" value={audience.last_login_end || ''} onChange={(e) => setAudience(p => ({...p, last_login_end: e.target.value}))} className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
+                                </div>
+                            </div>
+                        </div>
+
                      </div>
                      <div className="flex items-center justify-between p-4 bg-indigo-50 rounded-lg border border-indigo-100 sticky bottom-4 shadow-sm">
                         <div className="flex items-center gap-2">
@@ -408,14 +494,27 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
 
                     {schedule.mode === 'recurring' && (
                     <div className="grid grid-cols-2 gap-4 pt-4 border-t border-gray-100 animate-in fade-in">
-                        <div>
-                        <label className="block text-xs font-medium text-gray-500 mb-1">频率</label>
-                        <CustomSelect value={schedule.frequency || 'daily'} onChange={(v) => setSchedule(p => ({...p, frequency: v as any}))} options={[{label:'每天', value:'daily'}, {label:'每周', value:'weekly'}, {label:'每月', value:'monthly'}]} />
+                        <div className="col-span-2 grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-xs font-medium text-gray-500 mb-1">频率</label>
+                                <CustomSelect value={schedule.frequency || 'daily'} onChange={(v) => setSchedule(p => ({...p, frequency: v as any}))} options={[{label:'每天', value:'daily'}, {label:'每周', value:'weekly'}, {label:'每月', value:'monthly'}]} />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-medium text-gray-500 mb-1">执行时间</label>
+                                <input type="time" value={schedule.time || ''} onChange={(e) => setSchedule(p => ({...p, time: e.target.value}))} className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
+                            </div>
                         </div>
-                        <div>
-                        <label className="block text-xs font-medium text-gray-500 mb-1">执行时间</label>
-                        <input type="time" value={schedule.time || ''} onChange={(e) => setSchedule(p => ({...p, time: e.target.value}))} className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
+                        <div className="col-span-2 grid grid-cols-2 gap-4 pt-2">
+                             <div>
+                                <label className="block text-xs font-medium text-gray-500 mb-1">开始日期 (From)</label>
+                                <input type="date" value={schedule.start_date || ''} onChange={(e) => setSchedule(p => ({...p, start_date: e.target.value}))} className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-medium text-gray-500 mb-1">结束日期 (To) - 可选</label>
+                                <input type="date" value={schedule.end_date || ''} onChange={(e) => setSchedule(p => ({...p, end_date: e.target.value}))} className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" placeholder="长期有效" />
+                            </div>
                         </div>
+                        {scheduleError && <div className="col-span-2 text-xs text-red-600 flex items-center gap-1"><AlertTriangle size={14} /> {scheduleError}</div>}
                     </div>
                     )}
                 </section>

@@ -313,6 +313,9 @@ export async function estimateAudienceCount(rule: DeliveryAudienceRule): Promise
     if (rule.city) query = query.ilike('city', `%${rule.city}%`);
     if (rule.registered_from) query = query.gte('created_at', startOfDay(new Date(rule.registered_from)).toISOString());
     if (rule.registered_to) query = query.lte('created_at', endOfDay(new Date(rule.registered_to)).toISOString());
+    // Added logic for last login filtering
+    if (rule.last_login_start) query = query.gte('last_login_at', startOfDay(new Date(rule.last_login_start)).toISOString());
+    if (rule.last_login_end) query = query.lte('last_login_at', endOfDay(new Date(rule.last_login_end)).toISOString());
 
     const { count, error } = await query;
     if (error) {
