@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useTransition, useEffect, useRef } from 'react';
@@ -231,7 +230,7 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
                                 {estimating ? <Loader2 className="animate-spin inline" size={16}/> : (audience.estimated_count ?? '-')}
                             </span>
                             <span className="text-xs text-indigo-600">位用户</span>
-                            {audience.estimated_count === 0 && !estimating && <AlertTriangle size={16} className="text-yellow-600" title="命中0人，任务无法启用" />}
+                            {audience.estimated_count === 0 && !estimating && <span title="命中0人，任务无法启用"><AlertTriangle size={16} className="text-yellow-600" /></span>}
                         </div>
                         <button type="button" onClick={handleAudienceEstimate} disabled={estimating} className="flex items-center gap-2 text-xs text-indigo-700 font-medium hover:underline disabled:opacity-50"><Calculator size={12} /> 手动刷新</button>
                     </div>
