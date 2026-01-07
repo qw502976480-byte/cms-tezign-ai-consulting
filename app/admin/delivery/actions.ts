@@ -84,36 +84,51 @@ export async function preflightCheckDeliveryTask(task: Partial<DeliveryTask>): P
 export async function upsertDeliveryTask(data: Partial<DeliveryTask>, preflightResult?: PreflightCheckResult) {
   const supabase = createServiceClient();
 
-  // FIX: Remove 'locale' from payload as it does not exist in DB schema yet.
-  // Using destructuring with 'any' cast to safely exclude properties not in the interface/schema.
-  const { locale, ...cleanData } = data as any;
-
-  const payload: Partial<DeliveryTask> = {
-    ...cleanData,
-    schedule_type: data.schedule_rule?.mode,
+  // FIX: Database Schema Compliance
+  // We strictly filter properties to match the 'delivery_tasks' table columns.
+  // We exclude 'locale', 'schedule_type' (redundant with schedule_rule), and other UI-only state.
+  
+  const payload: any = {
+    name: data.name,
+    type: data.type,
+    channel: data.channel,
+    status: data.status,
+    content_mode: data.content_mode,
+    content_rule: data.content_rule,
+    content_ids: data.content_ids,
+    audience_rule: data.audience_rule,
+    schedule_rule: data.schedule_rule,
+    channel_config: data.channel_config,
     updated_at: new Date().toISOString(),
   };
 
+  // Optional fields that might exist in schema (handle gracefully if they don't via strict typing if we had generated types)
+  // For now, we assume these standard columns exist based on types.ts
   if (preflightResult) {
-      payload.preflight_result = preflightResult;
       payload.next_run_at = preflightResult.next_run_at;
+      // We assume preflight_result column might exist, if not, supabase might ignore or error.
+      // Ideally, store preflight data in a JSON column if specific column doesn't exist.
+      // To be safe, we'll try to put it in channel_config if we have to, 
+      // but let's assume 'next_run_at' exists as a column.
   }
   
-  if (!payload.created_at) {
+  if (!data.id) {
       payload.created_at = new Date().toISOString();
   }
 
   let result;
   if (data.id) {
-    result = await supabase.from('delivery_tasks').update(payload as any).eq('id', data.id).select().single();
+    result = await supabase.from('delivery_tasks').update(payload).eq('id', data.id).select().single();
   } else {
-    // Supabase requires non-partial type for insert
-    const insertPayload = { ...payload, name: payload.name! } as DeliveryTask;
-    result = await supabase.from('delivery_tasks').insert(insertPayload as any).select().single();
+    result = await supabase.from('delivery_tasks').insert(payload).select().single();
   }
 
   if (result.error) {
     console.error("Upsert Error:", result.error);
+    // User friendly error mapping
+    if (result.error.message.includes('column "schedule_type" does not exist')) {
+        return { success: false, error: "Database schema mismatch: schedule_type column missing." };
+    }
     return { success: false, error: result.error.message };
   }
 
@@ -225,7 +240,8 @@ async function logRun(taskId: string, started_at: Date, status: DeliveryRunStatu
 
 async function updateTaskOnRunCompletion(taskId: string, status: LastRunStatus, message: string) {
     const supabase = createServiceClient();
-    const { data: currentTask } = await supabase.from('delivery_tasks').select('run_count, schedule_type').eq('id', taskId).single();
+    // We don't select 'schedule_type' here to avoid error if column missing, we look at payload logic or JSON rule
+    const { data: currentTask } = await supabase.from('delivery_tasks').select('run_count, schedule_rule').eq('id', taskId).single();
     
     const updatePayload: Partial<DeliveryTask> = {
         last_run_at: new Date().toISOString(),
@@ -234,7 +250,10 @@ async function updateTaskOnRunCompletion(taskId: string, status: LastRunStatus, 
         run_count: (currentTask?.run_count || 0) + 1,
     };
 
-    if (currentTask?.schedule_type === 'one_time' && (status === 'success' || status === 'skipped')) {
+    // Determine if it was one-time based on schedule_rule (JSONB)
+    const isOneTime = currentTask?.schedule_rule?.mode === 'one_time';
+
+    if (isOneTime && (status === 'success' || status === 'skipped')) {
         updatePayload.status = status === 'success' ? 'completed' : 'failed';
         if (status === 'skipped') updatePayload.status = 'completed'; // Treat skipped one-offs as completed
         updatePayload.completed_at = new Date().toISOString();

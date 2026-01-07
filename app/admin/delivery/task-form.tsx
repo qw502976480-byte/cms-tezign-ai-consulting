@@ -43,15 +43,13 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
     type: initialData?.type || 'automated' as DeliveryTaskType,
     channel: initialData?.channel || 'email' as DeliveryChannel,
     status: initialData?.status || 'draft' as DeliveryTaskStatus,
-    locale: 'zh-CN', // Default locale
+    locale: 'zh-CN', // Default locale (UI only)
   });
 
-  // Issue 2: Initialize estimated_count to null if not present to indicate "stale/unknown" state if filters change
   const [audience, setAudience] = useState<DeliveryAudienceRule>(initialData?.audience_rule || {
     scope: 'all', user_type: 'all', marketing_opt_in: 'yes', has_communicated: 'all', has_demo_request: 'all', last_login_range: 'all', country: '', city: '', company: '', title: '', interest_tags: [], estimated_count: undefined
   });
   
-  // Issue 3: Content Source State
   const [contentMode, setContentMode] = useState<DeliveryContentMode>(initialData?.content_mode || 'manual');
   const [contentSource, setContentSource] = useState<'resource' | 'custom'>(
       (initialData?.content_ids && initialData.content_ids.length > 0) ? 'resource' : 'custom'
@@ -61,9 +59,6 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
   const [selectedContentIds, setSelectedContentIds] = useState<string[]>(initialData?.content_ids || []);
   const [schedule, setSchedule] = useState<DeliveryScheduleRule>(initialData?.schedule_rule || { mode: 'one_time', one_time_type: 'immediate', timezone: 'Asia/Shanghai' });
   
-  // We use this single state object to hold content for both Email and In-App to avoid clearing data when switching channels.
-  // When channel is 'email', we interpret subject/header_note as standard email fields.
-  // When channel is 'in_app', we interpret subject as 'Title' and header_note as 'Message Body'.
   const [emailConfig, setEmailConfig] = useState<EmailChannelConfig>(initialData?.channel_config?.email || { account_id: '', template_id: '', subject: '', header_note: '', footer_note: '' });
   const [overrideTemplate, setOverrideTemplate] = useState(false);
   
@@ -74,7 +69,6 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
 
   // --- Helper State ---
   const [estimating, setEstimating] = useState(false);
-  // Issue 2: Preview State
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [previewUsers, setPreviewUsers] = useState<UserProfile[]>([]);
   const [loadingPreview, setLoadingPreview] = useState(false);
@@ -92,9 +86,7 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
 
   useEffect(() => { loadOptions(); }, []);
 
-  // Issue 2: Removed automatic audience estimation useEffect
-  
-  // Reset estimated count when audience rule changes to prompt user to refresh
+  // Reset estimated count when audience rule changes
   const isFirstRender = useRef(true);
   useEffect(() => {
       if (isFirstRender.current) {
@@ -119,8 +111,6 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
   }, [initialData?.content_ids]);
 
   useEffect(() => {
-    // If user switches to custom, clear selected IDs for submission (optional, but cleaner)
-    // If user switches to resource, use selectedResources
     if (contentSource === 'custom') {
         setSelectedContentIds([]);
     } else {
@@ -128,7 +118,7 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
     }
   }, [selectedResources, contentSource]);
 
-  // Sync Template Content
+  // Sync Template Content - Only when template changes and override is OFF
   useEffect(() => {
       if (basic.channel === 'email' && emailConfig.template_id && !overrideTemplate) {
           const tmpl = availableTemplates.find(t => t.id === emailConfig.template_id);
@@ -141,7 +131,6 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
   useEffect(() => {
     // Schedule Validation Logic
     let error = null;
-
     if (schedule.mode === 'one_time' && schedule.one_time_type === 'scheduled') {
         const { one_time_date, one_time_time } = schedule;
         if (one_time_date && one_time_time) {
@@ -157,7 +146,6 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
             }
         }
     }
-    
     setScheduleError(error);
   }, [schedule]);
 
@@ -185,7 +173,6 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
     setEstimating(false);
   };
 
-  // Issue 2: Preview Handler
   const handleAudiencePreview = async () => {
       setLoadingPreview(true);
       setIsPreviewOpen(true);
@@ -327,6 +314,8 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
   const placeholderSubject = isEmail ? '请输入邮件标题' : '请输入站内信/通知标题';
   const placeholderBody = isEmail ? '请输入邮件正文内容...' : '请输入消息正文内容...';
   
+  // Logic: Inputs are disabled if we have a template selected AND we are NOT overriding.
+  // If no template is selected, inputs are active (though for Email, we enforce template selection in Basic Info).
   const isContentDisabled = isEmail && !!emailConfig.template_id && !overrideTemplate;
 
   return (
@@ -390,47 +379,53 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
                                 ]} 
                             />
                         </div>
-                        {/* Fix: Sender Account Select - Only for Email */}
+                        {/* Sender Account Select - Only for Email */}
                         {isEmail && (
                             <>
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-1">发送账户 <span className="text-red-500">*</span></label>
-                                    {availableAccounts.length > 0 ? (
-                                        <CustomSelect 
-                                            value={emailConfig.account_id}
-                                            onChange={(v) => setEmailConfig(p => ({...p, account_id: v}))}
-                                            options={availableAccounts.map(a => ({ label: `${a.name} (${a.from_email})`, value: a.id }))}
-                                            placeholder="选择发送账户"
-                                        />
-                                    ) : (
-                                        <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-2 flex items-center justify-between">
-                                            <span className="flex items-center gap-1"><AlertTriangle size={14}/> 未配置发送账户</span>
-                                            <button onClick={() => setIsConfigModalOpen(true)} className="text-xs underline font-medium hover:text-red-800">
-                                                去配置
-                                            </button>
-                                        </div>
-                                    )}
+                                    <div className="flex gap-2">
+                                        {availableAccounts.length > 0 ? (
+                                            <CustomSelect 
+                                                value={emailConfig.account_id}
+                                                onChange={(v) => setEmailConfig(p => ({...p, account_id: v}))}
+                                                options={availableAccounts.map(a => ({ label: `${a.name} (${a.from_email})`, value: a.id }))}
+                                                placeholder="选择发送账户"
+                                                className="flex-1"
+                                            />
+                                        ) : (
+                                            <div className="flex-1 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-2 flex items-center gap-2">
+                                                <AlertTriangle size={14}/> 未配置发送账户
+                                            </div>
+                                        )}
+                                        <button onClick={() => setIsConfigModalOpen(true)} className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600" title="管理账户">
+                                            <Settings size={18} />
+                                        </button>
+                                    </div>
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-1">邮件模板 (Template) <span className="text-red-500">*</span></label>
-                                    {availableTemplates.length > 0 ? (
-                                        <CustomSelect
-                                            value={emailConfig.template_id}
-                                            onChange={(v) => {
-                                                setEmailConfig(p => ({...p, template_id: v}));
-                                                setOverrideTemplate(false); // Reset override on template change
-                                            }}
-                                            options={availableTemplates.map(t => ({ label: t.name, value: t.id }))}
-                                            placeholder="选择邮件模板"
-                                        />
-                                    ) : (
-                                         <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-2 flex items-center justify-between">
-                                            <span className="flex items-center gap-1"><AlertTriangle size={14}/> 未配置邮件模板</span>
-                                            <button onClick={() => { setIsConfigModalOpen(true); }} className="text-xs underline font-medium hover:text-red-800">
-                                                去配置
-                                            </button>
-                                        </div>
-                                    )}
+                                    <div className="flex gap-2">
+                                        {availableTemplates.length > 0 ? (
+                                            <CustomSelect
+                                                value={emailConfig.template_id}
+                                                onChange={(v) => {
+                                                    setEmailConfig(p => ({...p, template_id: v}));
+                                                    setOverrideTemplate(false); // Reset override on template change
+                                                }}
+                                                options={availableTemplates.map(t => ({ label: t.name, value: t.id }))}
+                                                placeholder="选择邮件模板"
+                                                className="flex-1"
+                                            />
+                                        ) : (
+                                             <div className="flex-1 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-2 flex items-center gap-2">
+                                                <AlertTriangle size={14}/> 未配置邮件模板
+                                            </div>
+                                        )}
+                                        <button onClick={() => setIsConfigModalOpen(true)} className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600" title="管理模板">
+                                            <Settings size={18} />
+                                        </button>
+                                    </div>
                                 </div>
                             </>
                         )}
@@ -630,7 +625,7 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
                         </div>
                     )}
 
-                    {isEmail && emailConfig.template_id && (
+                    {isEmail && emailConfig.template_id ? (
                         <div className="mb-2 p-3 bg-blue-50 border border-blue-100 rounded-lg flex items-center justify-between">
                             <div className="flex items-center gap-2">
                                 <FileText size={16} className="text-blue-600"/>
@@ -644,12 +639,10 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
                                 允许覆盖内容
                             </label>
                         </div>
-                    )}
-
-                    {isEmail && !emailConfig.template_id && (
+                    ) : isEmail && (
                         <div className="mb-2 p-3 bg-yellow-50 border border-yellow-100 rounded-lg flex items-center gap-2 text-sm text-yellow-700">
                             <AlertTriangle size={16} />
-                            请先在基础信息中选择邮件模板。
+                            请先在“基础信息”区块中选择邮件模板。
                         </div>
                     )}
 
@@ -662,7 +655,7 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
                             onChange={(e) => setEmailConfig(p => ({...p, subject: e.target.value}))} 
                             disabled={isContentDisabled}
                             className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 ${isContentDisabled ? 'bg-gray-50 text-gray-500 cursor-not-allowed border-gray-200' : 'bg-white'}`}
-                            placeholder={placeholderSubject} 
+                            placeholder={isContentDisabled ? '主题由模板提供 (勾选上方允许覆盖以编辑)' : placeholderSubject} 
                         />
                     </div>
                     <div>
@@ -674,7 +667,7 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
                             rows={5} 
                             disabled={isContentDisabled}
                             className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 font-mono ${isContentDisabled ? 'bg-gray-50 text-gray-500 cursor-not-allowed border-gray-200' : 'bg-white'}`}
-                            placeholder={placeholderBody} 
+                            placeholder={isContentDisabled ? '正文由模板提供 (勾选上方允许覆盖以编辑)' : placeholderBody} 
                         />
                     </div>
                 </section>
