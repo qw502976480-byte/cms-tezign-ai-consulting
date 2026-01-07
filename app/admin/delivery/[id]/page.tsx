@@ -5,7 +5,6 @@ import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import { createClient } from '@/utils/supabase/server';
 import { DeliveryTask, DeliveryRun } from '@/types';
-import { preflightCheckDeliveryTask } from '../actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,11 +33,9 @@ export default async function EditDeliveryPage({ params }: { params: { id: strin
   const task = taskRes.data as DeliveryTask;
   const runs = (runsRes.data || []) as DeliveryRun[];
   
-  // A) 强制调用 server action 获取权威的 has_active_run 状态
-  const check = await preflightCheckDeliveryTask({ id: params.id });
-  // `preflightCheckDeliveryTask` 在任务运行时会返回 `{ success: false, data: { has_active_run: true } }`
-  // 我们只关心 `data.has_active_run` 的值
-  const hasActiveRun = check.data?.has_active_run ?? false;
+  // 修复：只要存在 'running' 状态的 run，就认为任务正在执行中。
+  // This will lock the execution buttons on the edit page.
+  const hasActiveRun = runs.some(r => r.status === 'running');
 
   return (
     <div className="max-w-6xl mx-auto py-6 space-y-6">
