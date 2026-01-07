@@ -84,8 +84,12 @@ export async function preflightCheckDeliveryTask(task: Partial<DeliveryTask>): P
 export async function upsertDeliveryTask(data: Partial<DeliveryTask>, preflightResult?: PreflightCheckResult) {
   const supabase = createServiceClient();
 
+  // FIX: Remove 'locale' from payload as it does not exist in DB schema yet.
+  // Using destructuring with 'any' cast to safely exclude properties not in the interface/schema.
+  const { locale, ...cleanData } = data as any;
+
   const payload: Partial<DeliveryTask> = {
-    ...data,
+    ...cleanData,
     schedule_type: data.schedule_rule?.mode,
     updated_at: new Date().toISOString(),
   };

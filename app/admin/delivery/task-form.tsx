@@ -5,7 +5,7 @@ import React, { useState, useTransition, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { upsertDeliveryTask, estimateAudienceCount, previewAudience, searchResources, getResourcesByIds, getEmailAccounts, getEmailTemplates, getUniqueInterestTags, preflightCheckDeliveryTask, runDeliveryTaskNow } from './actions';
 import { DeliveryTask, DeliveryTaskType, DeliveryChannel, DeliveryTaskStatus, DeliveryContentMode, DeliveryAudienceRule, DeliveryContentRule, DeliveryScheduleRule, EmailSendingAccount, EmailTemplate, EmailChannelConfig, DeliveryRun, UserProfile } from '@/types';
-import { Loader2, Save, Play, Search, X, Check, Calculator, CalendarClock, Users, FileText, Settings, AlertTriangle, Mail, Calendar, ArrowRight, ExternalLink, ChevronDown, Tag, Send, History, Eye, Info, PlusCircle } from 'lucide-react';
+import { Loader2, Save, Play, Search, X, Check, Calculator, CalendarClock, Users, FileText, Settings, AlertTriangle, Mail, Calendar, ArrowRight, ExternalLink, ChevronDown, Tag, Send, History, Eye, Info, PlusCircle, Lock, Unlock } from 'lucide-react';
 import EmailConfigModal from './EmailConfigModal';
 import { format } from 'date-fns';
 
@@ -65,6 +65,7 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
   // When channel is 'email', we interpret subject/header_note as standard email fields.
   // When channel is 'in_app', we interpret subject as 'Title' and header_note as 'Message Body'.
   const [emailConfig, setEmailConfig] = useState<EmailChannelConfig>(initialData?.channel_config?.email || { account_id: '', template_id: '', subject: '', header_note: '', footer_note: '' });
+  const [overrideTemplate, setOverrideTemplate] = useState(false);
   
   const [availableAccounts, setAvailableAccounts] = useState<EmailSendingAccount[]>([]);
   const [availableTemplates, setAvailableTemplates] = useState<EmailTemplate[]>([]);
@@ -126,6 +127,16 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
         setSelectedContentIds(selectedResources.map(r => r.id));
     }
   }, [selectedResources, contentSource]);
+
+  // Sync Template Content
+  useEffect(() => {
+      if (basic.channel === 'email' && emailConfig.template_id && !overrideTemplate) {
+          const tmpl = availableTemplates.find(t => t.id === emailConfig.template_id);
+          if (tmpl) {
+              setEmailConfig(prev => ({ ...prev, subject: tmpl.subject }));
+          }
+      }
+  }, [emailConfig.template_id, basic.channel, overrideTemplate, availableTemplates]);
 
   useEffect(() => {
     // Schedule Validation Logic
@@ -193,10 +204,17 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
 
     // Front-end Validation before saving
     if (!isDraft) {
-        if (basic.channel === 'email' && !emailConfig.account_id) {
-            alert('请选择发送账户 (Sender Account)');
-            scrollToSection('basic');
-            return;
+        if (basic.channel === 'email') {
+            if (!emailConfig.account_id) {
+                alert('请选择发送账户 (Sender Account)');
+                scrollToSection('basic');
+                return;
+            }
+            if (!emailConfig.template_id) {
+                alert('请选择邮件模板 (Email Template)');
+                scrollToSection('basic');
+                return;
+            }
         }
         if (contentSource === 'custom' && !emailConfig.subject) {
             alert('请输入标题/主题 (Subject/Title)');
@@ -308,6 +326,8 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
   const labelBody = isEmail ? '邮件正文 (Body)' : '消息内容 (Content)';
   const placeholderSubject = isEmail ? '请输入邮件标题' : '请输入站内信/通知标题';
   const placeholderBody = isEmail ? '请输入邮件正文内容...' : '请输入消息正文内容...';
+  
+  const isContentDisabled = isEmail && !!emailConfig.template_id && !overrideTemplate;
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 relative">
@@ -328,7 +348,7 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
                  <button onClick={() => handleSave(true)} disabled={isPending || isChecking || isManualRunning} className="w-full flex items-center justify-center gap-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50">
                     <Save size={16} /> 保存草稿
                  </button>
-                 <button onClick={() => handleSave(false)} disabled={isPending || isChecking || isManualRunning || !!scheduleError || (isEmail && availableAccounts.length === 0)} className="w-full flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 shadow-sm">
+                 <button onClick={() => handleSave(false)} disabled={isPending || isChecking || isManualRunning || !!scheduleError || (isEmail && (availableAccounts.length === 0 || availableTemplates.length === 0))} className="w-full flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 shadow-sm">
                     {isChecking ? <Loader2 className="animate-spin" size={16} /> : <Play size={16} />}
                     {isChecking ? '校验中...' : '启用任务'}
                  </button>
@@ -372,24 +392,47 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
                         </div>
                         {/* Fix: Sender Account Select - Only for Email */}
                         {isEmail && (
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">发送账户 <span className="text-red-500">*</span></label>
-                                {availableAccounts.length > 0 ? (
-                                    <CustomSelect 
-                                        value={emailConfig.account_id}
-                                        onChange={(v) => setEmailConfig(p => ({...p, account_id: v}))}
-                                        options={availableAccounts.map(a => ({ label: `${a.name} (${a.from_email})`, value: a.id }))}
-                                        placeholder="选择发送账户"
-                                    />
-                                ) : (
-                                    <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-2 flex items-center justify-between">
-                                        <span className="flex items-center gap-1"><AlertTriangle size={14}/> 未配置发送账户</span>
-                                        <button onClick={() => setIsConfigModalOpen(true)} className="text-xs underline font-medium hover:text-red-800">
-                                            去配置
-                                        </button>
-                                    </div>
-                                )}
-                            </div>
+                            <>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">发送账户 <span className="text-red-500">*</span></label>
+                                    {availableAccounts.length > 0 ? (
+                                        <CustomSelect 
+                                            value={emailConfig.account_id}
+                                            onChange={(v) => setEmailConfig(p => ({...p, account_id: v}))}
+                                            options={availableAccounts.map(a => ({ label: `${a.name} (${a.from_email})`, value: a.id }))}
+                                            placeholder="选择发送账户"
+                                        />
+                                    ) : (
+                                        <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-2 flex items-center justify-between">
+                                            <span className="flex items-center gap-1"><AlertTriangle size={14}/> 未配置发送账户</span>
+                                            <button onClick={() => setIsConfigModalOpen(true)} className="text-xs underline font-medium hover:text-red-800">
+                                                去配置
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">邮件模板 (Template) <span className="text-red-500">*</span></label>
+                                    {availableTemplates.length > 0 ? (
+                                        <CustomSelect
+                                            value={emailConfig.template_id}
+                                            onChange={(v) => {
+                                                setEmailConfig(p => ({...p, template_id: v}));
+                                                setOverrideTemplate(false); // Reset override on template change
+                                            }}
+                                            options={availableTemplates.map(t => ({ label: t.name, value: t.id }))}
+                                            placeholder="选择邮件模板"
+                                        />
+                                    ) : (
+                                         <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-2 flex items-center justify-between">
+                                            <span className="flex items-center gap-1"><AlertTriangle size={14}/> 未配置邮件模板</span>
+                                            <button onClick={() => { setIsConfigModalOpen(true); }} className="text-xs underline font-medium hover:text-red-800">
+                                                去配置
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            </>
                         )}
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">语言/地区</label>
@@ -401,6 +444,7 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
                                     {label:'English (en-US)', value:'en-US'}
                                 ]} 
                             />
+                            <p className="text-[10px] text-gray-400 mt-1">注：当前版本仅用于预览展示，保存时不写入数据库。</p>
                         </div>
                         <div className="md:col-span-2">
                             <label className="block text-sm font-medium text-gray-700 mb-1">备注 (Optional)</label>
@@ -586,15 +630,52 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
                         </div>
                     )}
 
+                    {isEmail && emailConfig.template_id && (
+                        <div className="mb-2 p-3 bg-blue-50 border border-blue-100 rounded-lg flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <FileText size={16} className="text-blue-600"/>
+                                <span className="text-sm text-blue-900">
+                                    已选模板: <strong>{availableTemplates.find(t => t.id === emailConfig.template_id)?.name}</strong>
+                                </span>
+                            </div>
+                            <label className="flex items-center gap-2 text-xs cursor-pointer select-none text-blue-800 hover:text-blue-900">
+                                <input type="checkbox" checked={overrideTemplate} onChange={e => setOverrideTemplate(e.target.checked)} className="rounded text-blue-600 focus:ring-blue-500" />
+                                {overrideTemplate ? <Unlock size={14} /> : <Lock size={14} />}
+                                允许覆盖内容
+                            </label>
+                        </div>
+                    )}
+
+                    {isEmail && !emailConfig.template_id && (
+                        <div className="mb-2 p-3 bg-yellow-50 border border-yellow-100 rounded-lg flex items-center gap-2 text-sm text-yellow-700">
+                            <AlertTriangle size={16} />
+                            请先在基础信息中选择邮件模板。
+                        </div>
+                    )}
+
                     <div className="pt-2 border-t border-gray-100">
                         {/* Fix: Channel-aware Label */}
                         <label className="block text-sm font-medium text-gray-700 mb-1">{labelSubject}</label>
-                        <input type="text" value={emailConfig.subject} onChange={(e) => setEmailConfig(p => ({...p, subject: e.target.value}))} className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" placeholder={placeholderSubject} />
+                        <input 
+                            type="text" 
+                            value={emailConfig.subject} 
+                            onChange={(e) => setEmailConfig(p => ({...p, subject: e.target.value}))} 
+                            disabled={isContentDisabled}
+                            className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 ${isContentDisabled ? 'bg-gray-50 text-gray-500 cursor-not-allowed border-gray-200' : 'bg-white'}`}
+                            placeholder={placeholderSubject} 
+                        />
                     </div>
                     <div>
                         {/* Fix: Channel-aware Label */}
                         <label className="block text-sm font-medium text-gray-700 mb-1">{labelBody}</label>
-                        <textarea value={emailConfig.header_note || ''} onChange={(e) => setEmailConfig(p => ({...p, header_note: e.target.value}))} rows={5} className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 font-mono" placeholder={placeholderBody} />
+                        <textarea 
+                            value={emailConfig.header_note || ''} 
+                            onChange={(e) => setEmailConfig(p => ({...p, header_note: e.target.value}))} 
+                            rows={5} 
+                            disabled={isContentDisabled}
+                            className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 font-mono ${isContentDisabled ? 'bg-gray-50 text-gray-500 cursor-not-allowed border-gray-200' : 'bg-white'}`}
+                            placeholder={placeholderBody} 
+                        />
                     </div>
                 </section>
             </div>
