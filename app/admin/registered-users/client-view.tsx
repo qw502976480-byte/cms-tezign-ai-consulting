@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -8,7 +7,8 @@ import { UserProfile } from '@/types';
 import { 
     Search, Calendar, Filter, ChevronDown, Check, 
     Eye, Users, ChevronLeft, ChevronRight, AlertTriangle,
-    MapPin, Globe, MessageSquare, Monitor, Building2, Trash2
+    MapPin, Globe, MessageSquare, Monitor, Building2, Trash2,
+    Download, Loader2
 } from 'lucide-react';
 import { format } from 'date-fns';
 import UserDetailModal from './UserDetailModal';
@@ -62,6 +62,7 @@ export default function RegisteredUsersClientView({
     const currentSearchParams = useSearchParams(); 
     
     const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
+    const [isExporting, setIsExporting] = useState(false);
     
     const [keyword, setKeyword] = useState(searchParams.q || '');
     const [country, setCountry] = useState(searchParams.country || '');
@@ -78,6 +79,25 @@ export default function RegisteredUsersClientView({
         router.push(pathname);
     };
 
+    const handleExport = () => {
+      setIsExporting(true);
+      const params = new URLSearchParams(currentSearchParams.toString());
+      // The page param should not affect the export, which exports all filtered results
+      params.delete('page'); 
+      
+      try {
+        window.location.href = `/admin/registered-users/export?${params.toString()}`;
+      } catch (e) {
+        console.error("Export failed", e);
+        alert("导出失败，请检查控制台日志。");
+      }
+
+      // Since window.location.href doesn't provide a callback, we reset the
+      // loading state after a timeout. This is a UX improvement to prevent
+      // the button from being stuck in a loading state.
+      setTimeout(() => setIsExporting(false), 5000);
+    };
+
     const formatLocation = (u: UserProfile) => {
         const parts = [u.country, u.city].filter(Boolean);
         return parts.length > 0 ? parts.join(' / ') : ('—');
@@ -85,9 +105,19 @@ export default function RegisteredUsersClientView({
 
     return (
         <div className="space-y-8">
-            <div className="flex justify-between items-end">
+            <div className="flex justify-between items-center">
                 <h1 className="text-2xl font-semibold text-gray-900 tracking-tight">注册用户 (User Profiles)</h1>
-                <div className="text-sm text-gray-500 font-medium bg-gray-100 px-3 py-1 rounded-full">Total: {totalCount}</div>
+                <div className="flex items-center gap-4">
+                  <button
+                    onClick={handleExport}
+                    disabled={isExporting}
+                    className="flex items-center gap-2 bg-white hover:bg-gray-100 text-gray-700 border border-gray-200 px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                  >
+                    {isExporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+                    {isExporting ? '正在导出...' : '导出 Excel'}
+                  </button>
+                  <div className="text-sm text-gray-500 font-medium bg-gray-100 px-3 py-1 rounded-full">Total: {totalCount}</div>
+                </div>
             </div>
 
             {error && (
