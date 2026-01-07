@@ -1,4 +1,3 @@
-
 'use client';
 
 import React from 'react';
@@ -41,8 +40,8 @@ export default function AdminLayoutClient({ children }: { children: React.ReactN
       title: '官网内容',
       items: [
         { label: '内容资源 (Resources)', href: '/admin/resources', icon: FileText },
-        // Added English translation
-        { label: '内容分发 (Content Distribution)', href: '#', icon: Send, comingSoon: true },
+        // Updated: Delivery is now active
+        { label: '内容分发 (Content Delivery)', href: '/admin/delivery', icon: Send },
       ]
     },
     {
@@ -105,6 +104,7 @@ export default function AdminLayoutClient({ children }: { children: React.ReactN
                   // Exact match for root, startsWith for sub-routes (except root)
                   const isActive = pathname === item.href || (item.href !== '/admin' && pathname.startsWith(item.href));
 
+                  // @ts-ignore - comingSoon is optional
                   if (item.comingSoon) {
                     return (
                       <div

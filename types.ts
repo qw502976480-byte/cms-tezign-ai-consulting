@@ -1,11 +1,55 @@
-
-
 export type ResourceCategory = 'report' | 'announcement' | 'case_study' | 'methodology';
 export type DemoRequestStatus = 'pending' | 'processed';
 export type DemoRequestOutcome = 'completed' | 'cancelled' | null;
 export type HomepageModuleType = 'hero' | 'gpt_search' | 'latest_news' | 'core_capabilities' | 'product_claim' | 'primary_cta';
 export type ResourceStatus = 'draft' | 'published' | 'archived';
 export type DemoAppointmentStatus = 'scheduled' | 'completed' | 'no_show' | 'canceled';
+
+// Delivery Task Types
+export type DeliveryTaskType = 'automated' | 'one_off';
+export type DeliveryTaskStatus = 'draft' | 'active' | 'paused' | 'completed';
+export type DeliveryChannel = 'email' | 'in_app';
+export type DeliveryContentMode = 'rule' | 'manual';
+
+export interface DeliveryContentRule {
+  category?: string[]; // categories to include
+  time_range?: '7d' | '30d' | '90d' | 'custom';
+  custom_start?: string;
+  custom_end?: string;
+  only_featured?: boolean;
+}
+
+export interface DeliveryAudienceRule {
+  user_type?: 'all' | 'personal' | 'company';
+  country?: string;
+  city?: string;
+  keyword?: string;
+  online_comm?: 'all' | 'yes' | 'no';
+}
+
+export interface DeliveryScheduleRule {
+  frequency?: 'once' | 'daily' | 'weekly' | 'monthly';
+  time?: string; // e.g. "10:00"
+  date?: string; // for one_off e.g. "2024-01-01"
+  run_immediately?: boolean;
+}
+
+export interface DeliveryTask {
+  id: string;
+  name: string;
+  type: DeliveryTaskType;
+  status: DeliveryTaskStatus;
+  channel: DeliveryChannel;
+  content_mode: DeliveryContentMode;
+  content_rule: DeliveryContentRule | null;
+  content_ids: string[] | null;
+  audience_rule: DeliveryAudienceRule | null;
+  schedule_rule: DeliveryScheduleRule | null;
+  next_run_at: string | null;
+  last_run_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
 
 export interface Resource {
   id: string;
