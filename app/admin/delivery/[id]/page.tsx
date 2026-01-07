@@ -5,11 +5,13 @@ import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import { createClient } from '@/utils/supabase/server';
 import { DeliveryTask, DeliveryRun } from '@/types';
+import { subMinutes, isBefore } from 'date-fns';
 
 export const dynamic = 'force-dynamic';
 
 export default async function EditDeliveryPage({ params }: { params: { id: string } }) {
   const supabase = await createClient();
+  const now = new Date();
   
   const taskPromise = supabase
     .from('delivery_tasks')
@@ -33,8 +35,12 @@ export default async function EditDeliveryPage({ params }: { params: { id: strin
   const task = taskRes.data as DeliveryTask;
   const runs = (runsRes.data || []) as DeliveryRun[];
   
-  // Calculate lock based on active runs
-  const hasActiveRun = runs.some(r => r.status === 'running');
+  // Calculate lock based on active runs (Authority: Runs Table)
+  // Logic: Locked if status='running' AND NOT stale (> 15 mins)
+  const hasActiveRun = runs.some(r => 
+    r.status === 'running' && 
+    !isBefore(new Date(r.started_at), subMinutes(now, 15))
+  );
 
   return (
     <div className="max-w-6xl mx-auto py-6 space-y-6">

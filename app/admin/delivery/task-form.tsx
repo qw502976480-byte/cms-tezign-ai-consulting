@@ -38,6 +38,12 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
   const [isChecking, setIsChecking] = useState(false);
   const [isManualRunning, setIsManualRunning] = useState(false);
   const [preflightError, setPreflightError] = useState<string | null>(null);
+  
+  const [localLocked, setLocalLocked] = useState(hasActiveRun);
+
+  useEffect(() => {
+      setLocalLocked(hasActiveRun);
+  }, [hasActiveRun]);
 
   // --- State ---
   const [basic, setBasic] = useState({
@@ -244,6 +250,10 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
             if (!check.success) {
                 setPreflightError(check.error || '未知校验错误');
                 setIsChecking(false);
+                // Also force lock if API says so
+                if (check.data?.has_active_run) {
+                    setLocalLocked(true);
+                }
                 return;
             }
 
@@ -263,7 +273,8 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
 
   const handleRunNow = async () => {
     if (!initialData?.id) return;
-    if (hasActiveRun) { alert('任务正在执行中，无法重复触发。'); return; }
+    // Client-side guard
+    if (localLocked) { alert('任务正在执行中，无法重复触发。'); return; }
     
     if (!confirm(`确定要立即执行任务 "${initialData.name}" 吗？\n这将向预计 ${audience.estimated_count || 'N/A'} 位用户真实发送内容。`)) return;
 
@@ -273,8 +284,14 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
     
     if (result.success) {
         alert(`执行成功: ${result.message}`);
+        setLocalLocked(true); // Optimistically lock
     } else {
-        alert(`执行失败: ${result.error}`);
+        if (result.code === 'RUNNING') {
+            alert('任务正在执行中，无法重复触发。');
+            setLocalLocked(true); // Force lock on 409-ish
+        } else {
+            alert(`执行失败: ${result.error}`);
+        }
     }
     router.refresh();
   };
@@ -327,28 +344,29 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
     });
   };
 
-  // Helper to determine labels based on channel
   const isEmail = basic.channel === 'email';
   const labelSubject = isEmail ? '邮件主题 (Subject)' : '标题 (Title)';
   const labelBody = isEmail ? '邮件正文 (Body)' : '消息内容 (Content)';
   const placeholderSubject = isEmail ? '请输入邮件标题' : '请输入站内信/通知标题';
   const placeholderBody = isEmail ? '请输入邮件正文内容...' : '请输入消息正文内容...';
   
-  // Logic: Inputs are disabled if we have a template selected AND we are NOT overriding.
   const isContentDisabled = isEmail && !!emailConfig.template_id && !overrideTemplate;
 
-  // --- Derived State for Button Logic ---
+  // --- DERIVED STATE & LOCK LOGIC ---
+  const executionLocked = localLocked;
+
+  // To ensure buttons render but are disabled, we get their base permissions
+  // by temporarily ignoring the 'running' state for the utility function.
   const taskForDerivation: DeliveryTaskDeriveInput = {
       status: initialData ? initialData.status : basic.status,
       run_count: initialData?.run_count || 0,
-      last_run_status: hasActiveRun ? 'running' : (initialData?.last_run_status || null),
-      schedule_rule: schedule // Always use the current live form state for schedule checks
+      last_run_status: executionLocked ? null : (initialData?.last_run_status || null), 
+      schedule_rule: schedule
   };
   
   const { status: derivedStatus, canEnable, canRunNow, message: stateMessage } = deriveDeliveryTaskState(taskForDerivation);
-  const isOverdue = derivedStatus === 'overdue';
-  const isRunning = derivedStatus === 'running'; // Now authoritative based on hasActiveRun override
-  const isCompleted = derivedStatus === 'completed' || derivedStatus === 'failed';
+  const isOverdue = !executionLocked && derivedStatus === 'overdue';
+  const isCompleted = !executionLocked && (derivedStatus === 'completed' || derivedStatus === 'failed');
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 relative">
@@ -366,20 +384,17 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
             ))}
             
             <div className="pt-6 border-t border-gray-100 mt-6 space-y-3">
-                 {/* 1. Execution State Handling */}
-                 {isRunning ? (
-                    <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-lg text-center space-y-2">
+                {executionLocked && (
+                    <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-lg text-center space-y-1">
                         <div className="flex items-center justify-center gap-1 text-xs text-indigo-700 font-medium">
                             <Loader2 size={14} className="animate-spin" />
-                            任务正在执行中...
+                            任务正在执行中
                         </div>
                         <p className="text-[10px] text-indigo-500">请等待完成后再操作</p>
-                        {/* Disabled buttons when running */}
-                        <button disabled className="w-full flex items-center justify-center gap-2 bg-gray-100 border border-gray-200 text-gray-400 px-4 py-2.5 rounded-lg text-sm font-medium cursor-not-allowed">
-                            <Play size={16} /> 启用任务
-                        </button>
                     </div>
-                 ) : isCompleted ? (
+                )}
+                
+                {isCompleted ? (
                     <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg text-center space-y-2">
                         <div className="flex items-center justify-center gap-1 text-xs text-gray-500">
                             <Check size={14} className="text-green-600" />
@@ -390,34 +405,33 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
                         </button>
                         <p className="text-[10px] text-gray-400">如需再次发送，请复制创建新任务</p>
                     </div>
-                 ) : (
+                ) : (
                     <>
-                        {/* 2. Save Draft (Always visible unless completed/running) */}
-                        <button onClick={() => handleSave(true)} disabled={isPending || isChecking || isManualRunning} className="w-full flex items-center justify-center gap-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50">
+                        <button onClick={() => handleSave(true)} disabled={executionLocked || isPending || isChecking || isManualRunning} className="w-full flex items-center justify-center gap-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                             <Save size={16} /> 保存草稿
                         </button>
 
-                        {/* 3. Enable Task */}
                         {canEnable ? (
-                            <button onClick={() => handleSave(false)} disabled={isPending || isChecking || isManualRunning || !!scheduleError || (isEmail && (availableAccounts.length === 0 || availableTemplates.length === 0))} className="w-full flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 shadow-sm">
+                            <button onClick={() => handleSave(false)} disabled={executionLocked || isPending || isChecking || isManualRunning || !!scheduleError || (isEmail && (availableAccounts.length === 0 || availableTemplates.length === 0))} className="w-full flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm">
                                 {isChecking ? <Loader2 className="animate-spin" size={16} /> : <Play size={16} />}
                                 {isChecking ? '校验中...' : '启用任务'}
                             </button>
                         ) : (
-                            <div className="text-xs text-center text-amber-600 bg-amber-50 p-2 rounded border border-amber-100">
-                                {isOverdue ? '任务已逾期，请使用立即执行' : (stateMessage || '无法启用')}
-                            </div>
+                            !executionLocked && (
+                                <div className="text-xs text-center text-amber-600 bg-amber-50 p-2 rounded border border-amber-100">
+                                    {isOverdue ? '任务已逾期，请使用立即执行' : (stateMessage || '无法启用')}
+                                </div>
+                            )
                         )}
 
-                        {/* 4. Run Now (Only if existing task and allowed) */}
                         {initialData && canRunNow && (
-                            <button onClick={handleRunNow} disabled={isManualRunning || isPending || isChecking} className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 shadow-sm">
+                            <button onClick={handleRunNow} disabled={executionLocked || isManualRunning || isPending || isChecking} className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm">
                                 {isManualRunning ? <Loader2 className="animate-spin" size={16} /> : <Send size={16} />}
                                 {isManualRunning ? '执行中...' : '立即执行'}
                             </button>
                         )}
                     </>
-                 )}
+                )}
                  
                  {preflightError && (
                     <div className="p-3 bg-red-50 border border-red-200 rounded text-red-800 text-xs flex items-start gap-2">
@@ -429,8 +443,7 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
         </div>
 
         <div className="lg:col-span-3 space-y-8 pb-20">
-            {/* Banner for Running State */}
-            {hasActiveRun && (
+            {localLocked && (
                 <div className="bg-indigo-50 border border-indigo-200 text-indigo-800 px-4 py-3 rounded-xl flex items-center gap-3 shadow-sm animate-in slide-in-from-top-2">
                     <Loader2 className="animate-spin text-indigo-600" size={20} />
                     <div>
@@ -462,7 +475,6 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
                                 ]} 
                             />
                         </div>
-                        {/* Sender Account Select - Only for Email */}
                         {isEmail && (
                             <>
                                 <div>
@@ -494,7 +506,7 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
                                                 value={emailConfig.template_id}
                                                 onChange={(v) => {
                                                     setEmailConfig(p => ({...p, template_id: v}));
-                                                    setOverrideTemplate(false); // Reset override on template change
+                                                    setOverrideTemplate(false);
                                                 }}
                                                 options={availableTemplates.map(t => ({ label: t.name, value: t.id }))}
                                                 placeholder="选择邮件模板"
@@ -539,7 +551,6 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
                         <h2 className="text-lg font-semibold text-gray-900">目标受众 (Audience)</h2>
                     </div>
                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                        {/* Row 1 */}
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">用户类型</label>
                             <CustomSelect value={audience.user_type} onChange={(v) => setAudience(p => ({...p, user_type: v as any}))} options={[{label:'全部',value:'all'},{label:'个人',value:'personal'},{label:'企业',value:'company'}]} />
@@ -553,7 +564,6 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
                             <CustomSelect value={audience.has_communicated} onChange={(v) => setAudience(p => ({...p, has_communicated: v as any}))} options={[{label:'不限',value:'all'},{label:'是',value:'yes'},{label:'否',value:'no'}]} />
                         </div>
 
-                        {/* Row 2: Interests */}
                         <div className="md:col-span-2 lg:col-span-3">
                              <label className="block text-sm font-medium text-gray-700 mb-2">兴趣标签 (Tags)</label>
                              <div className="flex flex-wrap gap-2">
@@ -570,7 +580,6 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
                              </div>
                         </div>
 
-                        {/* Row 3: Location */}
                         <div>
                              <label className="block text-sm font-medium text-gray-700 mb-1">国家 (Country)</label>
                              <input type="text" value={audience.country || ''} onChange={(e) => setAudience(p => ({...p, country: e.target.value}))} className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" placeholder="包含..." />
@@ -581,7 +590,6 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
                         </div>
                         <div className="hidden lg:block"></div>
 
-                        {/* Row 4: Registration Time */}
                         <div className="md:col-span-2 lg:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-5">
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">注册时间 (From - To)</label>
@@ -605,7 +613,6 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
                      <div className="flex items-center justify-between p-4 bg-indigo-50 rounded-lg border border-indigo-100 sticky bottom-4 shadow-sm">
                         <div className="flex items-center gap-2">
                             <span className="text-sm text-indigo-800">当前条件下预计触达:</span>
-                            {/* Issue 2: Better estimation display state */}
                             {estimating ? (
                                 <Loader2 className="animate-spin text-indigo-900" size={20}/>
                             ) : (
@@ -623,7 +630,6 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
                             )}
                         </div>
                         <div className="flex items-center gap-3">
-                            {/* Issue 2: Preview Button */}
                             <button type="button" onClick={handleAudiencePreview} className="flex items-center gap-2 text-xs text-indigo-700 font-medium hover:underline bg-white px-2 py-1 rounded border border-indigo-100 hover:bg-indigo-50 transition-colors"><Eye size={12} /> 预览用户</button>
                             <button type="button" onClick={handleAudienceEstimate} disabled={estimating} className="flex items-center gap-2 text-xs text-white bg-indigo-600 hover:bg-indigo-700 px-3 py-1.5 rounded transition-colors disabled:opacity-50"><Calculator size={12} /> 手动刷新</button>
                         </div>
@@ -638,7 +644,6 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
                     <h2 className="text-lg font-semibold text-gray-900">内容配置 (Content)</h2>
                     </div>
                     
-                    {/* Issue 3: Content Source Switch */}
                     <div className="space-y-3">
                         <label className="block text-sm font-medium text-gray-700">是否引用站内内容？</label>
                         <div className="flex gap-4">
@@ -665,7 +670,6 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
                         </div>
                     </div>
 
-                    {/* Conditional Resource Selection */}
                     {contentSource === 'resource' && (
                         <div className="animate-in fade-in slide-in-from-top-2 duration-200">
                             <label className="block text-sm font-medium text-gray-700 mb-1">选择内容资源 (Resources)</label>
@@ -675,7 +679,6 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
                                     <input type="text" placeholder="搜索站内资源标题..." value={searchKeyword} onChange={(e) => handleResourceSearch(e.target.value)} className="w-full border rounded-md px-3 py-1.5 pl-9 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white" />
                                 </div>
                                 
-                                {/* Empty State for Search */}
                                 { isSearching && <div className="p-2 text-sm text-gray-500">搜索中...</div> }
                                 { !isSearching && searchKeyword.length >= 2 && searchResults.length === 0 && (
                                     <div className="p-4 text-center text-sm text-gray-500 bg-white border border-gray-100 rounded-lg">
@@ -730,7 +733,6 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
                     )}
 
                     <div className="pt-2 border-t border-gray-100">
-                        {/* Fix: Channel-aware Label */}
                         <label className="block text-sm font-medium text-gray-700 mb-1">{labelSubject}</label>
                         <input 
                             type="text" 
@@ -742,7 +744,6 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
                         />
                     </div>
                     <div>
-                        {/* Fix: Channel-aware Label */}
                         <label className="block text-sm font-medium text-gray-700 mb-1">{labelBody}</label>
                         <textarea 
                             value={emailConfig.header_note || ''} 
@@ -823,7 +824,6 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
                 </section>
             </div>
 
-            {/* Section 5: Execution Runs */}
             {initialData && (
                 <div ref={sectionRefs.runs} className="scroll-mt-6">
                     <section className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
@@ -854,7 +854,6 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
             )}
         </div>
         
-        {/* Issue 2: Preview Modal */}
         {isPreviewOpen && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
                 <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col max-h-[80vh]">

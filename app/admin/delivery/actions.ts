@@ -30,6 +30,7 @@ export async function preflightCheckDeliveryTask(task: Partial<DeliveryTask>): P
           if (activeRun) {
               // Check for stale lock in preflight too
               const startTime = new Date(activeRun.started_at);
+              // If it's been running less than 15 mins, consider it valid. Otherwise ignore it (let RunNow handle cleanup).
               if (!isBefore(startTime, subMinutes(now, 15))) {
                   hasActiveRun = true;
                   return { success: false, error: '任务正在执行中 (Active Run Exists)，请等待执行完成。', data: { estimated_recipients: 0, next_run_at: null, has_active_run: true } };
@@ -156,7 +157,7 @@ export async function upsertDeliveryTask(data: Partial<DeliveryTask>, preflightR
 }
 
 // --- CORE EXECUTION ACTION ---
-export async function runDeliveryTaskNow(taskId: string): Promise<{ success: boolean, error?: string, message?: string }> {
+export async function runDeliveryTaskNow(taskId: string): Promise<{ success: boolean, error?: string, message?: string, code?: string }> {
   const supabase = createServiceClient();
   const started_at = new Date();
   const LOCK_TIMEOUT_MINUTES = 15;
@@ -201,7 +202,7 @@ export async function runDeliveryTaskNow(taskId: string): Promise<{ success: boo
       }
 
       if (isLocked) {
-          return { success: false, error: '任务正在执行中 (DB Lock)，无法重复触发。' };
+          return { success: false, error: '任务正在执行中，无法重复触发。', code: 'RUNNING' };
       }
   }
 

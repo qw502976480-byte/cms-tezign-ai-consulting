@@ -5,11 +5,13 @@ import TaskClientView from './client-view';
 import Link from 'next/link';
 import { Plus } from 'lucide-react';
 import { DeliveryTask, EmailSendingAccount, EmailTemplate, DeliveryRun } from '@/types';
+import { subMinutes, isBefore } from 'date-fns';
 
 export const dynamic = 'force-dynamic';
 
 export default async function DeliveryListPage({ searchParams }: { searchParams: { [key: string]: string | undefined } }) {
   const supabase = await createClient();
+  const now = new Date();
 
   // Filter Logic
   let query = supabase
@@ -60,8 +62,8 @@ export default async function DeliveryListPage({ searchParams }: { searchParams:
   const runningTaskIds = new Set<string>();
 
   allRuns.forEach(run => {
-    // Collect active runs (authority)
-    if (run.status === 'running') {
+    // Collect active runs (authority) with stale check
+    if (run.status === 'running' && !isBefore(new Date(run.started_at), subMinutes(now, 15))) {
         runningTaskIds.add(run.task_id);
     }
     // Since runs are ordered by started_at desc, the first one encountered for a task_id is the latest
