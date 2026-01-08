@@ -3,14 +3,16 @@
 
 import React, { useState, useEffect, useRef, useTransition } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
-import { DeliveryTask, EmailSendingAccount, EmailTemplate, DeliveryRun, DeliveryRunStatus } from '@/types';
-import { Search, ChevronDown, Check, MoreHorizontal, Clock, Play, Pause, Copy, Trash2, Edit2, Settings, Mail, Repeat, ScrollText, AlertTriangle, UserCheck, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
-import { format, differenceInMinutes, differenceInSeconds } from 'date-fns';
+import { DeliveryTask, EmailSendingAccount, EmailTemplate, DeliveryRun } from '@/types';
+import { Search, ChevronDown, Check, MoreHorizontal, Clock, Play, Pause, Copy, Trash2, Edit2, Settings, Mail, Repeat, ScrollText, AlertTriangle, UserCheck, Loader2, CheckCircle2, AlertCircle, Ban } from 'lucide-react';
+import { format, differenceInSeconds } from 'date-fns';
 import { updateTaskStatus, deleteTask, duplicateTask } from './actions';
 import Link from 'next/link';
 import EmailConfigModal from './EmailConfigModal';
 import TaskRunHistoryModal from './TaskRunHistoryModal';
-import { deriveDeliveryTaskState, DerivedTaskStatus, DeliveryTaskDeriveInput } from './utils';
+import { deriveDeliveryTaskState, DerivedTaskStatus, DeliveryTaskDeriveInput, isRunActive } from './utils';
+
+// --- Components ---
 
 function FilterDropdown({ label, value, options, onChange }: any) {
     const [isOpen, setIsOpen] = useState(false);
@@ -42,6 +44,94 @@ function FilterDropdown({ label, value, options, onChange }: any) {
     );
 }
 
+// Separate component to handle menu state and click-outside independently per row
+function TaskActionMenu({ 
+    task, 
+    isLocked, 
+    canEnable, 
+    onAction 
+}: { 
+    task: DeliveryTask; 
+    isLocked: boolean; 
+    canEnable: boolean; 
+    onAction: (action: string, task: DeliveryTask) => void 
+}) {
+    const [isOpen, setIsOpen] = useState(false);
+    const menuRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        if (!isOpen) return;
+        
+        const handleClickOutside = (e: MouseEvent) => {
+            if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+                setIsOpen(false);
+            }
+        };
+        const handleEsc = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') setIsOpen(false);
+        };
+
+        document.addEventListener('mousedown', handleClickOutside);
+        document.addEventListener('keydown', handleEsc);
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+            document.removeEventListener('keydown', handleEsc);
+        };
+    }, [isOpen]);
+
+    return (
+        <div className="relative" ref={menuRef}>
+            <button 
+                onClick={(e) => { e.stopPropagation(); setIsOpen(!isOpen); }} 
+                className={`p-2 rounded-lg transition-colors ${isOpen ? 'bg-gray-100 text-gray-900' : 'text-gray-400 hover:text-gray-900 hover:bg-gray-100'}`}
+            >
+                <MoreHorizontal size={18} />
+            </button>
+            
+            {isOpen && (
+                <div className="absolute right-0 top-full mt-1 w-44 bg-white border border-gray-100 rounded-xl shadow-lg z-20 p-1 animate-in fade-in zoom-in-95 duration-100 origin-top-right">
+                    {/* Edit Config - Disabled if Locked */}
+                    {isLocked ? (
+                        <div className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 text-gray-300 cursor-not-allowed">
+                            <Edit2 size={14} /> 编辑配置
+                        </div>
+                    ) : (
+                        <Link href={`/admin/delivery/${task.id}`} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-gray-50 rounded text-gray-700">
+                            <Edit2 size={14} /> 编辑配置
+                        </Link>
+                    )}
+
+                    <button onClick={() => { onAction('logs', task); setIsOpen(false); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-gray-50 rounded text-gray-700">
+                        <ScrollText size={14} /> 查看执行记录
+                    </button>
+                    
+                    <button onClick={() => { onAction('duplicate', task); setIsOpen(false); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-gray-50 rounded text-gray-700">
+                        <Copy size={14} /> 复制任务
+                    </button>
+                    
+                    {/* Status Toggle - Hidden/Disabled if Locked */}
+                    {!isLocked && canEnable && (
+                        <button onClick={() => { onAction('toggle_status', task); setIsOpen(false); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-gray-50 rounded text-gray-700">
+                            {task.status === 'active' ? <><Pause size={14} /> 暂停任务</> : <><Play size={14} /> 启用任务</>}
+                        </button>
+                    )}
+                    {isLocked && (
+                        <div className="px-3 py-2 text-xs text-indigo-600 flex items-center gap-2 cursor-not-allowed bg-indigo-50 rounded mx-1 my-1">
+                            <Loader2 size={14} className="animate-spin" /> 执行中...
+                        </div>
+                    )}
+                    
+                    <div className="h-px bg-gray-100 my-1"></div>
+                    
+                    <button onClick={() => { onAction('delete', task); setIsOpen(false); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-red-50 text-red-600 rounded">
+                        <Trash2 size={14} /> 删除任务
+                    </button>
+                </div>
+            )}
+        </div>
+    );
+}
+
 export default function TaskClientView({ 
     initialTasks, 
     emailAccounts, 
@@ -61,20 +151,10 @@ export default function TaskClientView({
     const [isPending, startTransition] = useTransition();
 
     const [keyword, setKeyword] = useState(searchParams.get('q') || '');
-    const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
-    const menuRef = useRef<HTMLDivElement>(null);
-    const runningSet = new Set(runningTaskIds);
     
     // Modals
     const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
     const [historyModalTask, setHistoryModalTask] = useState<{id: string, name: string} | null>(null);
-
-    // Close menu when clicking outside
-    useEffect(() => {
-        const handler = (e: MouseEvent) => { if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpenId(null); };
-        document.addEventListener('mousedown', handler);
-        return () => document.removeEventListener('mousedown', handler);
-    }, []);
 
     const updateFilter = (key: string, value: string) => {
         const params = new URLSearchParams(searchParams.toString());
@@ -87,7 +167,6 @@ export default function TaskClientView({
     };
 
     const handleAction = async (action: string, task: DeliveryTask) => {
-        setMenuOpenId(null);
         startTransition(async () => {
             if (action === 'toggle_status') {
                 const newStatus = task.status === 'active' ? 'paused' : 'active';
@@ -106,57 +185,68 @@ export default function TaskClientView({
         if (task.channel !== 'email' || !task.channel_config?.email) return null;
         const conf = task.channel_config.email;
         const acct = emailAccounts.find(a => a.id === conf.account_id);
-        const tmpl = emailTemplates.find(t => t.id === conf.template_id);
+        // const tmpl = emailTemplates.find(t => t.id === conf.template_id);
         return {
             accountName: acct ? acct.name : 'Unknown Account',
             accountEmail: acct ? acct.from_email : '',
-            templateName: tmpl ? tmpl.name : 'Unknown Template'
+            // templateName: tmpl ? tmpl.name : 'Unknown Template'
         };
     };
 
     // --- Time & Status Helpers ---
 
-    const formatRunDuration = (run: DeliveryRun) => {
-        const start = new Date(run.started_at);
-        const end = run.finished_at ? new Date(run.finished_at) : new Date();
+    const formatDurationSimple = (start: Date, end: Date) => {
         const seconds = differenceInSeconds(end, start);
-        
         if (seconds < 60) return `${seconds}s`;
         const mins = Math.floor(seconds / 60);
-        if (mins < 60) return `${mins}m`;
-        const hours = Math.floor(mins / 60);
-        const remainingMins = mins % 60;
-        return `${hours}h ${remainingMins}m`;
+        if (mins < 60) return `${mins}m ${seconds % 60}s`;
+        return `${Math.floor(mins / 60)}h ${mins % 60}m`;
     };
 
-    const getPlannedTimeDisplay = (task: DeliveryTask, derivedStatus: DerivedTaskStatus) => {
+    const getPlannedTimeDisplay = (task: DeliveryTask, lastRun?: DeliveryRun) => {
         const { schedule_rule: s } = task;
-        if (derivedStatus === 'completed') return <span className="text-gray-300 text-xs font-mono">—</span>;
-        
         if (!s) return <span className="text-gray-300 text-xs">—</span>;
 
+        // 1. One Time Task
         if (s.mode === 'one_time') {
-            if (task.run_count > 0) return <span className="text-gray-300 text-xs font-mono">—</span>;
+            const hasRun = task.run_count > 0 || !!lastRun;
             
+            // Immediate Type
             if (s.one_time_type === 'immediate') {
-                return (
-                    <div className="flex flex-col">
-                        <span className="text-amber-600 text-xs font-medium">立即 (需手动)</span>
-                    </div>
-                );
+                if (hasRun && lastRun) {
+                    return (
+                        <div className="flex flex-col">
+                            <span className="text-gray-900 text-xs font-medium">已触发 (Triggered)</span>
+                            <span className="text-[10px] text-gray-500 font-mono">
+                                {format(new Date(lastRun.started_at), 'MM-dd HH:mm')}
+                            </span>
+                        </div>
+                    );
+                }
+                return <span className="text-slate-500 text-xs font-medium bg-slate-100 px-2 py-0.5 rounded border border-slate-200">手动触发</span>;
             }
+            
+            // Scheduled Type
             if (s.one_time_type === 'scheduled') {
                 const dateStr = `${s.one_time_date || ''} ${s.one_time_time || ''}`;
                 const isValid = dateStr.trim().length > 5;
+                if (hasRun && lastRun) {
+                     return (
+                        <div className="flex flex-col">
+                            <span className="text-gray-400 text-xs line-through">{isValid ? dateStr : 'Schedule'}</span>
+                            <span className="text-[10px] text-green-600">已执行 (Executed)</span>
+                        </div>
+                    );
+                }
                 return (
                     <div className="flex flex-col">
                         <span className="text-gray-900 text-xs font-medium truncate">{isValid ? dateStr : '未设置'}</span>
-                        {derivedStatus === 'overdue' && <span className="text-[10px] text-red-500 font-medium">已逾期</span>}
                     </div>
                 );
             }
         }
         
+        // 2. Recurring Task
         if (s.mode === 'recurring') {
             const freqMap: any = { daily: '每天', weekly: '每周', monthly: '每月' };
             const freq = freqMap[s.frequency || ''] || s.frequency;
@@ -175,32 +265,64 @@ export default function TaskClientView({
     const getActualTimeDisplay = (run?: DeliveryRun) => {
         if (!run) return <span className="text-gray-300 text-xs font-mono">—</span>;
         
-        const start = format(new Date(run.started_at), 'MM-dd HH:mm');
-        const duration = formatRunDuration(run);
+        const start = new Date(run.started_at);
+        const startStr = format(start, 'MM-dd HH:mm');
+        const isActive = isRunActive(run); // Handles 5m timeout
         const isRunning = run.status === 'running';
+        
+        const end = run.finished_at ? new Date(run.finished_at) : new Date();
+        const duration = formatDurationSimple(start, end);
+
+        // UI Logic: 
+        // 1. Actually Running (<5m): Show "Running (Duration)"
+        // 2. Stale Running (>5m): Show "Failed (Timeout)"
+        // 3. Finished: Show "Finished (Duration)"
+
+        if (isRunning && isActive) {
+             return (
+                <div className="flex flex-col">
+                    <span className="text-gray-900 text-xs font-mono">Start: {startStr}</span>
+                    <span className="text-[10px] text-indigo-600 font-medium animate-pulse">Running ({duration})</span>
+                </div>
+            );
+        }
+        
+        if (isRunning && !isActive) {
+             return (
+                <div className="flex flex-col">
+                    <span className="text-gray-900 text-xs font-mono">Start: {startStr}</span>
+                    <span className="text-[10px] text-red-500 font-medium">Failed (超时)</span>
+                </div>
+            );
+        }
 
         return (
             <div className="flex flex-col">
-                <span className="text-gray-900 text-xs font-mono">{start}</span>
-                {isRunning ? (
-                    <span className="text-[10px] text-indigo-600 font-medium animate-pulse">Running ({duration})</span>
-                ) : (
-                    <span className="text-[10px] text-gray-400">Duration: {duration}</span>
-                )}
+                <span className="text-gray-900 text-xs font-mono">Start: {startStr}</span>
+                <span className="text-[10px] text-gray-400">Finished (耗时 {duration})</span>
             </div>
         );
     };
 
     const getStatusBadge = (task: DeliveryTask, lastRun: DeliveryRun | undefined, derivedStatus: DerivedTaskStatus) => {
         // 1. Running (Highest Priority)
-        if (derivedStatus === 'running' || lastRun?.status === 'running') {
-             const duration = lastRun ? formatRunDuration(lastRun) : '';
-             return (
-                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium border bg-indigo-50 text-indigo-700 border-indigo-200">
-                    <Loader2 size={12} className="animate-spin" />
-                    执行中 {duration && `(${duration})`}
-                </span>
-             );
+        if (lastRun?.status === 'running') {
+             // Use strict check for UI status
+             if (isRunActive(lastRun)) {
+                 return (
+                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium border bg-indigo-50 text-indigo-700 border-indigo-200">
+                        <Loader2 size={12} className="animate-spin" />
+                        执行中
+                    </span>
+                 );
+             } else {
+                 // Timeout fallback badge
+                 return (
+                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium border bg-red-50 text-red-700 border-red-200">
+                        <AlertTriangle size={12} /> 失败 (超时)
+                    </span>
+                 );
+             }
         }
         
         // 2. Paused (Explicitly Paused Recurring Task)
@@ -212,7 +334,7 @@ export default function TaskClientView({
              );
         }
 
-        // 3. Run Result (If available)
+        // 3. Run Result (If available) - Shows the result of the LAST run
         if (lastRun) {
             const map: any = {
                 success: { label: '成功', color: 'bg-emerald-50 text-emerald-700 border-emerald-200', icon: CheckCircle2 },
@@ -229,7 +351,7 @@ export default function TaskClientView({
             }
         }
 
-        // 4. Default Task Status (Draft, Scheduled, Active without run, Completed, Overdue)
+        // 4. Default Task Status
         const defMap: any = {
             draft: { label: '草稿', color: 'bg-gray-100 text-gray-600 border-gray-200' },
             scheduled: { label: '已排期', color: 'bg-blue-50 text-blue-700 border-blue-200', icon: Clock },
@@ -312,7 +434,9 @@ export default function TaskClientView({
                             const emailDetails = getEmailDetails(task);
                             const isRecurring = task.schedule_rule?.mode === 'recurring';
                             const lastRun = latestRunMap[task.id];
-                            const isLocked = runningSet.has(task.id);
+                            
+                            // Use strict timeout logic for determining locking
+                            const isLocked = isRunActive(lastRun);
                             
                             const deriveInput: DeliveryTaskDeriveInput = {
                                 status: task.status,
@@ -327,9 +451,13 @@ export default function TaskClientView({
                                 <tr key={task.id} className="hover:bg-gray-50 transition-colors group">
                                     <td className="px-6 py-4 font-medium text-gray-900">
                                         <div className="flex flex-col gap-1.5 items-start">
-                                            <Link href={`/admin/delivery/${task.id}`} className="hover:text-indigo-600 hover:underline block truncate max-w-[200px]" title={task.name}>
-                                                {task.name}
-                                            </Link>
+                                            {isLocked ? (
+                                                <span className="block truncate max-w-[200px]" title={task.name}>{task.name}</span>
+                                            ) : (
+                                                <Link href={`/admin/delivery/${task.id}`} className="hover:text-indigo-600 hover:underline block truncate max-w-[200px]" title={task.name}>
+                                                    {task.name}
+                                                </Link>
+                                            )}
                                             {isRecurring ? (
                                                 <div className="flex items-center gap-1 text-[10px] text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100 w-fit">
                                                     <Repeat size={10} /> 周期性
@@ -356,7 +484,7 @@ export default function TaskClientView({
                                         {getStatusBadge(task, lastRun, derivedStatus)}
                                     </td>
                                     <td className="px-6 py-4 align-top">
-                                        {getPlannedTimeDisplay(task, derivedStatus)}
+                                        {getPlannedTimeDisplay(task, lastRun)}
                                     </td>
                                     <td className="px-6 py-4 align-top">
                                         {getActualTimeDisplay(lastRun)}
@@ -380,39 +508,12 @@ export default function TaskClientView({
                                         )}
                                     </td>
                                     <td className="px-6 py-4 text-right relative align-top">
-                                        {/* Actions Dropdown */}
-                                        <button onClick={(e) => { e.stopPropagation(); setMenuOpenId(menuOpenId === task.id ? null : task.id); }} className="p-2 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-900 transition-colors">
-                                            <MoreHorizontal size={18} />
-                                        </button>
-                                        
-                                        {menuOpenId === task.id && (
-                                            <div className="absolute right-8 top-8 w-44 bg-white border border-gray-100 rounded-xl shadow-lg z-20 p-1">
-                                                <Link href={`/admin/delivery/${task.id}`} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-gray-50 rounded text-gray-700">
-                                                    <Edit2 size={14} /> 编辑配置
-                                                </Link>
-                                                <button onClick={() => handleAction('logs', task)} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-gray-50 rounded text-gray-700">
-                                                    <ScrollText size={14} /> 查看执行记录
-                                                </button>
-                                                <button onClick={() => handleAction('duplicate', task)} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-gray-50 rounded text-gray-700">
-                                                    <Copy size={14} /> 复制任务
-                                                </button>
-                                                {/* Guard: Enable/Pause - STRICTLY HIDDEN IF RUNNING */}
-                                                {!isLocked && canEnable && (
-                                                    <button onClick={() => handleAction('toggle_status', task)} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-gray-50 rounded text-gray-700">
-                                                        {task.status === 'active' ? <><Pause size={14} /> 暂停任务</> : <><Play size={14} /> 启用任务</>}
-                                                    </button>
-                                                )}
-                                                {isLocked && (
-                                                    <div className="px-3 py-2 text-xs text-gray-400 flex items-center gap-2 cursor-not-allowed">
-                                                        <Loader2 size={14} className="animate-spin" /> 执行中...
-                                                    </div>
-                                                )}
-                                                <div className="h-px bg-gray-100 my-1"></div>
-                                                <button onClick={() => handleAction('delete', task)} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-red-50 text-red-600 rounded">
-                                                    <Trash2 size={14} /> 删除任务
-                                                </button>
-                                            </div>
-                                        )}
+                                        <TaskActionMenu 
+                                            task={task} 
+                                            isLocked={isLocked} 
+                                            canEnable={canEnable} 
+                                            onAction={handleAction} 
+                                        />
                                     </td>
                                 </tr>
                             );

@@ -1,6 +1,6 @@
 
-import { DeliveryTask, DeliveryScheduleRule, DeliveryTaskStatus, LastRunStatus } from '@/types';
-import { isBefore, parseISO, parse } from 'date-fns';
+import { DeliveryTask, DeliveryScheduleRule, DeliveryTaskStatus, LastRunStatus, DeliveryRun } from '@/types';
+import { isBefore, parseISO, parse, differenceInMinutes } from 'date-fns';
 
 export type DerivedTaskStatus = 'draft' | 'scheduled' | 'active' | 'paused' | 'completed' | 'failed' | 'overdue' | 'running';
 
@@ -20,18 +20,33 @@ export interface DeliveryTaskDeriveInput {
   // Optional legacy fields if needed, but we primarily use schedule_rule now
 }
 
+/**
+ * Determines if a run is effectively "active" (running and not timed out).
+ * Timeout Rule: Status is 'running' AND started_at is within the last 5 minutes.
+ */
+export function isRunActive(run: { status: string; started_at: string } | null | undefined): boolean {
+  if (!run || run.status !== 'running') return false;
+  
+  // Frontend fallback: If running for > 5 minutes, consider it failed/timed-out.
+  const startedAt = new Date(run.started_at);
+  const now = new Date();
+  // Use absolute difference to be safe, though startedAt should be in past
+  return differenceInMinutes(now, startedAt) < 5;
+}
+
 export function deriveDeliveryTaskState(task: DeliveryTaskDeriveInput): DerivedTaskState {
   const isOneTime = task.schedule_rule?.mode === 'one_time';
   const runCount = task.run_count || 0;
   const now = new Date();
 
   // 0. Active Run Lock (Applies to all types, priority #1)
+  // Note: The caller is responsible for passing 'running' ONLY if isRunActive() is true.
   if (task.last_run_status === 'running') {
       return {
           status: 'running',
           canEnable: false,
           canRunNow: false,
-          message: '任务正在执行中，请等待完成。'
+          message: '任务执行中，请等待完成。'
       };
   }
 

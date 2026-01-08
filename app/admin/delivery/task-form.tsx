@@ -5,7 +5,7 @@ import React, { useState, useTransition, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { upsertDeliveryTask, estimateAudienceCount, previewAudience, searchResources, getResourcesByIds, getEmailAccounts, getEmailTemplates, getUniqueInterestTags, preflightCheckDeliveryTask, runDeliveryTaskNow, duplicateTask } from './actions';
 import { DeliveryTask, DeliveryTaskType, DeliveryChannel, DeliveryTaskStatus, DeliveryContentMode, DeliveryAudienceRule, DeliveryContentRule, DeliveryScheduleRule, EmailSendingAccount, EmailTemplate, EmailChannelConfig, DeliveryRun, UserProfile } from '@/types';
-import { Loader2, Save, Play, Search, X, Check, Calculator, CalendarClock, Users, FileText, Settings, AlertTriangle, Mail, Calendar, ArrowRight, ExternalLink, ChevronDown, Tag, Send, History, Eye, Info, PlusCircle, Lock, Unlock, Copy } from 'lucide-react';
+import { Loader2, Save, Play, Search, X, Check, Calculator, CalendarClock, Users, FileText, Settings, AlertTriangle, Mail, Calendar, ArrowRight, ExternalLink, ChevronDown, Tag, Send, History, Eye, Info, PlusCircle, Lock, Unlock, Copy, RefreshCw } from 'lucide-react';
 import EmailConfigModal from './EmailConfigModal';
 import { format } from 'date-fns';
 import { deriveDeliveryTaskState, DeliveryTaskDeriveInput } from './utils';
@@ -39,8 +39,9 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
   const [isManualRunning, setIsManualRunning] = useState(false);
   const [preflightError, setPreflightError] = useState<string | null>(null);
 
-  // 1) Define executionLocked from hasActiveRun prop
-  const executionLocked = Boolean(hasActiveRun) || (initialData?.status as any) === 'running' || initialData?.last_run_status === 'running';
+  // 1) Define executionLocked based on props (Authority is hasActiveRun)
+  // If the server says hasActiveRun is false (due to timeout), we respect that over DB 'running' status.
+  const executionLocked = Boolean(hasActiveRun);
 
   // --- State ---
   const [basic, setBasic] = useState({
@@ -337,22 +338,29 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
   const isContentDisabled = isEmail && !!emailConfig.template_id && !overrideTemplate;
 
   // --- DERIVED STATE & LOCK LOGIC ---
-  // To ensure buttons render but are disabled, we get their base permissions
-  // by temporarily ignoring the 'running' state for the utility function.
+  // If not locked (not running/timed out), but DB still says running, treat as 'failed' for UI state logic.
+  const effectiveLastRunStatus = (!executionLocked && initialData?.last_run_status === 'running') 
+      ? 'failed' 
+      : (initialData?.last_run_status || null);
+
   const taskForDerivation: DeliveryTaskDeriveInput = {
       status: initialData ? initialData.status : basic.status,
       run_count: initialData?.run_count || 0,
-      last_run_status: executionLocked ? null : (initialData?.last_run_status || null), 
+      last_run_status: executionLocked ? 'running' : effectiveLastRunStatus, 
       schedule_rule: schedule
   };
   
   const { status: derivedStatus, canEnable, canRunNow, message: stateMessage } = deriveDeliveryTaskState(taskForDerivation);
   const isOverdue = !executionLocked && derivedStatus === 'overdue';
   
-  // Guard: One-time task that has finished execution
-  const isOneTimeDone = schedule.mode === 'one_time' && (initialData?.run_count || 0) > 0;
+  // States specific for Immediate Tasks
+  const isImmediate = schedule.mode === 'one_time' && schedule.one_time_type === 'immediate';
+  const isRunFinished = isImmediate && (initialData?.run_count || 0) > 0;
+  // Use effective status to check for failure (handles timeout fallback)
+  const isRunFailed = isImmediate && effectiveLastRunStatus === 'failed';
   
-  const isCompleted = !executionLocked && (derivedStatus === 'completed' || derivedStatus === 'failed' || isOneTimeDone);
+  // Guard: Determine if any action is allowed
+  const isActionDisabled = executionLocked || isPending || isChecking || isManualRunning || !!scheduleError || (isEmail && (availableAccounts.length === 0 || availableTemplates.length === 0));
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 relative">
@@ -370,18 +378,20 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
             ))}
             
             <div className="pt-6 border-t border-gray-100 mt-6 space-y-3">
-                {/* 4) Add hint message when locked */}
+                {/* Status Feedback */}
                 {executionLocked && (
-                    <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-lg text-center text-xs text-indigo-700 font-medium">
-                        任务执行中，已锁定操作。请在执行记录中查看结果。
+                    <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-lg text-center text-xs text-indigo-700 font-medium flex flex-col items-center gap-2">
+                        <Loader2 className="animate-spin" size={16} />
+                        任务执行中，已锁定编辑...
                     </div>
                 )}
                 
-                {isCompleted ? (
+                {/* Logic Branching for Buttons */}
+                {isRunFinished && !isRunFailed ? (
+                    // A. Task Completed (Success)
                     <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg text-center space-y-2">
-                        <div className="flex items-center justify-center gap-1 text-xs text-gray-500">
-                            <Check size={14} className="text-green-600" />
-                            {derivedStatus === 'failed' ? '任务执行失败' : '一次性任务已执行'}
+                        <div className="flex items-center justify-center gap-1 text-xs text-gray-500 font-medium">
+                            <Check size={14} className="text-green-600" /> 任务已完成
                         </div>
                         <button onClick={handleDuplicate} disabled={isPending} className="w-full flex items-center justify-center gap-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50">
                             <Copy size={16} /> 复制任务
@@ -389,31 +399,36 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
                         <p className="text-[10px] text-gray-400">如需再次发送，请复制创建新任务</p>
                     </div>
                 ) : (
+                    // B. Task Actionable
                     <>
-                        <button onClick={() => handleSave(true)} disabled={executionLocked || isOneTimeDone || isPending || isChecking || isManualRunning} className="w-full flex items-center justify-center gap-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                        <button onClick={() => handleSave(true)} disabled={executionLocked || isPending || isChecking || isManualRunning} className="w-full flex items-center justify-center gap-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                             <Save size={16} /> 保存草稿
                         </button>
 
-                        {canEnable ? (
-                            // 2) Update "Enable Task" button disabled condition
-                            <button onClick={() => handleSave(false)} disabled={executionLocked || isOneTimeDone || isPending || isChecking || isManualRunning || !!scheduleError || (isEmail && (availableAccounts.length === 0 || availableTemplates.length === 0))} className="w-full flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm">
-                                {isChecking ? <Loader2 className="animate-spin" size={16} /> : <Play size={16} />}
-                                {isChecking ? '校验中...' : '启用任务'}
+                        {/* Immediate Task Actions */}
+                        {isImmediate && initialData ? (
+                            <button 
+                                onClick={handleRunNow} 
+                                disabled={isActionDisabled} 
+                                className={`w-full flex items-center justify-center gap-2 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm ${isRunFailed ? 'bg-amber-600 hover:bg-amber-700' : 'bg-indigo-600 hover:bg-indigo-700'}`}
+                            >
+                                {isManualRunning ? <Loader2 className="animate-spin" size={16} /> : (isRunFailed ? <RefreshCw size={16} /> : <Send size={16} />)}
+                                {isManualRunning ? '执行中...' : (isRunFailed ? '重新执行 (Retry)' : '执行一次 (Run Once)')}
                             </button>
                         ) : (
-                            !executionLocked && (
-                                <div className="text-xs text-center text-amber-600 bg-amber-50 p-2 rounded border border-amber-100">
-                                    {isOverdue ? '任务已逾期，请使用立即执行' : (stateMessage || '无法启用')}
-                                </div>
+                            // Scheduled / Recurring Task Actions
+                            canEnable ? (
+                                <button onClick={() => handleSave(false)} disabled={isActionDisabled} className="w-full flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm">
+                                    {isChecking ? <Loader2 className="animate-spin" size={16} /> : <Play size={16} />}
+                                    {isChecking ? '校验中...' : '启用任务'}
+                                </button>
+                            ) : (
+                                !executionLocked && (
+                                    <div className="text-xs text-center text-amber-600 bg-amber-50 p-2 rounded border border-amber-100">
+                                        {isOverdue ? '任务已逾期，请使用立即执行' : (stateMessage || '无法启用')}
+                                    </div>
+                                )
                             )
-                        )}
-
-                        {initialData && canRunNow && (
-                            // 3) Update "Run Now" button disabled condition
-                            <button onClick={handleRunNow} disabled={executionLocked || isOneTimeDone || isManualRunning || isPending || isChecking} className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm">
-                                {isManualRunning ? <Loader2 className="animate-spin" size={16} /> : <Send size={16} />}
-                                {isManualRunning ? '执行中...' : '立即执行'}
-                            </button>
                         )}
                     </>
                 )}
@@ -428,6 +443,7 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
         </div>
 
         <div className="lg:col-span-3 space-y-8 pb-20">
+            {/* ... Form Content Sections (Identical to previous, just ensuring they render correctly) ... */}
             <div ref={sectionRefs.basic} className="scroll-mt-6">
                 <section className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm space-y-6">
                     <div className="flex items-center gap-2 pb-4 border-b border-gray-100">
@@ -437,13 +453,15 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="md:col-span-2">
                             <label className="block text-sm font-medium text-gray-700 mb-1">任务名称</label>
-                            <input type="text" value={basic.name} onChange={(e) => setBasic(p => ({...p, name: e.target.value}))} required className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" placeholder="e.g., 月度产品更新速递" />
+                            <input type="text" value={basic.name} onChange={(e) => setBasic(p => ({...p, name: e.target.value}))} required disabled={executionLocked} className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 disabled:bg-gray-50 disabled:text-gray-500" placeholder="e.g., 月度产品更新速递" />
                         </div>
+                        {/* ... (Rest of Basic Info) ... */}
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">渠道</label>
                             <CustomSelect 
                                 value={basic.channel} 
                                 onChange={(v) => setBasic(p => ({...p, channel: v as any}))} 
+                                disabled={executionLocked}
                                 options={[
                                     {label:'Email', value:'email'},
                                     {label:'站内信 (In-app)', value:'in_app'}
@@ -462,13 +480,14 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
                                                 options={availableAccounts.map(a => ({ label: `${a.name} (${a.from_email})`, value: a.id }))}
                                                 placeholder="选择发送账户"
                                                 className="flex-1"
+                                                disabled={executionLocked}
                                             />
                                         ) : (
                                             <div className="flex-1 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-2 flex items-center gap-2">
                                                 <AlertTriangle size={14}/> 未配置发送账户
                                             </div>
                                         )}
-                                        <button onClick={() => setIsConfigModalOpen(true)} className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600" title="管理账户">
+                                        <button onClick={() => setIsConfigModalOpen(true)} disabled={executionLocked} className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600 disabled:opacity-50" title="管理账户">
                                             <Settings size={18} />
                                         </button>
                                     </div>
@@ -486,13 +505,14 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
                                                 options={availableTemplates.map(t => ({ label: t.name, value: t.id }))}
                                                 placeholder="选择邮件模板"
                                                 className="flex-1"
+                                                disabled={executionLocked}
                                             />
                                         ) : (
                                              <div className="flex-1 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-2 flex items-center gap-2">
                                                 <AlertTriangle size={14}/> 未配置邮件模板
                                             </div>
                                         )}
-                                        <button onClick={() => setIsConfigModalOpen(true)} className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600" title="管理模板">
+                                        <button onClick={() => setIsConfigModalOpen(true)} disabled={executionLocked} className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600 disabled:opacity-50" title="管理模板">
                                             <Settings size={18} />
                                         </button>
                                     </div>
@@ -504,6 +524,7 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
                             <CustomSelect 
                                 value={basic.locale} 
                                 onChange={(v) => setBasic(p => ({...p, locale: v}))} 
+                                disabled={executionLocked}
                                 options={[
                                     {label:'Auto (zh-CN)', value:'zh-CN'},
                                     {label:'English (en-US)', value:'en-US'}
@@ -513,7 +534,7 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
                         </div>
                         <div className="md:col-span-2">
                             <label className="block text-sm font-medium text-gray-700 mb-1">备注 (Optional)</label>
-                            <input type="text" className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" placeholder="内部备注..." />
+                            <input type="text" className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 disabled:bg-gray-50" placeholder="内部备注..." disabled={executionLocked} />
                         </div>
                     </div>
                 </section>
@@ -525,7 +546,7 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
                         <Users className="text-gray-400" size={20} />
                         <h2 className="text-lg font-semibold text-gray-900">目标受众 (Audience)</h2>
                     </div>
-                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                     <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 ${executionLocked ? 'opacity-70 pointer-events-none' : ''}`}>
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">用户类型</label>
                             <CustomSelect value={audience.user_type} onChange={(v) => setAudience(p => ({...p, user_type: v as any}))} options={[{label:'全部',value:'all'},{label:'个人',value:'personal'},{label:'企业',value:'company'}]} />
@@ -619,115 +640,117 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
                     <h2 className="text-lg font-semibold text-gray-900">内容配置 (Content)</h2>
                     </div>
                     
-                    <div className="space-y-3">
-                        <label className="block text-sm font-medium text-gray-700">是否引用站内内容？</label>
-                        <div className="flex gap-4">
-                            <label className="flex items-center cursor-pointer">
-                                <input 
-                                    type="radio" 
-                                    name="content_source" 
-                                    className="w-4 h-4 text-gray-900 focus:ring-gray-900"
-                                    checked={contentSource === 'resource'}
-                                    onChange={() => setContentSource('resource')}
-                                />
-                                <span className="ml-2 text-sm text-gray-900">引用站内内容</span>
-                            </label>
-                            <label className="flex items-center cursor-pointer">
-                                <input 
-                                    type="radio" 
-                                    name="content_source" 
-                                    className="w-4 h-4 text-gray-900 focus:ring-gray-900"
-                                    checked={contentSource === 'custom'}
-                                    onChange={() => setContentSource('custom')}
-                                />
-                                <span className="ml-2 text-sm text-gray-900">不引用（纯文本/自定义）</span>
-                            </label>
+                    <div className={`space-y-6 ${executionLocked ? 'opacity-70 pointer-events-none' : ''}`}>
+                        <div className="space-y-3">
+                            <label className="block text-sm font-medium text-gray-700">是否引用站内内容？</label>
+                            <div className="flex gap-4">
+                                <label className="flex items-center cursor-pointer">
+                                    <input 
+                                        type="radio" 
+                                        name="content_source" 
+                                        className="w-4 h-4 text-gray-900 focus:ring-gray-900"
+                                        checked={contentSource === 'resource'}
+                                        onChange={() => setContentSource('resource')}
+                                    />
+                                    <span className="ml-2 text-sm text-gray-900">引用站内内容</span>
+                                </label>
+                                <label className="flex items-center cursor-pointer">
+                                    <input 
+                                        type="radio" 
+                                        name="content_source" 
+                                        className="w-4 h-4 text-gray-900 focus:ring-gray-900"
+                                        checked={contentSource === 'custom'}
+                                        onChange={() => setContentSource('custom')}
+                                    />
+                                    <span className="ml-2 text-sm text-gray-900">不引用（纯文本/自定义）</span>
+                                </label>
+                            </div>
                         </div>
-                    </div>
 
-                    {contentSource === 'resource' && (
-                        <div className="animate-in fade-in slide-in-from-top-2 duration-200">
-                            <label className="block text-sm font-medium text-gray-700 mb-1">选择内容资源 (Resources)</label>
-                            <div className="border rounded-lg p-3 space-y-2 bg-gray-50">
-                                <div className="relative">
-                                    <Search size={16} className="absolute left-3 top-2.5 text-gray-400" />
-                                    <input type="text" placeholder="搜索站内资源标题..." value={searchKeyword} onChange={(e) => handleResourceSearch(e.target.value)} className="w-full border rounded-md px-3 py-1.5 pl-9 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white" />
-                                </div>
-                                
-                                { isSearching && <div className="p-2 text-sm text-gray-500">搜索中...</div> }
-                                { !isSearching && searchKeyword.length >= 2 && searchResults.length === 0 && (
-                                    <div className="p-4 text-center text-sm text-gray-500 bg-white border border-gray-100 rounded-lg">
-                                        暂无可引用的站内内容
+                        {contentSource === 'resource' && (
+                            <div className="animate-in fade-in slide-in-from-top-2 duration-200">
+                                <label className="block text-sm font-medium text-gray-700 mb-1">选择内容资源 (Resources)</label>
+                                <div className="border rounded-lg p-3 space-y-2 bg-gray-50">
+                                    <div className="relative">
+                                        <Search size={16} className="absolute left-3 top-2.5 text-gray-400" />
+                                        <input type="text" placeholder="搜索站内资源标题..." value={searchKeyword} onChange={(e) => handleResourceSearch(e.target.value)} className="w-full border rounded-md px-3 py-1.5 pl-9 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white" />
                                     </div>
-                                )}
-
-                                { searchResults.length > 0 && (
-                                    <div className="max-h-40 overflow-y-auto border rounded-md bg-white">
-                                        {searchResults.map(res => (
-                                            <button type="button" key={res.id} onClick={() => toggleResource(res)} className="w-full text-left p-2 text-sm hover:bg-gray-100 flex items-center gap-2 border-b border-gray-50 last:border-0">
-                                                <div className={`w-4 h-4 border rounded flex items-center justify-center ${selectedResources.some(r => r.id === res.id) ? 'bg-gray-900 border-gray-900' : 'border-gray-300'}`}>
-                                                    {selectedResources.some(r => r.id === res.id) && <Check size={12} className="text-white" />}
-                                                </div>
-                                                {res.title}
-                                            </button>
-                                        ))}
-                                    </div>
-                                )}
-                                
-                                <div className="flex flex-wrap gap-2 pt-2">
-                                    {selectedResources.length > 0 ? selectedResources.map(res => (
-                                        <div key={res.id} className="bg-white border border-gray-200 rounded-full px-3 py-1 text-xs flex items-center gap-1 shadow-sm">
-                                            <span className="max-w-[200px] truncate">{res.title}</span>
-                                            <button type="button" onClick={() => toggleResource(res)} className="hover:text-red-500"><X size={12} /></button>
+                                    
+                                    { isSearching && <div className="p-2 text-sm text-gray-500">搜索中...</div> }
+                                    { !isSearching && searchKeyword.length >= 2 && searchResults.length === 0 && (
+                                        <div className="p-4 text-center text-sm text-gray-500 bg-white border border-gray-100 rounded-lg">
+                                            暂无可引用的站内内容
                                         </div>
-                                    )) : <p className="text-xs text-gray-400 px-1">请搜索并添加资源</p>}
+                                    )}
+
+                                    { searchResults.length > 0 && (
+                                        <div className="max-h-40 overflow-y-auto border rounded-md bg-white">
+                                            {searchResults.map(res => (
+                                                <button type="button" key={res.id} onClick={() => toggleResource(res)} className="w-full text-left p-2 text-sm hover:bg-gray-100 flex items-center gap-2 border-b border-gray-50 last:border-0">
+                                                    <div className={`w-4 h-4 border rounded flex items-center justify-center ${selectedResources.some(r => r.id === res.id) ? 'bg-gray-900 border-gray-900' : 'border-gray-300'}`}>
+                                                        {selectedResources.some(r => r.id === res.id) && <Check size={12} className="text-white" />}
+                                                    </div>
+                                                    {res.title}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                    
+                                    <div className="flex flex-wrap gap-2 pt-2">
+                                        {selectedResources.length > 0 ? selectedResources.map(res => (
+                                            <div key={res.id} className="bg-white border border-gray-200 rounded-full px-3 py-1 text-xs flex items-center gap-1 shadow-sm">
+                                                <span className="max-w-[200px] truncate">{res.title}</span>
+                                                <button type="button" onClick={() => toggleResource(res)} className="hover:text-red-500"><X size={12} /></button>
+                                            </div>
+                                        )) : <p className="text-xs text-gray-400 px-1">请搜索并添加资源</p>}
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    )}
+                        )}
 
-                    {isEmail && emailConfig.template_id ? (
-                        <div className="mb-2 p-3 bg-blue-50 border border-blue-100 rounded-lg flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                                <FileText size={16} className="text-blue-600"/>
-                                <span className="text-sm text-blue-900">
-                                    已选模板: <strong>{availableTemplates.find(t => t.id === emailConfig.template_id)?.name}</strong>
-                                </span>
+                        {isEmail && emailConfig.template_id ? (
+                            <div className="mb-2 p-3 bg-blue-50 border border-blue-100 rounded-lg flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                    <FileText size={16} className="text-blue-600"/>
+                                    <span className="text-sm text-blue-900">
+                                        已选模板: <strong>{availableTemplates.find(t => t.id === emailConfig.template_id)?.name}</strong>
+                                    </span>
+                                </div>
+                                <label className="flex items-center gap-2 text-xs cursor-pointer select-none text-blue-800 hover:text-blue-900">
+                                    <input type="checkbox" checked={overrideTemplate} onChange={e => setOverrideTemplate(e.target.checked)} className="rounded text-blue-600 focus:ring-blue-500" />
+                                    {overrideTemplate ? <Unlock size={14} /> : <Lock size={14} />}
+                                    允许覆盖内容
+                                </label>
                             </div>
-                            <label className="flex items-center gap-2 text-xs cursor-pointer select-none text-blue-800 hover:text-blue-900">
-                                <input type="checkbox" checked={overrideTemplate} onChange={e => setOverrideTemplate(e.target.checked)} className="rounded text-blue-600 focus:ring-blue-500" />
-                                {overrideTemplate ? <Unlock size={14} /> : <Lock size={14} />}
-                                允许覆盖内容
-                            </label>
-                        </div>
-                    ) : isEmail && (
-                        <div className="mb-2 p-3 bg-yellow-50 border border-yellow-100 rounded-lg flex items-center gap-2 text-sm text-yellow-700">
-                            <AlertTriangle size={16} />
-                            请先在“基础信息”区块中选择邮件模板。
-                        </div>
-                    )}
+                        ) : isEmail && (
+                            <div className="mb-2 p-3 bg-yellow-50 border border-yellow-100 rounded-lg flex items-center gap-2 text-sm text-yellow-700">
+                                <AlertTriangle size={16} />
+                                请先在“基础信息”区块中选择邮件模板。
+                            </div>
+                        )}
 
-                    <div className="pt-2 border-t border-gray-100">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">{labelSubject}</label>
-                        <input 
-                            type="text" 
-                            value={emailConfig.subject} 
-                            onChange={(e) => setEmailConfig(p => ({...p, subject: e.target.value}))} 
-                            disabled={isContentDisabled}
-                            className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 ${isContentDisabled ? 'bg-gray-50 text-gray-500 cursor-not-allowed border-gray-200' : 'bg-white'}`}
-                            placeholder={isContentDisabled ? '主题由模板提供 (勾选上方允许覆盖以编辑)' : placeholderSubject} 
-                        />
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">{labelBody}</label>
-                        <textarea 
-                            value={emailConfig.header_note || ''} 
-                            onChange={(e) => setEmailConfig(p => ({...p, header_note: e.target.value}))} 
-                            rows={5} 
-                            disabled={isContentDisabled}
-                            className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 font-mono ${isContentDisabled ? 'bg-gray-50 text-gray-500 cursor-not-allowed border-gray-200' : 'bg-white'}`}
-                            placeholder={isContentDisabled ? '正文由模板提供 (勾选上方允许覆盖以编辑)' : placeholderBody} 
-                        />
+                        <div className="pt-2 border-t border-gray-100">
+                            <label className="block text-sm font-medium text-gray-700 mb-1">{labelSubject}</label>
+                            <input 
+                                type="text" 
+                                value={emailConfig.subject} 
+                                onChange={(e) => setEmailConfig(p => ({...p, subject: e.target.value}))} 
+                                disabled={isContentDisabled}
+                                className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 ${isContentDisabled ? 'bg-gray-50 text-gray-500 cursor-not-allowed border-gray-200' : 'bg-white'}`}
+                                placeholder={isContentDisabled ? '主题由模板提供 (勾选上方允许覆盖以编辑)' : placeholderSubject} 
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">{labelBody}</label>
+                            <textarea 
+                                value={emailConfig.header_note || ''} 
+                                onChange={(e) => setEmailConfig(p => ({...p, header_note: e.target.value}))} 
+                                rows={5} 
+                                disabled={isContentDisabled}
+                                className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 font-mono ${isContentDisabled ? 'bg-gray-50 text-gray-500 cursor-not-allowed border-gray-200' : 'bg-white'}`}
+                                placeholder={isContentDisabled ? '正文由模板提供 (勾选上方允许覆盖以编辑)' : placeholderBody} 
+                            />
+                        </div>
                     </div>
                 </section>
             </div>
@@ -739,7 +762,7 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
                     <h2 className="text-lg font-semibold text-gray-900">执行计划 (Schedule)</h2>
                     </div>
                     
-                    <div className="space-y-2">
+                    <div className={`space-y-2 ${executionLocked ? 'opacity-70 pointer-events-none' : ''}`}>
                     <label className="block text-sm font-medium text-gray-700">执行方式</label>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
                         <label className={`flex items-center p-3 border rounded-lg cursor-pointer transition-colors ${schedule.mode === 'one_time' && schedule.one_time_type === 'immediate' ? 'bg-gray-50 border-gray-900' : 'hover:bg-gray-50'}`}>
@@ -757,45 +780,47 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
                     </div>
                     </div>
                     
-                    {schedule.mode === 'one_time' && schedule.one_time_type === 'scheduled' && (
-                    <div className="grid grid-cols-2 gap-4 pt-4 border-t border-gray-100 animate-in fade-in">
-                        <div>
-                        <label className="block text-xs font-medium text-gray-500 mb-1">执行日期</label>
-                        <input type="date" value={schedule.one_time_date || ''} onChange={(e) => setSchedule(p => ({...p, one_time_date: e.target.value}))} className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" min={new Date().toISOString().split('T')[0]} />
+                    <div className={executionLocked ? 'opacity-70 pointer-events-none' : ''}>
+                        {schedule.mode === 'one_time' && schedule.one_time_type === 'scheduled' && (
+                        <div className="grid grid-cols-2 gap-4 pt-4 border-t border-gray-100 animate-in fade-in">
+                            <div>
+                            <label className="block text-xs font-medium text-gray-500 mb-1">执行日期</label>
+                            <input type="date" value={schedule.one_time_date || ''} onChange={(e) => setSchedule(p => ({...p, one_time_date: e.target.value}))} className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" min={new Date().toISOString().split('T')[0]} />
+                            </div>
+                            <div>
+                            <label className="block text-xs font-medium text-gray-500 mb-1">执行时间</label>
+                            <input type="time" value={schedule.one_time_time || ''} onChange={(e) => setSchedule(p => ({...p, one_time_time: e.target.value}))} className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
+                            </div>
+                            {scheduleError && <div className="col-span-2 text-xs text-red-600 flex items-center gap-1"><AlertTriangle size={14} /> {scheduleError}</div>}
                         </div>
-                        <div>
-                        <label className="block text-xs font-medium text-gray-500 mb-1">执行时间</label>
-                        <input type="time" value={schedule.one_time_time || ''} onChange={(e) => setSchedule(p => ({...p, one_time_time: e.target.value}))} className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
-                        </div>
-                        {scheduleError && <div className="col-span-2 text-xs text-red-600 flex items-center gap-1"><AlertTriangle size={14} /> {scheduleError}</div>}
-                    </div>
-                    )}
+                        )}
 
-                    {schedule.mode === 'recurring' && (
-                    <div className="grid grid-cols-2 gap-4 pt-4 border-t border-gray-100 animate-in fade-in">
-                        <div className="col-span-2 grid grid-cols-2 gap-4">
-                            <div>
-                                <label className="block text-xs font-medium text-gray-500 mb-1">频率</label>
-                                <CustomSelect value={schedule.frequency || 'daily'} onChange={(v) => setSchedule(p => ({...p, frequency: v as any}))} options={[{label:'每天', value:'daily'}, {label:'每周', value:'weekly'}, {label:'每月', value:'monthly'}]} />
+                        {schedule.mode === 'recurring' && (
+                        <div className="grid grid-cols-2 gap-4 pt-4 border-t border-gray-100 animate-in fade-in">
+                            <div className="col-span-2 grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs font-medium text-gray-500 mb-1">频率</label>
+                                    <CustomSelect value={schedule.frequency || 'daily'} onChange={(v) => setSchedule(p => ({...p, frequency: v as any}))} options={[{label:'每天', value:'daily'}, {label:'每周', value:'weekly'}, {label:'每月', value:'monthly'}]} />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-medium text-gray-500 mb-1">执行时间</label>
+                                    <input type="time" value={schedule.time || ''} onChange={(e) => setSchedule(p => ({...p, time: e.target.value}))} className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
+                                </div>
                             </div>
-                            <div>
-                                <label className="block text-xs font-medium text-gray-500 mb-1">执行时间</label>
-                                <input type="time" value={schedule.time || ''} onChange={(e) => setSchedule(p => ({...p, time: e.target.value}))} className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
+                            <div className="col-span-2 grid grid-cols-2 gap-4 pt-2">
+                                <div>
+                                    <label className="block text-xs font-medium text-gray-500 mb-1">开始日期 (From)</label>
+                                    <input type="date" value={schedule.start_date || ''} onChange={(e) => setSchedule(p => ({...p, start_date: e.target.value}))} className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-medium text-gray-500 mb-1">结束日期 (To) - 可选</label>
+                                    <input type="date" value={schedule.end_date || ''} onChange={(e) => setSchedule(p => ({...p, end_date: e.target.value}))} className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" placeholder="长期有效" />
+                                </div>
                             </div>
+                            {scheduleError && <div className="col-span-2 text-xs text-red-600 flex items-center gap-1"><AlertTriangle size={14} /> {scheduleError}</div>}
                         </div>
-                        <div className="col-span-2 grid grid-cols-2 gap-4 pt-2">
-                             <div>
-                                <label className="block text-xs font-medium text-gray-500 mb-1">开始日期 (From)</label>
-                                <input type="date" value={schedule.start_date || ''} onChange={(e) => setSchedule(p => ({...p, start_date: e.target.value}))} className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
-                            </div>
-                            <div>
-                                <label className="block text-xs font-medium text-gray-500 mb-1">结束日期 (To) - 可选</label>
-                                <input type="date" value={schedule.end_date || ''} onChange={(e) => setSchedule(p => ({...p, end_date: e.target.value}))} className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" placeholder="长期有效" />
-                            </div>
-                        </div>
-                        {scheduleError && <div className="col-span-2 text-xs text-red-600 flex items-center gap-1"><AlertTriangle size={14} /> {scheduleError}</div>}
+                        )}
                     </div>
-                    )}
                 </section>
             </div>
 

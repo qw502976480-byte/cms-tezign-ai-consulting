@@ -6,6 +6,7 @@ import { ArrowLeft } from 'lucide-react';
 import { createClient } from '@/utils/supabase/server';
 import { DeliveryTask, DeliveryRun } from '@/types';
 import { recoverStaleRuns } from '../actions';
+import { isRunActive } from '../utils';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,9 +38,8 @@ export default async function EditDeliveryPage({ params }: { params: { id: strin
   const task = taskRes.data as DeliveryTask;
   const runs = (runsRes.data || []) as DeliveryRun[];
   
-  // 修复：只要存在 'running' 状态的 run，就认为任务正在执行中。
-  // This will lock the execution buttons on the edit page.
-  const hasActiveRun = runs.some(r => r.status === 'running');
+  // Use strict timeout logic: Only lock if a run is TRULY active (< 5 mins)
+  const hasActiveRun = runs.some(r => isRunActive(r));
 
   return (
     <div className="max-w-6xl mx-auto py-6 space-y-6">
