@@ -148,13 +148,10 @@ export default async function AdminDashboard({ searchParams }: { searchParams: {
     <div className="space-y-8 max-w-7xl">
       
       {/* PAGE HEADER */}
-      <div className="flex items-center gap-3 border-b border-gray-100 pb-6">
-        <div className="p-2 bg-gray-900 rounded-lg text-white">
-            <LayoutDashboard size={24} />
-        </div>
+      <div className="flex justify-between items-end">
         <div>
-            <h1 className="text-2xl font-bold text-gray-900 tracking-tight">行动控制台 (Action Console)</h1>
-            <p className="text-sm text-gray-500 mt-0.5">
+            <h1 className="text-2xl font-semibold text-gray-900 tracking-tight">概览 (Dashboard)</h1>
+            <p className="text-sm text-gray-500 mt-1">
             先看全量 · 再看区间 · 最后行动
             </p>
         </div>
