@@ -40,7 +40,7 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
   const [preflightError, setPreflightError] = useState<string | null>(null);
 
   // 1) Define executionLocked from hasActiveRun prop
-  const executionLocked = Boolean(hasActiveRun) || (initialData?.status as any) === 'running';
+  const executionLocked = Boolean(hasActiveRun) || (initialData?.status as any) === 'running' || initialData?.last_run_status === 'running';
 
   // --- State ---
   const [basic, setBasic] = useState({
