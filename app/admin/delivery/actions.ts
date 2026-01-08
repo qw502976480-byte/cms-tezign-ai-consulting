@@ -423,7 +423,8 @@ async function sendEmailsToRecipients(task: DeliveryTask, recipients: UserProfil
             // assuming task.content_ids logic is handled or static text is used.
             if (task.content_ids && task.content_ids.length > 0) {
                  const resources = await getResourcesByIds(task.content_ids);
-                 itemsHtml = `<ul style="padding-left: 20px;">${resources.map(r => `<li><a href="${process.env.NEXT_PUBLIC_SITE_URL}/library/${r.slug || ''}">${r.title}</a></li>`).join('')}</ul>`;
+                 // Fixed: Removed missing 'slug' access. Only display title.
+                 itemsHtml = `<ul style="padding-left: 20px;">${resources.map(r => `<li>${r.title}</li>`).join('')}</ul>`;
             } else {
                  itemsHtml = '<p>No specific resources selected.</p>';
             }
