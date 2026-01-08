@@ -5,10 +5,14 @@ import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import { createClient } from '@/utils/supabase/server';
 import { DeliveryTask, DeliveryRun } from '@/types';
+import { recoverStaleRuns } from '../actions';
 
 export const dynamic = 'force-dynamic';
 
 export default async function EditDeliveryPage({ params }: { params: { id: string } }) {
+  // System maintenance check on page load
+  await recoverStaleRuns();
+
   const supabase = await createClient();
   
   const taskPromise = supabase

@@ -8,6 +8,69 @@ import { addMinutes, isAfter, isBefore, parse, subDays, startOfDay, endOfDay, su
 import { Resend } from 'resend';
 import { deriveDeliveryTaskState } from './utils';
 
+// --- System Recovery ---
+export async function recoverStaleRuns() {
+  const supabase = createServiceClient();
+  const now = new Date();
+
+  // 1. Find all currently running tasks
+  const { data: activeRuns, error } = await supabase
+    .from('delivery_task_runs')
+    .select('id, started_at, task_id, delivery_tasks!inner(id, schedule_rule)')
+    .eq('status', 'running');
+
+  if (error || !activeRuns || activeRuns.length === 0) return;
+
+  const updates = [];
+
+  for (const run of activeRuns) {
+    const startTime = new Date(run.started_at);
+    const task = run.delivery_tasks as any;
+    const schedule = task.schedule_rule;
+
+    // 2. Determine Timeout Threshold based on Task Type
+    // Immediate (Manual Run): 2 minutes timeout to unlock UI quickly
+    // Scheduled/Recurring: 15 minutes timeout for bulk processing
+    let timeoutMinutes = 15; 
+    let isImmediate = false;
+
+    if (schedule?.mode === 'one_time' && schedule?.one_time_type === 'immediate') {
+        timeoutMinutes = 2;
+        isImmediate = true;
+    }
+
+    // 3. Check Expiry
+    if (isBefore(startTime, subMinutes(now, timeoutMinutes))) {
+        const timeLabel = isImmediate ? '2m (Immediate)' : '15m (Scheduled)';
+        console.warn(`[Recovery] Run ${run.id} timed out (> ${timeLabel}). Cleaning up.`);
+
+        // 4. Perform Recovery Updates
+        // Mark Run as Failed
+        updates.push(
+            supabase.from('delivery_task_runs').update({
+                status: 'failed',
+                finished_at: now.toISOString(),
+                message: `System: Execution timed out (> ${timeoutMinutes}m). Stale Lock released.`
+            }).eq('id', run.id)
+        );
+
+        // Mark Task as Failed (Unlock UI)
+        updates.push(
+            supabase.from('delivery_tasks').update({
+                last_run_status: 'failed',
+                last_run_message: `System: Execution timed out (> ${timeoutMinutes}m).`
+            }).eq('id', run.task_id)
+        );
+    }
+  }
+
+  if (updates.length > 0) {
+      await Promise.all(updates);
+      // Revalidate to reflect changes immediately
+      revalidatePath('/admin/delivery'); 
+  }
+}
+
 // --- Preflight Check ---
 export async function preflightCheckDeliveryTask(task: Partial<DeliveryTask>): Promise<{ success: boolean; error?: string; data?: PreflightCheckResult & { has_active_run: boolean } }> {
   const now = new Date();
@@ -30,8 +93,8 @@ export async function preflightCheckDeliveryTask(task: Partial<DeliveryTask>): P
           if (activeRun) {
               // Check for stale lock in preflight too
               const startTime = new Date(activeRun.started_at);
-              // If it's been running less than 15 mins, consider it valid. Otherwise ignore it (let RunNow handle cleanup).
-              if (!isBefore(startTime, subMinutes(now, 15))) {
+              // If it's been running less than 2 mins, consider it valid. Otherwise ignore it (let RunNow handle cleanup).
+              if (!isBefore(startTime, subMinutes(now, 2))) {
                   hasActiveRun = true;
                   return { success: false, error: '任务正在执行中 (Active Run Exists)，请等待执行完成。', data: { estimated_recipients: 0, next_run_at: null, has_active_run: true } };
               }
@@ -160,8 +223,7 @@ export async function upsertDeliveryTask(data: Partial<DeliveryTask>, preflightR
 export async function runDeliveryTaskNow(taskId: string): Promise<{ success: boolean, error?: string, message?: string, code?: string }> {
   const supabase = createServiceClient();
   const started_at = new Date();
-  const LOCK_TIMEOUT_MINUTES = 15;
-
+  
   // 1. Fetch Task
   const { data: task } = await supabase.from('delivery_tasks').select('*').eq('id', taskId).single();
   if (!task) return { success: false, error: 'Task not found.' };
@@ -173,6 +235,8 @@ export async function runDeliveryTaskNow(taskId: string): Promise<{ success: boo
   }
 
   // Guard 2: Active Run Check with Stale Lock Release
+  // We now rely on the global `recoverStaleRuns` for bulk cleanup, 
+  // but we keep a local check here for immediate feedback to avoid race conditions.
   const { data: existingRuns } = await supabase
     .from('delivery_task_runs')
     .select('id, started_at')
@@ -182,10 +246,11 @@ export async function runDeliveryTaskNow(taskId: string): Promise<{ success: boo
   if (existingRuns && existingRuns.length > 0) {
       let isLocked = false;
       const now = new Date();
+      // Default fallback threshold if logic misses
+      const LOCK_TIMEOUT_MINUTES = 2; 
 
       for (const run of existingRuns) {
           const runStart = new Date(run.started_at);
-          // Check if lock is stale (older than X minutes)
           if (isBefore(runStart, subMinutes(now, LOCK_TIMEOUT_MINUTES))) {
               console.warn(`[Auto-Release] Found stale lock for run ${run.id}. Marking as failed.`);
               // Release the lock
@@ -194,7 +259,6 @@ export async function runDeliveryTaskNow(taskId: string): Promise<{ success: boo
                   finished_at: now.toISOString(),
                   message: 'System: Execution timed out (Stale Lock released).'
               }).eq('id', run.id);
-              // Reset task status locally to allow proceed
               await supabase.from('delivery_tasks').update({ last_run_status: 'failed' }).eq('id', taskId);
           } else {
               isLocked = true;

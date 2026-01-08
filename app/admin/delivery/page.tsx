@@ -6,10 +6,14 @@ import Link from 'next/link';
 import { Plus } from 'lucide-react';
 import { DeliveryTask, EmailSendingAccount, EmailTemplate, DeliveryRun } from '@/types';
 import { subMinutes, isBefore } from 'date-fns';
+import { recoverStaleRuns } from './actions';
 
 export const dynamic = 'force-dynamic';
 
 export default async function DeliveryListPage({ searchParams }: { searchParams: { [key: string]: string | undefined } }) {
+  // System maintenance check on page load
+  await recoverStaleRuns();
+
   const supabase = await createClient();
   const now = new Date();
 
@@ -41,7 +45,7 @@ export default async function DeliveryListPage({ searchParams }: { searchParams:
       query,
       supabase.from('email_sending_accounts').select('*').order('created_at', { ascending: false }),
       supabase.from('email_templates').select('*').order('created_at', { ascending: false }),
-      supabase.from('delivery_task_runs').select('id, task_id, status, started_at, success_count, recipient_count, message').order('started_at', { ascending: false })
+      supabase.from('delivery_task_runs').select('id, task_id, status, started_at, finished_at, success_count, recipient_count, message').order('started_at', { ascending: false })
   ]);
 
   if (tasksRes.error) {

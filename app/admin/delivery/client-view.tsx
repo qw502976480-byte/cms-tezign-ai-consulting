@@ -3,9 +3,9 @@
 
 import React, { useState, useEffect, useRef, useTransition } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
-import { DeliveryTask, EmailSendingAccount, EmailTemplate, DeliveryRun } from '@/types';
-import { Search, ChevronDown, Check, MoreHorizontal, Clock, Play, Pause, Copy, Trash2, Edit2, Settings, Mail, Repeat, ScrollText, AlertTriangle, UserCheck, Loader2 } from 'lucide-react';
-import { format } from 'date-fns';
+import { DeliveryTask, EmailSendingAccount, EmailTemplate, DeliveryRun, DeliveryRunStatus } from '@/types';
+import { Search, ChevronDown, Check, MoreHorizontal, Clock, Play, Pause, Copy, Trash2, Edit2, Settings, Mail, Repeat, ScrollText, AlertTriangle, UserCheck, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
+import { format, differenceInMinutes, differenceInSeconds } from 'date-fns';
 import { updateTaskStatus, deleteTask, duplicateTask } from './actions';
 import Link from 'next/link';
 import EmailConfigModal from './EmailConfigModal';
@@ -41,18 +41,6 @@ function FilterDropdown({ label, value, options, onChange }: any) {
         </div>
     );
 }
-
-// Updated Status Map to handle Derived Statuses
-const statusMap: Record<DerivedTaskStatus, { label: string; color: string; icon?: React.ElementType }> = {
-    draft: { label: '草稿', color: 'bg-gray-100 text-gray-600 border-gray-200' },
-    active: { label: '运行中', color: 'bg-green-50 text-green-700 border-green-200', icon: Play },
-    scheduled: { label: '已排期', color: 'bg-blue-50 text-blue-700 border-blue-200', icon: Clock },
-    paused: { label: '已暂停', color: 'bg-yellow-50 text-yellow-700 border-yellow-200', icon: Pause },
-    completed: { label: '已完成', color: 'bg-slate-100 text-slate-600 border-slate-200', icon: Check },
-    failed: { label: '失败', color: 'bg-red-50 text-red-700 border-red-200', icon: AlertTriangle },
-    overdue: { label: '已逾期', color: 'bg-orange-50 text-orange-700 border-orange-200', icon: AlertTriangle },
-    running: { label: '执行中', color: 'bg-indigo-50 text-indigo-700 border-indigo-200', icon: Loader2 },
-};
 
 export default function TaskClientView({ 
     initialTasks, 
@@ -126,18 +114,139 @@ export default function TaskClientView({
         };
     };
 
-    const getNextRunDisplay = (task: DeliveryTask, displayStatus: string) => {
-        if (displayStatus === 'completed' || displayStatus === 'failed') return '—';
+    // --- Time & Status Helpers ---
+
+    const formatRunDuration = (run: DeliveryRun) => {
+        const start = new Date(run.started_at);
+        const end = run.finished_at ? new Date(run.finished_at) : new Date();
+        const seconds = differenceInSeconds(end, start);
         
-        const isOneTime = task.schedule_rule?.mode === 'one_time';
-        if (isOneTime) {
-             if (task.run_count > 0) return '—';
-             if (task.schedule_rule?.one_time_type === 'scheduled') {
-                 return `${task.schedule_rule.one_time_date} ${task.schedule_rule.one_time_time}`;
-             }
-             return '—'; // Immediate, waiting for manual run
+        if (seconds < 60) return `${seconds}s`;
+        const mins = Math.floor(seconds / 60);
+        if (mins < 60) return `${mins}m`;
+        const hours = Math.floor(mins / 60);
+        const remainingMins = mins % 60;
+        return `${hours}h ${remainingMins}m`;
+    };
+
+    const getPlannedTimeDisplay = (task: DeliveryTask, derivedStatus: DerivedTaskStatus) => {
+        const { schedule_rule: s } = task;
+        if (derivedStatus === 'completed') return <span className="text-gray-300 text-xs font-mono">—</span>;
+        
+        if (!s) return <span className="text-gray-300 text-xs">—</span>;
+
+        if (s.mode === 'one_time') {
+            if (task.run_count > 0) return <span className="text-gray-300 text-xs font-mono">—</span>;
+            
+            if (s.one_time_type === 'immediate') {
+                return (
+                    <div className="flex flex-col">
+                        <span className="text-amber-600 text-xs font-medium">立即 (需手动)</span>
+                    </div>
+                );
+            }
+            if (s.one_time_type === 'scheduled') {
+                const dateStr = `${s.one_time_date || ''} ${s.one_time_time || ''}`;
+                const isValid = dateStr.trim().length > 5;
+                return (
+                    <div className="flex flex-col">
+                        <span className="text-gray-900 text-xs font-medium truncate">{isValid ? dateStr : '未设置'}</span>
+                        {derivedStatus === 'overdue' && <span className="text-[10px] text-red-500 font-medium">已逾期</span>}
+                    </div>
+                );
+            }
         }
-        return task.next_run_at ? format(new Date(task.next_run_at), 'yyyy-MM-dd HH:mm') : 'Calculating...';
+        
+        if (s.mode === 'recurring') {
+            const freqMap: any = { daily: '每天', weekly: '每周', monthly: '每月' };
+            const freq = freqMap[s.frequency || ''] || s.frequency;
+            return (
+                <div className="flex flex-col">
+                    <span className="text-gray-900 text-xs font-medium">周期: {freq}</span>
+                    {task.next_run_at ? (
+                        <span className="text-[10px] text-gray-500">Next: {format(new Date(task.next_run_at), 'MM-dd HH:mm')}</span>
+                    ) : null}
+                </div>
+            );
+        }
+        return <span className="text-gray-300">—</span>;
+    };
+
+    const getActualTimeDisplay = (run?: DeliveryRun) => {
+        if (!run) return <span className="text-gray-300 text-xs font-mono">—</span>;
+        
+        const start = format(new Date(run.started_at), 'MM-dd HH:mm');
+        const duration = formatRunDuration(run);
+        const isRunning = run.status === 'running';
+
+        return (
+            <div className="flex flex-col">
+                <span className="text-gray-900 text-xs font-mono">{start}</span>
+                {isRunning ? (
+                    <span className="text-[10px] text-indigo-600 font-medium animate-pulse">Running ({duration})</span>
+                ) : (
+                    <span className="text-[10px] text-gray-400">Duration: {duration}</span>
+                )}
+            </div>
+        );
+    };
+
+    const getStatusBadge = (task: DeliveryTask, lastRun: DeliveryRun | undefined, derivedStatus: DerivedTaskStatus) => {
+        // 1. Running (Highest Priority)
+        if (derivedStatus === 'running' || lastRun?.status === 'running') {
+             const duration = lastRun ? formatRunDuration(lastRun) : '';
+             return (
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium border bg-indigo-50 text-indigo-700 border-indigo-200">
+                    <Loader2 size={12} className="animate-spin" />
+                    执行中 {duration && `(${duration})`}
+                </span>
+             );
+        }
+        
+        // 2. Paused (Explicitly Paused Recurring Task)
+        if (derivedStatus === 'paused') {
+             return (
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium border bg-yellow-50 text-yellow-700 border-yellow-200">
+                    <Pause size={12} /> 已暂停
+                </span>
+             );
+        }
+
+        // 3. Run Result (If available)
+        if (lastRun) {
+            const map: any = {
+                success: { label: '成功', color: 'bg-emerald-50 text-emerald-700 border-emerald-200', icon: CheckCircle2 },
+                failed: { label: '失败', color: 'bg-red-50 text-red-700 border-red-200', icon: AlertTriangle },
+                skipped: { label: '跳过', color: 'bg-amber-50 text-amber-700 border-amber-200', icon: AlertCircle },
+            };
+            const conf = map[lastRun.status];
+            if (conf) {
+                return (
+                    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium border ${conf.color}`}>
+                        <conf.icon size={12} /> {conf.label}
+                    </span>
+                );
+            }
+        }
+
+        // 4. Default Task Status (Draft, Scheduled, Active without run, Completed, Overdue)
+        const defMap: any = {
+            draft: { label: '草稿', color: 'bg-gray-100 text-gray-600 border-gray-200' },
+            scheduled: { label: '已排期', color: 'bg-blue-50 text-blue-700 border-blue-200', icon: Clock },
+            active: { label: '运行中', color: 'bg-green-50 text-green-700 border-green-200', icon: Play },
+            completed: { label: '已完成', color: 'bg-slate-100 text-slate-600 border-slate-200', icon: Check },
+            overdue: { label: '已逾期', color: 'bg-orange-50 text-orange-700 border-orange-200', icon: AlertTriangle },
+        };
+        const def = defMap[derivedStatus];
+        if (def) {
+             return (
+                <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium border ${def.color}`}>
+                    {def.icon && <def.icon size={12} />} {def.label}
+                </span>
+             );
+        }
+        
+        return <span className="text-gray-400 text-xs">{derivedStatus}</span>;
     };
 
     return (
@@ -159,7 +268,7 @@ export default function TaskClientView({
                     <FilterDropdown 
                         label="状态"
                         value={searchParams.get('status') || 'all'}
-                        options={[{label:'全部',value:'all'}, ...Object.keys(statusMap).map(k => ({label:statusMap[k as DerivedTaskStatus].label, value:k}))]}
+                        options={[{label:'全部',value:'all'}, {label:'草稿',value:'draft'}, {label:'运行中',value:'active'}, {label:'已暂停',value:'paused'}, {label:'已完成',value:'completed'}]}
                         onChange={(v: string) => updateFilter('status', v)}
                     />
                     <FilterDropdown 
@@ -189,13 +298,12 @@ export default function TaskClientView({
                  <table className="w-full text-sm text-left">
                     <thead className="text-gray-500 font-medium border-b border-gray-200 bg-gray-50/50">
                         <tr>
-                            <th className="px-6 py-4 w-[220px] font-medium">任务名称</th>
-                            <th className="px-6 py-4 w-[100px] font-medium">类型</th>
+                            <th className="px-6 py-4 w-[220px] font-medium">任务名称 / 类型</th>
                             <th className="px-6 py-4 w-[160px] font-medium">渠道配置</th>
-                            <th className="px-6 py-4 w-[120px] font-medium">受众/触达</th>
-                            <th className="px-6 py-4 w-[120px] font-medium">状态</th>
-                            <th className="px-6 py-4 w-[150px] font-medium">最近执行</th>
-                            <th className="px-6 py-4 w-[150px] font-medium">下次执行</th>
+                            <th className="px-6 py-4 w-[140px] font-medium">结果 / 状态</th>
+                            <th className="px-6 py-4 w-[150px] font-medium">计划执行 (Planned)</th>
+                            <th className="px-6 py-4 w-[150px] font-medium">实际执行 (Actual)</th>
+                            <th className="px-6 py-4 w-[100px] font-medium">受众</th>
                             <th className="px-6 py-4 text-right font-medium">操作</th>
                         </tr>
                     </thead>
@@ -206,8 +314,6 @@ export default function TaskClientView({
                             const lastRun = latestRunMap[task.id];
                             const isLocked = runningSet.has(task.id);
                             
-                            // Use Central Logic for Status & Permissions
-                            // Inject last_run_status from the active runs map if available, to reflect 'running' state immediately
                             const deriveInput: DeliveryTaskDeriveInput = {
                                 status: task.status,
                                 run_count: task.run_count,
@@ -216,42 +322,46 @@ export default function TaskClientView({
                             };
                             
                             const { status: derivedStatus, canEnable } = deriveDeliveryTaskState(deriveInput);
-                            
-                            const statusInfo = statusMap[derivedStatus];
-                            const StatusIcon = statusInfo?.icon;
-                            const nextRunText = getNextRunDisplay(task, derivedStatus);
 
                             return (
                                 <tr key={task.id} className="hover:bg-gray-50 transition-colors group">
                                     <td className="px-6 py-4 font-medium text-gray-900">
-                                        <Link href={`/admin/delivery/${task.id}`} className="hover:text-indigo-600 hover:underline block truncate max-w-[200px]" title={task.name}>{task.name}</Link>
-                                        {task.last_run_message && (
-                                            <p className="text-xs text-gray-400 mt-1 truncate max-w-[200px]" title={task.last_run_message}>{task.last_run_message}</p>
-                                        )}
-                                    </td>
-                                    <td className="px-6 py-4 whitespace-nowrap">
-                                        {isRecurring ? (
-                                            <div className="flex items-center gap-1.5 text-xs text-indigo-700 bg-indigo-50 px-2 py-1 rounded border border-indigo-100 w-fit">
-                                                <Repeat size={12} /> 周期性
-                                            </div>
-                                        ) : (
-                                            <div className="flex items-center gap-1.5 text-xs text-slate-700 bg-slate-50 px-2 py-1 rounded border border-slate-100 w-fit">
-                                                <Clock size={12} /> 一次性
-                                            </div>
-                                        )}
+                                        <div className="flex flex-col gap-1.5 items-start">
+                                            <Link href={`/admin/delivery/${task.id}`} className="hover:text-indigo-600 hover:underline block truncate max-w-[200px]" title={task.name}>
+                                                {task.name}
+                                            </Link>
+                                            {isRecurring ? (
+                                                <div className="flex items-center gap-1 text-[10px] text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100 w-fit">
+                                                    <Repeat size={10} /> 周期性
+                                                </div>
+                                            ) : (
+                                                <div className="flex items-center gap-1 text-[10px] text-slate-700 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100 w-fit">
+                                                    <Clock size={10} /> 一次性
+                                                </div>
+                                            )}
+                                        </div>
                                     </td>
                                     <td className="px-6 py-4">
-                                        <div className="text-gray-900 font-medium flex items-center gap-1.5">
+                                        <div className="text-gray-900 font-medium flex items-center gap-1.5 text-xs">
                                             {task.channel === 'email' ? <Mail size={14} className="text-gray-400" /> : null}
                                             <span className="capitalize">{task.channel}</span>
                                         </div>
                                         {emailDetails && (
-                                            <div className="text-xs text-gray-500 mt-1 space-y-0.5">
+                                            <div className="text-[10px] text-gray-500 mt-1 space-y-0.5">
                                                 <div title={emailDetails.accountEmail} className="truncate max-w-[140px]">Via: {emailDetails.accountName}</div>
                                             </div>
                                         )}
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
+                                        {getStatusBadge(task, lastRun, derivedStatus)}
+                                    </td>
+                                    <td className="px-6 py-4 align-top">
+                                        {getPlannedTimeDisplay(task, derivedStatus)}
+                                    </td>
+                                    <td className="px-6 py-4 align-top">
+                                        {getActualTimeDisplay(lastRun)}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap align-top">
                                         {lastRun ? (
                                             <div className="flex flex-col gap-0.5">
                                                 <span className="text-sm font-medium text-gray-900 flex items-center gap-1">
@@ -269,19 +379,7 @@ export default function TaskClientView({
                                             </div>
                                         )}
                                     </td>
-                                    <td className="px-6 py-4 whitespace-nowrap">
-                                        <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium border whitespace-nowrap ${statusInfo?.color}`}>
-                                            {StatusIcon && <StatusIcon size={12} className={derivedStatus === 'running' ? 'animate-spin' : ''} />}
-                                            {statusInfo?.label}
-                                        </span>
-                                    </td>
-                                    <td className="px-6 py-4 text-gray-500 text-xs tabular-nums">
-                                        {task.last_run_at ? format(new Date(task.last_run_at), 'yyyy-MM-dd HH:mm') : '—'}
-                                    </td>
-                                    <td className="px-6 py-4 text-gray-500 text-xs tabular-nums">
-                                        {nextRunText}
-                                    </td>
-                                    <td className="px-6 py-4 text-right relative">
+                                    <td className="px-6 py-4 text-right relative align-top">
                                         {/* Actions Dropdown */}
                                         <button onClick={(e) => { e.stopPropagation(); setMenuOpenId(menuOpenId === task.id ? null : task.id); }} className="p-2 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-900 transition-colors">
                                             <MoreHorizontal size={18} />
@@ -295,6 +393,9 @@ export default function TaskClientView({
                                                 <button onClick={() => handleAction('logs', task)} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-gray-50 rounded text-gray-700">
                                                     <ScrollText size={14} /> 查看执行记录
                                                 </button>
+                                                <button onClick={() => handleAction('duplicate', task)} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-gray-50 rounded text-gray-700">
+                                                    <Copy size={14} /> 复制任务
+                                                </button>
                                                 {/* Guard: Enable/Pause - STRICTLY HIDDEN IF RUNNING */}
                                                 {!isLocked && canEnable && (
                                                     <button onClick={() => handleAction('toggle_status', task)} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-gray-50 rounded text-gray-700">
@@ -306,41 +407,35 @@ export default function TaskClientView({
                                                         <Loader2 size={14} className="animate-spin" /> 执行中...
                                                     </div>
                                                 )}
-                                                <button onClick={() => handleAction('duplicate', task)} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-gray-50 rounded text-gray-700">
-                                                    <Copy size={14} /> 复制任务
+                                                <div className="h-px bg-gray-100 my-1"></div>
+                                                <button onClick={() => handleAction('delete', task)} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-red-50 text-red-600 rounded">
+                                                    <Trash2 size={14} /> 删除任务
                                                 </button>
-                                                {!isLocked && (
-                                                    <button onClick={() => handleAction('delete', task)} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-red-50 text-red-600 rounded">
-                                                        <Trash2 size={14} /> 删除任务
-                                                    </button>
-                                                )}
                                             </div>
                                         )}
                                     </td>
                                 </tr>
                             );
                         })}
-                         {initialTasks.length === 0 && (
-                            <tr><td colSpan={8} className="text-center py-16 text-gray-400">暂无分发任务</td></tr>
+                        {initialTasks.length === 0 && (
+                            <tr>
+                                <td colSpan={7} className="text-center py-16 text-gray-400">暂无任务</td>
+                            </tr>
                         )}
                     </tbody>
                 </table>
             </div>
+
+            <EmailConfigModal isOpen={isConfigModalOpen} onClose={() => { setIsConfigModalOpen(false); }} accounts={emailAccounts} templates={emailTemplates} />
             
-            {/* Modals */}
-            <EmailConfigModal 
-                isOpen={isConfigModalOpen} 
-                onClose={() => setIsConfigModalOpen(false)} 
-                accounts={emailAccounts}
-                templates={emailTemplates}
-            />
-            
-            <TaskRunHistoryModal 
-                isOpen={!!historyModalTask} 
-                onClose={() => setHistoryModalTask(null)}
-                taskId={historyModalTask?.id || ''}
-                taskName={historyModalTask?.name || ''}
-            />
+            {historyModalTask && (
+                <TaskRunHistoryModal 
+                    isOpen={!!historyModalTask} 
+                    onClose={() => setHistoryModalTask(null)} 
+                    taskId={historyModalTask.id}
+                    taskName={historyModalTask.name}
+                />
+            )}
         </div>
     );
 }
