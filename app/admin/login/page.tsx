@@ -4,16 +4,21 @@
 import React, { useState, useEffect, Suspense } from 'react';
 import { createClient } from '@/utils/supabase/client';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Loader2, ArrowRight, CheckCircle2, AlertCircle, Mail, ShieldCheck } from 'lucide-react';
+import { Loader2, ArrowRight, CheckCircle2, AlertCircle, Mail, ShieldCheck, Lock, Sparkles } from 'lucide-react';
 
 function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const supabase = createClient();
 
+  // Form State
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loginMethod, setLoginMethod] = useState<'magic_link' | 'password'>('magic_link');
+
+  // UI State
   const [loading, setLoading] = useState(false);
-  const [isSuccess, setIsSuccess] = useState(false);
+  const [isSuccess, setIsSuccess] = useState(false); // Magic Link sent success state
   const [message, setMessage] = useState<{ type: 'error' | 'success', text: string } | null>(null);
 
   // 1. Check if already logged in
@@ -35,7 +40,7 @@ function LoginContent() {
     }
   }, [searchParams]);
 
-  const handleLogin = async (e: React.FormEvent) => {
+  const handleMagicLinkLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setMessage(null);
@@ -59,12 +64,33 @@ function LoginContent() {
     }
   };
 
+  const handlePasswordLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setMessage(null);
+
+    const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+    });
+
+    if (error) {
+        let errorMsg = error.message;
+        if (errorMsg === 'Invalid login credentials') errorMsg = '邮箱或密码错误';
+        setMessage({ type: 'error', text: errorMsg });
+        setLoading(false);
+    } else {
+        router.refresh();
+        router.replace('/admin');
+    }
+  };
+
   const handleResend = () => {
     setIsSuccess(false);
     setMessage(null);
   };
 
-  // Success View
+  // Success View (Only for Magic Link)
   if (isSuccess) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 p-4">
@@ -108,7 +134,25 @@ function LoginContent() {
              </div>
           </div>
           <h1 className="text-2xl font-semibold text-gray-900 tracking-tight">Web Platform Admin</h1>
-          <p className="text-gray-500 text-sm mt-2">使用邮箱 Magic Link 登录（不需要密码）</p>
+          <p className="text-gray-500 text-sm mt-2">请登录以访问后台管理系统</p>
+        </div>
+
+        {/* Login Method Toggle */}
+        <div className="flex bg-gray-100 p-1 rounded-xl mb-6">
+            <button 
+                type="button"
+                onClick={() => { setLoginMethod('magic_link'); setMessage(null); }}
+                className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-all ${loginMethod === 'magic_link' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+                <Sparkles size={14} /> 邮箱验证码
+            </button>
+            <button 
+                type="button"
+                onClick={() => { setLoginMethod('password'); setMessage(null); }}
+                className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-all ${loginMethod === 'password' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+                <Lock size={14} /> 密码登录
+            </button>
         </div>
 
         {/* Error Alert */}
@@ -120,7 +164,7 @@ function LoginContent() {
         )}
 
         {/* Form */}
-        <form onSubmit={handleLogin} className="space-y-5">
+        <form onSubmit={loginMethod === 'magic_link' ? handleMagicLinkLogin : handlePasswordLogin} className="space-y-5">
           <div>
             <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1.5">
               工作邮箱
@@ -139,20 +183,45 @@ function LoginContent() {
             </div>
           </div>
 
+          {loginMethod === 'password' && (
+              <div className="animate-in slide-in-from-top-2 fade-in duration-200">
+                <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1.5">
+                  密码
+                </label>
+                <div className="relative">
+                  <input
+                    id="password"
+                    type="password"
+                    required
+                    className="w-full pl-10 pr-4 py-2.5 bg-white border border-gray-200 rounded-xl text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent transition-all placeholder:text-gray-400"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••"
+                  />
+                  <Lock className="absolute left-3.5 top-2.5 text-gray-400" size={18} />
+                </div>
+              </div>
+          )}
+
           <button
             type="submit"
             disabled={loading}
             className="w-full flex justify-center items-center gap-2 bg-gray-900 hover:bg-black text-white font-medium py-2.5 px-4 rounded-xl transition-all disabled:opacity-70 disabled:cursor-not-allowed shadow-sm hover:shadow-md"
           >
              {loading ? <Loader2 className="animate-spin" size={18} /> : null}
-             {loading ? '发送中...' : '发送登录链接'}
+             {loading 
+                ? '请稍候...' 
+                : (loginMethod === 'magic_link' ? '发送登录链接' : '立即登录')
+             }
              {!loading && <ArrowRight size={18} />}
           </button>
         </form>
 
         {/* Footer Hint */}
         <p className="text-center text-xs text-gray-400 mt-6">
-          安全提示：链接有效期较短，请在同一浏览器打开
+          {loginMethod === 'magic_link' 
+            ? '安全提示：链接有效期较短，请在同一浏览器打开' 
+            : '提示：若忘记密码，请联系管理员或使用邮箱验证码登录'}
         </p>
       </div>
     </div>
