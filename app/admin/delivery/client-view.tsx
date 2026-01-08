@@ -1,15 +1,16 @@
+
 'use client';
 
 import React, { useState, useEffect, useRef, useTransition } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
-import { DeliveryTask, EmailSendingAccount, EmailTemplate } from '@/types';
-import { Search, ChevronDown, Check, MoreHorizontal, Clock, Play, Pause, Copy, Trash2, Edit2, Settings, Mail, Repeat, ScrollText, AlertTriangle, UserCheck, Loader2, CheckCircle2, RefreshCw, XCircle } from 'lucide-react';
+import { DeliveryTask, EmailSendingAccount, EmailTemplate, DeliveryRun } from '@/types';
+import { Search, ChevronDown, Check, MoreHorizontal, Clock, Play, Pause, Copy, Trash2, Edit2, Settings, Mail, Repeat, ScrollText, AlertTriangle, UserCheck, Loader2, CheckCircle2, RefreshCw, XCircle, Slash } from 'lucide-react';
 import { format } from 'date-fns';
 import { updateTaskStatus, deleteTask, duplicateTask, runDeliveryTaskNow } from './actions';
 import Link from 'next/link';
 import EmailConfigModal from './EmailConfigModal';
 import TaskRunHistoryModal from './TaskRunHistoryModal';
-import { getTaskDerivedResult, DerivedResult, isRunActive } from './utils';
+import { getTaskDerivedResult, DerivedResult, isDeliveryRunRecordActive } from './utils';
 
 // --- Components ---
 
@@ -79,7 +80,7 @@ function TaskActionMenu({
     const isOneTime = task.schedule_rule?.mode === 'one_time';
     const isRecurring = task.schedule_rule?.mode === 'recurring';
 
-    // PERMISSION MATRIX LOGIC
+    // --- PERMISSION MATRIX ---
     // 1. Running: Only Logs allowed.
     if (derivedResult === 'running') {
         return (
@@ -101,11 +102,37 @@ function TaskActionMenu({
         );
     }
 
-    const allowEdit = derivedResult !== 'success' || !isOneTime; // Locked if one-time success
-    const allowDuplicate = derivedResult !== 'failed'; // Forbidden if failed (design choice)
-    const allowRetry = derivedResult === 'failed'; // Only explicit retry if failed
-    const allowRunOnce = derivedResult === 'not_started' && isOneTime && task.schedule_rule?.one_time_type === 'immediate';
-    const allowStatusToggle = derivedResult === 'not_started' || (derivedResult === 'success' && isRecurring);
+    // 2. State-based Permissions
+    let allowEdit = true;
+    let allowRun = false;
+    let allowDuplicate = true;
+    let allowDelete = true;
+
+    if (derivedResult === 'success') {
+        if (isOneTime) {
+            allowEdit = false; // Locked
+            allowRun = false;
+            allowDuplicate = true;
+        } else {
+            // Recurring success
+            allowEdit = true;
+            allowRun = false; // Only automated
+            allowDuplicate = true;
+        }
+    } else if (derivedResult === 'failed') {
+        allowEdit = true;
+        allowRun = true; // Retry allowed
+        allowDuplicate = false; // Prohibit copy of failed
+    } else if (derivedResult === 'skipped') {
+        allowEdit = true;
+        allowRun = true;
+        allowDuplicate = true;
+    } else {
+        // Not Started
+        allowEdit = true;
+        allowRun = isOneTime && task.schedule_rule?.one_time_type === 'immediate';
+        allowDuplicate = true;
+    }
 
     return (
         <div className="relative" ref={menuRef}>
@@ -122,19 +149,20 @@ function TaskActionMenu({
                         </Link>
                     ) : (
                         <button disabled className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 text-gray-300 cursor-not-allowed">
-                            <Edit2 size={14} /> 编辑任务
+                            <Edit2 size={14} /> 编辑任务 (锁定)
                         </button>
                     )}
 
-                    {/* EXECUTE NOW (Only for immediate one-time tasks that haven't run) */}
-                    {allowRunOnce && (
-                        <button onClick={() => { onAction('run_now', task); setIsOpen(false); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-indigo-50 text-indigo-700 rounded font-medium">
-                            <Play size={14} /> 立即执行
+                    {/* RUN / RETRY */}
+                    {allowRun && (
+                        <button onClick={() => { onAction(derivedResult === 'failed' ? 'retry' : 'run_now', task); setIsOpen(false); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-indigo-50 text-indigo-700 rounded font-medium">
+                            {derivedResult === 'failed' ? <RefreshCw size={14} /> : <Play size={14} />}
+                            {derivedResult === 'failed' ? '重新执行' : '立即执行'}
                         </button>
                     )}
 
                     {/* ENABLE / DISABLE (For Scheduled/Recurring) */}
-                    {allowStatusToggle && !isOneTime && (
+                    {task.schedule_rule?.mode === 'recurring' && (
                         task.status === 'active' ? (
                             <button onClick={() => { onAction('pause', task); setIsOpen(false); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-gray-50 rounded text-gray-700">
                                 <Pause size={14} /> 暂停任务
@@ -146,16 +174,13 @@ function TaskActionMenu({
                         )
                     )}
 
-                    {/* RETRY (Failed only) */}
-                    {allowRetry && (
-                        <button onClick={() => { onAction('retry', task); setIsOpen(false); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-amber-50 text-amber-700 rounded font-medium">
-                            <RefreshCw size={14} /> 重新执行
-                        </button>
-                    )}
-
                     {/* DUPLICATE */}
-                    {allowDuplicate && (
+                    {allowDuplicate ? (
                         <button onClick={() => { onAction('duplicate', task); setIsOpen(false); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-gray-50 rounded text-gray-700">
+                            <Copy size={14} /> 复制任务
+                        </button>
+                    ) : (
+                        <button disabled className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 text-gray-300 cursor-not-allowed">
                             <Copy size={14} /> 复制任务
                         </button>
                     )}
@@ -168,9 +193,11 @@ function TaskActionMenu({
                     </button>
 
                     {/* DELETE */}
-                    <button onClick={() => { onAction('delete', task); setIsOpen(false); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-red-50 text-red-600 rounded">
-                        <Trash2 size={14} /> 删除任务
-                    </button>
+                    {allowDelete && (
+                        <button onClick={() => { onAction('delete', task); setIsOpen(false); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-red-50 text-red-600 rounded">
+                            <Trash2 size={14} /> 删除任务
+                        </button>
+                    )}
                 </div>
             )}
         </div>
@@ -180,11 +207,13 @@ function TaskActionMenu({
 export default function TaskClientView({ 
     initialTasks,
     emailAccounts,
-    emailTemplates
+    emailTemplates,
+    latestRunsMap = {} 
 }: { 
     initialTasks: DeliveryTask[]; 
     emailAccounts: EmailSendingAccount[];
     emailTemplates: EmailTemplate[];
+    latestRunsMap?: Record<string, DeliveryRun>;
 }) {
     const router = useRouter();
     const pathname = usePathname();
@@ -282,7 +311,8 @@ export default function TaskClientView({
                     </thead>
                     <tbody className="divide-y divide-gray-100">
                         {initialTasks.map(task => {
-                            const derivedResult = getTaskDerivedResult(task);
+                            const latestRun = latestRunsMap[task.id];
+                            const derivedResult = getTaskDerivedResult(task, latestRun);
                             const scheduleMode = task.schedule_rule?.mode === 'one_time' ? '一次性' : '周期';
                             
                             return (
@@ -290,11 +320,17 @@ export default function TaskClientView({
                                     <td className="px-6 py-4">
                                         <div className="font-medium text-gray-900 truncate max-w-[200px]" title={task.name}>{task.name}</div>
                                         <div className="flex items-center gap-2 mt-1">
-                                            {task.status === 'active' && <span className="inline-flex items-center gap-1 text-[10px] bg-green-50 text-green-700 px-1.5 py-0.5 rounded border border-green-100"><Play size={10} fill="currentColor"/> Active</span>}
-                                            {task.status === 'paused' && <span className="inline-flex items-center gap-1 text-[10px] bg-yellow-50 text-yellow-700 px-1.5 py-0.5 rounded border border-yellow-100"><Pause size={10} fill="currentColor"/> Paused</span>}
-                                            {task.status === 'draft' && <span className="inline-flex items-center gap-1 text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded border border-gray-200">Draft</span>}
-                                            {task.status === 'completed' && <span className="inline-flex items-center gap-1 text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded border border-blue-100"><CheckCircle2 size={10}/> Completed</span>}
-                                            {task.status === 'failed' && <span className="inline-flex items-center gap-1 text-[10px] bg-red-50 text-red-700 px-1.5 py-0.5 rounded border border-red-100"><AlertTriangle size={10}/> Failed</span>}
+                                            {/* Config Status Badge */}
+                                            <span className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border ${
+                                                task.status === 'active' ? 'bg-green-50 text-green-700 border-green-100' :
+                                                task.status === 'paused' ? 'bg-yellow-50 text-yellow-700 border-yellow-100' :
+                                                task.status === 'draft' ? 'bg-gray-100 text-gray-600 border-gray-200' :
+                                                'bg-gray-100 text-gray-500 border-gray-200'
+                                            }`}>
+                                                {task.status === 'active' && <Play size={10} fill="currentColor"/>}
+                                                {task.status === 'paused' && <Pause size={10} fill="currentColor"/>}
+                                                {task.status.toUpperCase()}
+                                            </span>
                                         </div>
                                     </td>
                                     <td className="px-6 py-4">
@@ -328,24 +364,31 @@ export default function TaskClientView({
                                         )}
                                     </td>
                                     <td className="px-6 py-4">
+                                        {/* Real Execution Status */}
                                         {derivedResult === 'running' ? (
                                             <div className="flex items-center gap-1.5 text-indigo-600 text-xs font-medium animate-pulse">
-                                                <Loader2 size={12} className="animate-spin" /> Running
+                                                <Loader2 size={12} className="animate-spin" /> 运行中
                                             </div>
                                         ) : derivedResult === 'failed' ? (
-                                             <div className="text-red-600 text-xs flex items-center gap-1" title={task.last_run_message || 'Unknown error'}>
-                                                <XCircle size={12} /> Failed
+                                             <div className="text-red-600 text-xs flex items-center gap-1" title={latestRun?.message || task.last_run_message || 'Unknown error'}>
+                                                <XCircle size={12} /> 失败
                                              </div>
                                         ) : derivedResult === 'success' ? (
                                              <div className="text-green-600 text-xs flex items-center gap-1">
-                                                <CheckCircle2 size={12} /> Success
+                                                <CheckCircle2 size={12} /> 成功
+                                             </div>
+                                        ) : derivedResult === 'skipped' ? (
+                                             <div className="text-yellow-600 text-xs flex items-center gap-1">
+                                                <Slash size={12} /> 跳过
                                              </div>
                                         ) : (
-                                            <span className="text-gray-300 text-xs">-</span>
+                                            <span className="text-gray-300 text-xs">未开始</span>
                                         )}
-                                        {task.last_run_at && derivedResult !== 'running' && (
+                                        
+                                        {/* Latest Run Time */}
+                                        {(latestRun?.started_at || task.last_run_at) && derivedResult !== 'running' && derivedResult !== 'not_started' && (
                                             <div className="text-[10px] text-gray-400 mt-1 font-mono">
-                                                {format(new Date(task.last_run_at), 'MM-dd HH:mm')}
+                                                {format(new Date(latestRun?.started_at || task.last_run_at!), 'MM-dd HH:mm')}
                                             </div>
                                         )}
                                     </td>

@@ -4,7 +4,7 @@ import { createClient } from '@/utils/supabase/server';
 import TaskClientView from './client-view';
 import Link from 'next/link';
 import { Plus } from 'lucide-react';
-import { DeliveryTask, EmailSendingAccount, EmailTemplate } from '@/types';
+import { DeliveryTask, EmailSendingAccount, EmailTemplate, DeliveryRun } from '@/types';
 import { recoverStaleRuns } from './actions';
 
 export const dynamic = 'force-dynamic';
@@ -56,6 +56,28 @@ export default async function DeliveryListPage({ searchParams }: { searchParams:
   const accounts = (accountsRes.data || []) as EmailSendingAccount[];
   const templates = (templatesRes.data || []) as EmailTemplate[];
 
+  // --- Fetch Authoritative Latest Runs ---
+  // We fetch runs for the current tasks to ensure we display the REAL status
+  const taskIds = tasks.map(t => t.id);
+  const latestRunsMap: Record<string, DeliveryRun> = {};
+  
+  if (taskIds.length > 0) {
+      const { data: allRuns } = await supabase
+        .from('delivery_task_runs')
+        .select('*')
+        .in('task_id', taskIds)
+        .order('started_at', { ascending: false }); // Sort by latest
+
+      if (allRuns) {
+          // Since it's sorted by date desc, the first entry for each task_id is the latest
+          allRuns.forEach((run) => {
+              if (!latestRunsMap[run.task_id]) {
+                  latestRunsMap[run.task_id] = run as DeliveryRun;
+              }
+          });
+      }
+  }
+
   return (
     <div className="space-y-8">
       <div className="flex justify-between items-end">
@@ -76,7 +98,8 @@ export default async function DeliveryListPage({ searchParams }: { searchParams:
       <TaskClientView 
         initialTasks={tasks} 
         emailAccounts={accounts} 
-        emailTemplates={templates} 
+        emailTemplates={templates}
+        latestRunsMap={latestRunsMap}
       />
     </div>
   );

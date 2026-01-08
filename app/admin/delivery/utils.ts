@@ -5,7 +5,7 @@ import { isBefore, parse, differenceInMinutes } from 'date-fns';
 export type DerivedTaskStatus = 'draft' | 'scheduled' | 'active' | 'paused' | 'completed' | 'failed' | 'overdue' | 'running';
 
 // New Unified Result State
-export type DerivedResult = 'running' | 'failed' | 'success' | 'not_started';
+export type DerivedResult = 'running' | 'failed' | 'success' | 'skipped' | 'not_started';
 
 export interface DerivedTaskState {
   status: DerivedTaskStatus;
@@ -30,10 +30,10 @@ export interface DeliveryTaskDeriveInput {
 export function isTaskRunActive(task: DeliveryTaskDeriveInput): boolean {
   if (task.last_run_status !== 'running' || !task.last_run_at) return false;
   
-  // Frontend fallback: If running for > 5 minutes, consider it failed/timed-out.
+  // Frontend fallback: If running for > 15 minutes, consider it failed/timed-out.
   const startedAt = new Date(task.last_run_at);
   const now = new Date();
-  return differenceInMinutes(now, startedAt) < 5;
+  return differenceInMinutes(now, startedAt) < 15;
 }
 
 /**
@@ -43,27 +43,40 @@ export function isDeliveryRunRecordActive(run: DeliveryRun): boolean {
   if (run.status !== 'running') return false;
   const startedAt = new Date(run.started_at);
   const now = new Date();
-  return differenceInMinutes(now, startedAt) < 5;
+  return differenceInMinutes(now, startedAt) < 15;
 }
 
 // Keep alias for backward compatibility if needed, but prefer isTaskRunActive for tasks.
 export const isRunActive = isTaskRunActive;
 
 /**
- * Centralized logic to determine the high-level result state of a task
- * based on its own fields. This drives UI permissions and displays.
+ * Centralized logic to determine the high-level result state of a task.
+ * PRIORITY: latestRun record > task.last_run_status > 'not_started'
  */
-export function getTaskDerivedResult(task: DeliveryTask): DerivedResult {
+export function getTaskDerivedResult(task: DeliveryTask, latestRun?: DeliveryRun | null): DerivedResult {
+  // 1. Authoritative Source: Latest Run Record
+  if (latestRun) {
+      if (latestRun.status === 'running') {
+          // Check for timeout
+          if (isDeliveryRunRecordActive(latestRun)) return 'running';
+          return 'failed'; // Timed out
+      }
+      if (latestRun.status === 'success') return 'success';
+      if (latestRun.status === 'skipped') return 'skipped';
+      if (latestRun.status === 'failed') return 'failed';
+  }
+
+  // 2. Fallback: Task Snapshot (Legacy or Sync)
   if (!task.last_run_status) return 'not_started';
 
   if (task.last_run_status === 'running') {
-    // Integrate timeout check based on task's last_run_at
     return isTaskRunActive(task) ? 'running' : 'failed';
   }
 
   if (task.last_run_status === 'success') return 'success';
+  if (task.last_run_status === 'skipped') return 'skipped';
   
-  // 'failed', 'skipped', or other statuses treat as failed for operational purposes
+  // 'failed' or other statuses treat as failed
   return 'failed'; 
 }
 

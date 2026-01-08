@@ -8,7 +8,7 @@ import { DeliveryTask, DeliveryTaskType, DeliveryChannel, DeliveryTaskStatus, De
 import { Loader2, Save, Play, Search, X, Check, Calculator, CalendarClock, Users, FileText, Settings, AlertTriangle, Mail, Calendar, ArrowRight, ExternalLink, ChevronDown, Tag, Send, History, Eye, Info, PlusCircle, Lock, Unlock, Copy, RefreshCw, Sparkles } from 'lucide-react';
 import EmailConfigModal from './EmailConfigModal';
 import { format } from 'date-fns';
-import { getTaskDerivedResult, DerivedResult } from './utils';
+import { getTaskDerivedResult, DerivedResult, isRunActive } from './utils';
 
 interface Props {
   initialData?: DeliveryTask;
@@ -40,7 +40,9 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
   const [preflightError, setPreflightError] = useState<string | null>(null);
 
   // --- Calculate Derived State ---
-  const derivedResult: DerivedResult = initialData ? getTaskDerivedResult(initialData) : 'not_started';
+  // Pass the latest run (first in the list) to calculation
+  const latestRun = initialRuns.length > 0 ? initialRuns[0] : undefined;
+  const derivedResult: DerivedResult = initialData ? getTaskDerivedResult(initialData, latestRun) : 'not_started';
   const isOneTime = initialData?.schedule_rule?.mode === 'one_time';
   
   const isFormLocked = derivedResult === 'running' || (derivedResult === 'success' && isOneTime);
@@ -341,7 +343,7 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
           );
       }
 
-      // 4. Default / Not Started / Recurring: Standard Actions
+      // 4. Default / Not Started / Recurring / Skipped: Standard Actions
       return (
           <>
               <button onClick={() => handleSave(true)} disabled={isPending} className="w-full flex items-center justify-center gap-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors">
@@ -391,6 +393,7 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
             </div>
         </div>
 
+        {/* ... (Rest of component remains unchanged) ... */}
         <div className="lg:col-span-3 space-y-8 pb-20">
             {/* ... Form Content Sections ... */}
             <div ref={sectionRefs.basic} className="scroll-mt-6">
