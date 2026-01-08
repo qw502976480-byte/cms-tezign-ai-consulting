@@ -1,3 +1,4 @@
+
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
@@ -57,7 +58,7 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
   // Whitelist paths - allow these to proceed without redirecting
-  const whitelist = ['/auth/callback', '/reset-password', '/login']
+  const whitelist = ['/auth/callback', '/reset-password', '/auth/reset-password', '/login']
   if (whitelist.some(path => pathname === path || pathname.startsWith(`${path}/`))) {
     return response
   }

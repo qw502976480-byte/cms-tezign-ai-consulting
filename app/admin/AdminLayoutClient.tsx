@@ -1,9 +1,10 @@
+
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, FileText, LayoutTemplate, Users, Calendar, LogOut, Send } from 'lucide-react';
+import { LayoutDashboard, FileText, LayoutTemplate, Users, Calendar, LogOut, Send, Menu, X } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
 import { useRouter } from 'next/navigation';
 
@@ -11,8 +12,14 @@ export default function AdminLayoutClient({ children }: { children: React.ReactN
   const pathname = usePathname();
   const router = useRouter();
   const supabase = createClient();
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   const isLoginPage = pathname === '/admin/login';
+
+  // Close sidebar on route change
+  useEffect(() => {
+    setIsSidebarOpen(false);
+  }, [pathname]);
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
@@ -40,7 +47,6 @@ export default function AdminLayoutClient({ children }: { children: React.ReactN
       title: '官网内容',
       items: [
         { label: '内容资源 (Resources)', href: '/admin/resources', icon: FileText },
-        // Updated: Renamed to "内容分发 (Delivery)"
         { label: '内容分发 (Delivery)', href: '/admin/delivery', icon: Send },
       ]
     },
@@ -60,12 +66,34 @@ export default function AdminLayoutClient({ children }: { children: React.ReactN
 
   return (
     <div className="flex min-h-screen bg-gray-50/50">
-      {/* Sidebar - Fixed Width, Always Expanded */}
-      <aside className="w-[280px] bg-white border-r border-gray-200 fixed h-full z-10 flex flex-col">
+      
+      {/* Mobile Overlay */}
+      {isSidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/20 backdrop-blur-sm z-40 md:hidden"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
+
+      {/* Sidebar - Fixed Width, Responsive Visibility */}
+      <aside className={`
+        w-[280px] bg-white border-r border-gray-200 fixed h-full z-50 flex flex-col transition-transform duration-300 ease-in-out
+        ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} 
+        md:translate-x-0
+      `}>
         {/* Header - Split into two lines */}
-        <div className="h-16 px-6 flex flex-col justify-center border-b border-gray-100/50">
-           <span className="font-semibold text-sm text-gray-900 tracking-tight leading-snug">Web Platform</span>
-           <span className="text-[11px] text-gray-500 font-normal mt-0.5 leading-snug">Tezign AI Consulting</span>
+        <div className="h-16 px-6 flex items-center justify-between border-b border-gray-100/50 flex-shrink-0">
+           <div className="flex flex-col justify-center">
+             <span className="font-semibold text-sm text-gray-900 tracking-tight leading-snug">Web Platform</span>
+             <span className="text-[11px] text-gray-500 font-normal mt-0.5 leading-snug">Tezign AI Consulting</span>
+           </div>
+           {/* Close button only on mobile */}
+           <button 
+             onClick={() => setIsSidebarOpen(false)}
+             className="md:hidden p-2 -mr-2 text-gray-500 hover:bg-gray-100 rounded-lg"
+           >
+             <X size={20} />
+           </button>
         </div>
 
         {/* Navigation */}
@@ -153,8 +181,19 @@ export default function AdminLayoutClient({ children }: { children: React.ReactN
       </aside>
 
       {/* Main Content Area */}
-      <main className="flex-1 ml-[280px] min-w-0">
-        <div className="max-w-6xl mx-auto p-8 md:p-12">
+      <main className="flex-1 md:ml-[280px] min-w-0 flex flex-col">
+        {/* Mobile Header */}
+        <div className="md:hidden h-16 bg-white border-b border-gray-200 flex items-center px-4 sticky top-0 z-30">
+           <button 
+             onClick={() => setIsSidebarOpen(true)}
+             className="p-2 -ml-2 text-gray-600 hover:bg-gray-100 rounded-lg"
+           >
+             <Menu size={24} />
+           </button>
+           <span className="ml-3 font-semibold text-gray-900">管理后台</span>
+        </div>
+
+        <div className="flex-1 max-w-6xl w-full mx-auto p-4 md:p-12">
            {children}
         </div>
       </main>

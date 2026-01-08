@@ -32,11 +32,17 @@ function LoginContent() {
     checkSession();
   }, [supabase.auth, router]);
 
-  // 2. Handle URL errors (e.g. from callback)
+  // 2. Handle URL errors or type params
   useEffect(() => {
     const errorParam = searchParams.get('error');
+    const typeParam = searchParams.get('type');
+    
     if (errorParam) {
       setMessage({ type: 'error', text: '登录验证失败，链接可能已过期，请重新发送。' });
+    }
+    
+    if (typeParam === 'password') {
+        setLoginMethod('password');
     }
   }, [searchParams]);
 
@@ -94,7 +100,7 @@ function LoginContent() {
   if (isSuccess) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 p-4">
-        <div className="max-w-md w-full bg-white rounded-2xl border border-gray-200 shadow-sm p-8 text-center animate-in fade-in zoom-in-95 duration-300">
+        <div className="max-w-md w-full bg-white rounded-2xl border border-gray-200 shadow-sm p-6 md:p-8 text-center animate-in fade-in zoom-in-95 duration-300">
           <div className="w-12 h-12 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-4">
             <CheckCircle2 className="text-green-600" size={24} strokeWidth={2} />
           </div>
@@ -125,7 +131,7 @@ function LoginContent() {
   // Login Form View
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 p-4">
-      <div className="max-w-md w-full bg-white rounded-2xl border border-gray-200 shadow-sm p-8">
+      <div className="max-w-md w-full bg-white rounded-2xl border border-gray-200 shadow-sm p-6 md:p-8">
         {/* Header */}
         <div className="text-center mb-8">
           <div className="flex justify-center mb-4">
