@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import { useState, useMemo } from 'react';
@@ -154,7 +153,12 @@ export default function RequestListClient({ initialItems }: Props) {
                     <AppointmentCell appointment={appointment} />
                   </td>
                   <td className="px-6 py-4 align-top">
-                     <Countdown appointment={appointment} />
+                     {/* Only show countdown for pending items */}
+                     {req.status === 'pending' ? (
+                        <Countdown appointment={appointment} />
+                     ) : (
+                        <span className="text-gray-400">—</span>
+                     )}
                   </td>
                   <td className="px-6 py-4 align-top">
                     <RequestActions 
