@@ -1,11 +1,10 @@
-
 'use client';
 
 import React, { useState, useEffect, useRef, useTransition } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
-import { DeliveryTask, EmailSendingAccount, EmailTemplate, DeliveryRun } from '@/types';
-import { Search, ChevronDown, Check, MoreHorizontal, Clock, Play, Pause, Copy, Trash2, Edit2, Settings, Mail, Repeat, ScrollText, AlertTriangle, UserCheck, Loader2, CheckCircle2, AlertCircle, Ban, RefreshCw } from 'lucide-react';
-import { format, differenceInSeconds } from 'date-fns';
+import { DeliveryTask, EmailSendingAccount, EmailTemplate } from '@/types';
+import { Search, ChevronDown, Check, MoreHorizontal, Clock, Play, Pause, Copy, Trash2, Edit2, Settings, Mail, Repeat, ScrollText, AlertTriangle, UserCheck, Loader2, CheckCircle2, RefreshCw, XCircle } from 'lucide-react';
+import { format } from 'date-fns';
 import { updateTaskStatus, deleteTask, duplicateTask, runDeliveryTaskNow } from './actions';
 import Link from 'next/link';
 import EmailConfigModal from './EmailConfigModal';
@@ -102,13 +101,8 @@ function TaskActionMenu({
         );
     }
 
-    // 2. Failed: Edit, Log, Retry. No Duplicate.
-    // 3. Success (One-time): Log, Duplicate. No Edit, No Run.
-    // 4. Success (Recurring): Edit, Duplicate, Log.
-    // 5. Not Started: Edit, Duplicate, Log, Delete.
-
     const allowEdit = derivedResult !== 'success' || !isOneTime; // Locked if one-time success
-    const allowDuplicate = derivedResult !== 'failed'; // Forbidden if failed
+    const allowDuplicate = derivedResult !== 'failed'; // Forbidden if failed (design choice)
     const allowRetry = derivedResult === 'failed'; // Only explicit retry if failed
     const allowRunOnce = derivedResult === 'not_started' && isOneTime && task.schedule_rule?.one_time_type === 'immediate';
     const allowStatusToggle = derivedResult === 'not_started' || (derivedResult === 'success' && isRecurring);
@@ -124,19 +118,41 @@ function TaskActionMenu({
                     {/* EDIT */}
                     {allowEdit ? (
                         <Link href={`/admin/delivery/${task.id}`} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-gray-50 rounded text-gray-700">
-                            <Edit2 size={14} /> 编辑配置
+                            <Edit2 size={14} /> 编辑任务
                         </Link>
                     ) : (
-                        <div className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 text-gray-300 cursor-not-allowed">
-                            <Edit2 size={14} /> 编辑配置
-                        </div>
+                        <button disabled className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 text-gray-300 cursor-not-allowed">
+                            <Edit2 size={14} /> 编辑任务
+                        </button>
                     )}
 
-                    {/* LOGS */}
-                    <button onClick={() => { onAction('logs', task); setIsOpen(false); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-gray-50 rounded text-gray-700">
-                        <ScrollText size={14} /> 查看执行记录
-                    </button>
-                    
+                    {/* EXECUTE NOW (Only for immediate one-time tasks that haven't run) */}
+                    {allowRunOnce && (
+                        <button onClick={() => { onAction('run_now', task); setIsOpen(false); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-indigo-50 text-indigo-700 rounded font-medium">
+                            <Play size={14} /> 立即执行
+                        </button>
+                    )}
+
+                    {/* ENABLE / DISABLE (For Scheduled/Recurring) */}
+                    {allowStatusToggle && !isOneTime && (
+                        task.status === 'active' ? (
+                            <button onClick={() => { onAction('pause', task); setIsOpen(false); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-gray-50 rounded text-gray-700">
+                                <Pause size={14} /> 暂停任务
+                            </button>
+                        ) : (
+                            <button onClick={() => { onAction('enable', task); setIsOpen(false); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-gray-50 rounded text-gray-700">
+                                <Play size={14} /> 启用任务
+                            </button>
+                        )
+                    )}
+
+                    {/* RETRY (Failed only) */}
+                    {allowRetry && (
+                        <button onClick={() => { onAction('retry', task); setIsOpen(false); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-amber-50 text-amber-700 rounded font-medium">
+                            <RefreshCw size={14} /> 重新执行
+                        </button>
+                    )}
+
                     {/* DUPLICATE */}
                     {allowDuplicate && (
                         <button onClick={() => { onAction('duplicate', task); setIsOpen(false); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-gray-50 rounded text-gray-700">
@@ -144,27 +160,14 @@ function TaskActionMenu({
                         </button>
                     )}
 
-                    {/* ACTIONS: Retry or Toggle */}
-                    {allowRetry && (
-                        <button onClick={() => { onAction('run_now', task); setIsOpen(false); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-amber-50 text-amber-700 rounded">
-                            <RefreshCw size={14} /> 重新执行
-                        </button>
-                    )}
-                    
-                    {allowRunOnce && (
-                         <button onClick={() => { onAction('run_now', task); setIsOpen(false); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-indigo-50 text-indigo-700 rounded">
-                            <Play size={14} /> 执行一次
-                        </button>
-                    )}
-
-                    {allowStatusToggle && isRecurring && (
-                        <button onClick={() => { onAction('toggle_status', task); setIsOpen(false); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-gray-50 rounded text-gray-700">
-                            {task.status === 'active' ? <><Pause size={14} /> 暂停任务</> : <><Play size={14} /> 启用任务</>}
-                        </button>
-                    )}
-                    
                     <div className="h-px bg-gray-100 my-1"></div>
-                    
+
+                    {/* LOGS */}
+                    <button onClick={() => { onAction('logs', task); setIsOpen(false); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-gray-50 rounded text-gray-700">
+                        <ScrollText size={14} /> 执行记录
+                    </button>
+
+                    {/* DELETE */}
                     <button onClick={() => { onAction('delete', task); setIsOpen(false); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-red-50 text-red-600 rounded">
                         <Trash2 size={14} /> 删除任务
                     </button>
@@ -175,323 +178,178 @@ function TaskActionMenu({
 }
 
 export default function TaskClientView({ 
-    initialTasks, 
-    emailAccounts, 
-    emailTemplates,
-    latestRunMap,
-    runningTaskIds
+    initialTasks,
+    emailAccounts,
+    emailTemplates
 }: { 
-    initialTasks: DeliveryTask[], 
-    emailAccounts: EmailSendingAccount[],
-    emailTemplates: EmailTemplate[],
-    latestRunMap: Record<string, DeliveryRun>,
-    runningTaskIds: string[]
+    initialTasks: DeliveryTask[]; 
+    emailAccounts: EmailSendingAccount[];
+    emailTemplates: EmailTemplate[];
 }) {
     const router = useRouter();
     const pathname = usePathname();
     const searchParams = useSearchParams();
     const [isPending, startTransition] = useTransition();
 
-    const [keyword, setKeyword] = useState(searchParams.get('q') || '');
-    
-    // Modals
     const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
-    const [historyModalTask, setHistoryModalTask] = useState<{id: string, name: string} | null>(null);
+    const [historyTaskId, setHistoryTaskId] = useState<string | null>(null);
 
+    // Search Params Handling
     const updateFilter = (key: string, value: string) => {
         const params = new URLSearchParams(searchParams.toString());
         if (value && value !== 'all') params.set(key, value); else params.delete(key);
         router.push(`${pathname}?${params.toString()}`);
     };
 
-    const handleSearch = (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter') updateFilter('q', keyword);
-    };
-
+    // Handlers
     const handleAction = async (action: string, task: DeliveryTask) => {
-        startTransition(async () => {
-            if (action === 'toggle_status') {
-                const newStatus = task.status === 'active' ? 'paused' : 'active';
-                await updateTaskStatus(task.id, newStatus);
-            } else if (action === 'delete') {
-                if (confirm('确定要删除此任务吗？')) await deleteTask(task.id);
-            } else if (action === 'duplicate') {
-                await duplicateTask(task);
-            } else if (action === 'logs') {
-                setHistoryModalTask({ id: task.id, name: task.name });
-            } else if (action === 'run_now') {
-                if(confirm('确定要立即执行此任务吗？')) {
-                    const res = await runDeliveryTaskNow(task.id);
-                    if(res.success) {
-                        alert(res.message);
-                        router.refresh();
-                    } else {
-                        alert(`执行失败: ${res.error}`);
-                    }
-                }
-            }
-        });
-    };
-
-    const getEmailDetails = (task: DeliveryTask) => {
-        if (task.channel !== 'email' || !task.channel_config?.email) return null;
-        const conf = task.channel_config.email;
-        const acct = emailAccounts.find(a => a.id === conf.account_id);
-        return {
-            accountName: acct ? acct.name : 'Unknown Account',
-            accountEmail: acct ? acct.from_email : '',
-        };
-    };
-
-    // --- Time & Status Helpers ---
-
-    const formatDurationSimple = (start: Date, end: Date) => {
-        const seconds = differenceInSeconds(end, start);
-        if (seconds < 60) return `${seconds}s`;
-        const mins = Math.floor(seconds / 60);
-        if (mins < 60) return `${mins}m ${seconds % 60}s`;
-        return `${Math.floor(mins / 60)}h ${mins % 60}m`;
-    };
-
-    const getPlannedTimeDisplay = (task: DeliveryTask, lastRun?: DeliveryRun) => {
-        const { schedule_rule: s } = task;
-        if (!s) return <span className="text-gray-300 text-xs">—</span>;
-
-        // 1. One Time Task
-        if (s.mode === 'one_time') {
-            // Immediate Type
-            if (s.one_time_type === 'immediate') {
-                const triggerTime = lastRun ? lastRun.started_at : task.created_at;
-                return (
-                    <div className="flex flex-col">
-                        <span className="text-gray-900 text-xs font-medium">立即执行 (Immediate)</span>
-                        <span className="text-[10px] text-gray-400 font-mono">
-                            创建于: {format(new Date(triggerTime), 'MM-dd HH:mm')}
-                        </span>
-                    </div>
-                );
-            }
-            
-            // Scheduled Type
-            if (s.one_time_type === 'scheduled') {
-                const dateStr = `${s.one_time_date || ''} ${s.one_time_time || ''}`;
-                return (
-                    <div className="flex flex-col">
-                        <span className="text-gray-900 text-xs font-medium">定时: {dateStr}</span>
-                    </div>
-                );
-            }
-        }
-        
-        // 2. Recurring Task
-        if (s.mode === 'recurring') {
-            const freqMap: any = { daily: '每天', weekly: '每周', monthly: '每月' };
-            const freq = freqMap[s.frequency || ''] || s.frequency;
-            return (
-                <div className="flex flex-col">
-                    <span className="text-gray-900 text-xs font-medium">周期: {freq}</span>
-                    {task.next_run_at ? (
-                        <span className="text-[10px] text-gray-500">下次: {format(new Date(task.next_run_at), 'MM-dd HH:mm')}</span>
-                    ) : null}
-                </div>
-            );
-        }
-        return <span className="text-gray-300">—</span>;
-    };
-
-    const getActualTimeDisplay = (run?: DeliveryRun) => {
-        if (!run) return <span className="text-gray-300 text-xs font-mono">—</span>;
-        
-        const start = new Date(run.started_at);
-        const startStr = format(start, 'MM-dd HH:mm');
-        const isActive = isRunActive(run); // Handles 5m timeout
-        const isRunning = run.status === 'running';
-        
-        const end = run.finished_at ? new Date(run.finished_at) : new Date();
-        const duration = formatDurationSimple(start, end);
-
-        if (isRunning && isActive) {
-             return (
-                <div className="flex flex-col">
-                    <span className="text-gray-900 text-xs font-mono">Start: {startStr}</span>
-                    <span className="text-[10px] text-indigo-600 font-medium animate-pulse">运行中 (已运行 {duration})</span>
-                </div>
-            );
-        }
-        
-        if (isRunning && !isActive) {
-             return (
-                <div className="flex flex-col">
-                    <span className="text-gray-900 text-xs font-mono">Start: {startStr}</span>
-                    <span className="text-[10px] text-red-500 font-medium">失败 (超时)</span>
-                </div>
-            );
+        if (action === 'logs') {
+            setHistoryTaskId(task.id);
+            return;
         }
 
-        return (
-            <div className="flex flex-col">
-                <span className="text-gray-900 text-xs font-mono">Start: {startStr}</span>
-                <span className="text-[10px] text-gray-400">结束 (耗时 {duration})</span>
-            </div>
-        );
-    };
-
-    const getStatusBadge = (derivedResult: DerivedResult) => {
-        switch (derivedResult) {
-            case 'running':
-                return (
-                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium border bg-indigo-50 text-indigo-700 border-indigo-200">
-                        <Loader2 size={12} className="animate-spin" /> 执行中
-                    </span>
-                );
-            case 'success':
-                return (
-                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium border bg-emerald-50 text-emerald-700 border-emerald-200">
-                        <CheckCircle2 size={12} /> 成功
-                    </span>
-                );
-            case 'failed':
-                return (
-                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium border bg-red-50 text-red-700 border-red-200">
-                        <AlertTriangle size={12} /> 失败
-                    </span>
-                );
-            case 'not_started':
-            default:
-                return (
-                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium border bg-gray-50 text-gray-600 border-gray-200">
-                        未开始
-                    </span>
-                );
+        if (action === 'delete') {
+            if (!confirm('确定要删除此任务吗？')) return;
+            startTransition(async () => {
+                const res = await deleteTask(task.id);
+                if (res.success) router.refresh(); else alert(res.error);
+            });
+        }
+        else if (action === 'duplicate') {
+            if (!confirm('确定要复制此任务吗？')) return;
+            startTransition(async () => {
+                const res = await duplicateTask(task);
+                if (res.success) router.refresh(); else alert(res.error);
+            });
+        }
+        else if (action === 'enable' || action === 'pause') {
+            const newStatus = action === 'enable' ? 'active' : 'paused';
+            startTransition(async () => {
+                const res = await updateTaskStatus(task.id, newStatus);
+                if (res.success) router.refresh(); else alert(res.error);
+            });
+        }
+        else if (action === 'run_now' || action === 'retry') {
+             if (!confirm(`确定要立即执行任务 "${task.name}" 吗？`)) return;
+             // Optimistic feedback provided by task detail page logic, here we just trigger
+             const res = await runDeliveryTaskNow(task.id);
+             if (res.success) {
+                 alert(`执行已触发: ${res.message}`);
+                 router.refresh();
+             } else {
+                 alert(`执行失败: ${res.error}`);
+             }
         }
     };
 
     return (
         <div className="space-y-6">
-            {/* Header Actions & Filters */}
-            <div className="flex flex-col md:flex-row gap-4">
-                <div className="bg-white p-4 rounded-xl border border-gray-200 grid grid-cols-1 md:grid-cols-4 gap-4 flex-1">
-                    <div className="relative">
-                        <Search className="absolute left-3 top-2.5 text-gray-400" size={18} strokeWidth={1.5} />
-                        <input 
-                            type="text" 
-                            placeholder="搜索任务名称" 
-                            className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900 transition-all text-sm"
-                            value={keyword}
-                            onChange={(e) => setKeyword(e.target.value)}
-                            onKeyDown={handleSearch}
-                        />
-                    </div>
-                    <FilterDropdown 
-                        label="状态"
-                        value={searchParams.get('status') || 'all'}
-                        options={[{label:'全部',value:'all'}, {label:'草稿',value:'draft'}, {label:'运行中',value:'active'}, {label:'已暂停',value:'paused'}, {label:'已完成',value:'completed'}]}
-                        onChange={(v: string) => updateFilter('status', v)}
-                    />
-                    <FilterDropdown 
-                        label="类型"
-                        value={searchParams.get('type') || 'all'}
-                        options={[{label:'全部',value:'all'},{label:'自动化',value:'automated'},{label:'临时任务',value:'one_off'}]}
-                        onChange={(v: string) => updateFilter('type', v)}
-                    />
-                    <FilterDropdown 
-                        label="渠道"
-                        value={searchParams.get('channel') || 'all'}
-                        options={[{label:'全部',value:'all'},{label:'Email',value:'email'},{label:'站内信',value:'in_app'}]}
-                        onChange={(v: string) => updateFilter('channel', v)}
+            {/* Filters */}
+            <div className="bg-white p-4 rounded-xl border border-gray-200 grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="relative md:col-span-2">
+                    <Search className="absolute left-3 top-2.5 text-gray-400" size={18} />
+                    <input 
+                        type="text" 
+                        placeholder="搜索任务名称..." 
+                        className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900 transition-all text-sm"
+                        defaultValue={searchParams.get('q') || ''}
+                        onKeyDown={(e) => e.key === 'Enter' && updateFilter('q', e.currentTarget.value)}
                     />
                 </div>
-                
-                <button
-                   onClick={() => setIsConfigModalOpen(true)}
-                   className="bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center justify-center gap-2 h-auto whitespace-nowrap"
-                >
-                   <Settings size={18} /> 渠道配置 (Channels)
+                <FilterDropdown 
+                    label="状态" 
+                    value={searchParams.get('status') || 'all'}
+                    options={[{label:'全部', value:'all'}, {label:'草稿', value:'draft'}, {label:'启用中', value:'active'}, {label:'已暂停', value:'paused'}, {label:'已完成', value:'completed'}, {label:'执行失败', value:'failed'}]}
+                    onChange={(v: string) => updateFilter('status', v)}
+                />
+                <button onClick={() => setIsConfigModalOpen(true)} className="flex items-center justify-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium">
+                    <Settings size={16} /> 渠道配置
                 </button>
             </div>
 
             {/* List */}
             <div className="bg-white rounded-xl border border-gray-200 overflow-hidden min-h-[400px]">
-                 <table className="w-full text-sm text-left">
+                <table className="w-full text-sm text-left">
                     <thead className="text-gray-500 font-medium border-b border-gray-200 bg-gray-50/50">
                         <tr>
-                            <th className="px-6 py-4 w-[220px] font-medium">任务名称 / 类型</th>
-                            <th className="px-6 py-4 w-[160px] font-medium">渠道配置</th>
-                            <th className="px-6 py-4 w-[140px] font-medium">结果 / 状态</th>
-                            <th className="px-6 py-4 w-[150px] font-medium">计划执行 (Planned)</th>
-                            <th className="px-6 py-4 w-[150px] font-medium">实际执行 (Actual)</th>
-                            <th className="px-6 py-4 w-[100px] font-medium">受众</th>
-                            <th className="px-6 py-4 text-right font-medium">操作</th>
+                            <th className="px-6 py-4 font-medium w-[25%]">任务名称</th>
+                            <th className="px-6 py-4 font-medium w-[15%]">类型/渠道</th>
+                            <th className="px-6 py-4 font-medium w-[15%]">受众</th>
+                            <th className="px-6 py-4 font-medium w-[20%]">执行计划</th>
+                            <th className="px-6 py-4 font-medium w-[15%]">最近状态</th>
+                            <th className="px-6 py-4 font-medium text-right">操作</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
-                        {initialTasks.map((task) => {
-                            const emailDetails = getEmailDetails(task);
-                            const isRecurring = task.schedule_rule?.mode === 'recurring';
-                            const lastRun = latestRunMap[task.id];
-                            const derivedResult = getTaskDerivedResult(lastRun);
-
+                        {initialTasks.map(task => {
+                            const derivedResult = getTaskDerivedResult(task);
+                            const scheduleMode = task.schedule_rule?.mode === 'one_time' ? '一次性' : '周期';
+                            
                             return (
                                 <tr key={task.id} className="hover:bg-gray-50 transition-colors group">
-                                    <td className="px-6 py-4 font-medium text-gray-900">
-                                        <div className="flex flex-col gap-1.5 items-start">
-                                            {derivedResult === 'running' ? (
-                                                <span className="block truncate max-w-[200px]" title={task.name}>{task.name}</span>
-                                            ) : (
-                                                <Link href={`/admin/delivery/${task.id}`} className="hover:text-indigo-600 hover:underline block truncate max-w-[200px]" title={task.name}>
-                                                    {task.name}
-                                                </Link>
-                                            )}
-                                            {isRecurring ? (
-                                                <div className="flex items-center gap-1 text-[10px] text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100 w-fit">
-                                                    <Repeat size={10} /> 周期性
-                                                </div>
-                                            ) : (
-                                                <div className="flex items-center gap-1 text-[10px] text-slate-700 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100 w-fit">
-                                                    <Clock size={10} /> 一次性
-                                                </div>
-                                            )}
+                                    <td className="px-6 py-4">
+                                        <div className="font-medium text-gray-900 truncate max-w-[200px]" title={task.name}>{task.name}</div>
+                                        <div className="flex items-center gap-2 mt-1">
+                                            {task.status === 'active' && <span className="inline-flex items-center gap-1 text-[10px] bg-green-50 text-green-700 px-1.5 py-0.5 rounded border border-green-100"><Play size={10} fill="currentColor"/> Active</span>}
+                                            {task.status === 'paused' && <span className="inline-flex items-center gap-1 text-[10px] bg-yellow-50 text-yellow-700 px-1.5 py-0.5 rounded border border-yellow-100"><Pause size={10} fill="currentColor"/> Paused</span>}
+                                            {task.status === 'draft' && <span className="inline-flex items-center gap-1 text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded border border-gray-200">Draft</span>}
+                                            {task.status === 'completed' && <span className="inline-flex items-center gap-1 text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded border border-blue-100"><CheckCircle2 size={10}/> Completed</span>}
+                                            {task.status === 'failed' && <span className="inline-flex items-center gap-1 text-[10px] bg-red-50 text-red-700 px-1.5 py-0.5 rounded border border-red-100"><AlertTriangle size={10}/> Failed</span>}
                                         </div>
                                     </td>
                                     <td className="px-6 py-4">
-                                        <div className="text-gray-900 font-medium flex items-center gap-1.5 text-xs">
-                                            {task.channel === 'email' ? <Mail size={14} className="text-gray-400" /> : null}
-                                            <span className="capitalize">{task.channel}</span>
+                                        <div className="flex flex-col gap-1">
+                                            <span className="text-xs text-gray-500 capitalize bg-gray-100 px-2 py-0.5 rounded w-fit">{task.type}</span>
+                                            <span className="flex items-center gap-1 text-xs text-gray-600">
+                                                {task.channel === 'email' ? <Mail size={12}/> : <Settings size={12}/>} 
+                                                {task.channel === 'email' ? 'Email' : 'In-app'}
+                                            </span>
                                         </div>
-                                        {emailDetails && (
-                                            <div className="text-[10px] text-gray-500 mt-1 space-y-0.5">
-                                                <div title={emailDetails.accountEmail} className="truncate max-w-[140px]">Via: {emailDetails.accountName}</div>
+                                    </td>
+                                    <td className="px-6 py-4">
+                                         <div className="flex items-center gap-1.5 text-gray-700">
+                                            <UserCheck size={14} className="text-gray-400" />
+                                            {task.audience_rule?.user_type === 'all' ? '全部用户' : task.audience_rule?.user_type === 'personal' ? '个人用户' : '企业用户'}
+                                         </div>
+                                    </td>
+                                    <td className="px-6 py-4">
+                                        <div className="text-xs text-gray-900 flex items-center gap-1.5 mb-1">
+                                            {scheduleMode === '一次性' ? <Clock size={12} className="text-gray-400" /> : <Repeat size={12} className="text-indigo-400" />}
+                                            {scheduleMode}
+                                        </div>
+                                        {task.next_run_at ? (
+                                            <div className="text-[10px] text-gray-500 font-mono bg-gray-50 px-1.5 py-0.5 rounded w-fit">
+                                                下一次: {format(new Date(task.next_run_at), 'MM-dd HH:mm')}
                                             </div>
-                                        )}
-                                    </td>
-                                    <td className="px-6 py-4 whitespace-nowrap">
-                                        {getStatusBadge(derivedResult)}
-                                    </td>
-                                    <td className="px-6 py-4 align-top">
-                                        {getPlannedTimeDisplay(task, lastRun)}
-                                    </td>
-                                    <td className="px-6 py-4 align-top">
-                                        {getActualTimeDisplay(lastRun)}
-                                    </td>
-                                    <td className="px-6 py-4 whitespace-nowrap align-top">
-                                        {lastRun ? (
-                                            <div className="flex flex-col gap-0.5">
-                                                <span className="text-sm font-medium text-gray-900 flex items-center gap-1">
-                                                    <UserCheck size={12} className="text-green-600" />
-                                                    {lastRun.success_count}
-                                                </span>
-                                                <span className="text-[10px] text-gray-400">实际触达</span>
-                                            </div>
+                                        ) : task.status === 'completed' ? (
+                                            <div className="text-[10px] text-gray-400">-</div>
                                         ) : (
-                                            <div className="flex flex-col gap-0.5">
-                                                <span className="text-sm font-medium text-gray-500 flex items-center gap-1">
-                                                    ≈ {task.audience_rule?.estimated_count ?? '-'}
-                                                </span>
-                                                <span className="text-[10px] text-gray-400">预估人数</span>
+                                            <div className="text-[10px] text-gray-400 italic">未调度</div>
+                                        )}
+                                    </td>
+                                    <td className="px-6 py-4">
+                                        {derivedResult === 'running' ? (
+                                            <div className="flex items-center gap-1.5 text-indigo-600 text-xs font-medium animate-pulse">
+                                                <Loader2 size={12} className="animate-spin" /> Running
+                                            </div>
+                                        ) : derivedResult === 'failed' ? (
+                                             <div className="text-red-600 text-xs flex items-center gap-1" title={task.last_run_message || 'Unknown error'}>
+                                                <XCircle size={12} /> Failed
+                                             </div>
+                                        ) : derivedResult === 'success' ? (
+                                             <div className="text-green-600 text-xs flex items-center gap-1">
+                                                <CheckCircle2 size={12} /> Success
+                                             </div>
+                                        ) : (
+                                            <span className="text-gray-300 text-xs">-</span>
+                                        )}
+                                        {task.last_run_at && derivedResult !== 'running' && (
+                                            <div className="text-[10px] text-gray-400 mt-1 font-mono">
+                                                {format(new Date(task.last_run_at), 'MM-dd HH:mm')}
                                             </div>
                                         )}
                                     </td>
-                                    <td className="px-6 py-4 text-right relative align-top">
+                                    <td className="px-6 py-4 text-right">
                                         <TaskActionMenu 
                                             task={task} 
                                             derivedResult={derivedResult}
@@ -503,21 +361,23 @@ export default function TaskClientView({
                         })}
                         {initialTasks.length === 0 && (
                             <tr>
-                                <td colSpan={7} className="text-center py-16 text-gray-400">暂无任务</td>
+                                <td colSpan={6} className="text-center py-16 text-gray-400">
+                                    暂无分发任务
+                                </td>
                             </tr>
                         )}
                     </tbody>
                 </table>
             </div>
 
-            <EmailConfigModal isOpen={isConfigModalOpen} onClose={() => { setIsConfigModalOpen(false); }} accounts={emailAccounts} templates={emailTemplates} />
+            <EmailConfigModal isOpen={isConfigModalOpen} onClose={() => setIsConfigModalOpen(false)} accounts={emailAccounts} templates={emailTemplates} />
             
-            {historyModalTask && (
+            {historyTaskId && (
                 <TaskRunHistoryModal 
-                    isOpen={!!historyModalTask} 
-                    onClose={() => setHistoryModalTask(null)} 
-                    taskId={historyModalTask.id}
-                    taskName={historyModalTask.name}
+                    isOpen={!!historyTaskId} 
+                    onClose={() => setHistoryTaskId(null)} 
+                    taskId={historyTaskId}
+                    taskName={initialTasks.find(t => t.id === historyTaskId)?.name || ''}
                 />
             )}
         </div>

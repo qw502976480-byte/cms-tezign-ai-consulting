@@ -4,8 +4,7 @@ import { createClient } from '@/utils/supabase/server';
 import TaskClientView from './client-view';
 import Link from 'next/link';
 import { Plus } from 'lucide-react';
-import { DeliveryTask, EmailSendingAccount, EmailTemplate, DeliveryRun } from '@/types';
-import { subMinutes, isBefore } from 'date-fns';
+import { DeliveryTask, EmailSendingAccount, EmailTemplate } from '@/types';
 import { recoverStaleRuns } from './actions';
 
 export const dynamic = 'force-dynamic';
@@ -15,7 +14,6 @@ export default async function DeliveryListPage({ searchParams }: { searchParams:
   await recoverStaleRuns();
 
   const supabase = await createClient();
-  const now = new Date();
 
   // Filter Logic
   let query = supabase
@@ -39,13 +37,11 @@ export default async function DeliveryListPage({ searchParams }: { searchParams:
     query = query.ilike('name', `%${searchParams.q}%`);
   }
 
-  // Fetch Tasks, Configs, and Runs concurrently
-  // Note: Fetching all runs might be heavy in production, but suitable for this MVP scope.
-  const [tasksRes, accountsRes, templatesRes, runsRes] = await Promise.all([
+  // Fetch Tasks and Configs
+  const [tasksRes, accountsRes, templatesRes] = await Promise.all([
       query,
       supabase.from('email_sending_accounts').select('*').order('created_at', { ascending: false }),
       supabase.from('email_templates').select('*').order('created_at', { ascending: false }),
-      supabase.from('delivery_task_runs').select('id, task_id, status, started_at, finished_at, success_count, recipient_count, message').order('started_at', { ascending: false })
   ]);
 
   if (tasksRes.error) {
@@ -59,22 +55,6 @@ export default async function DeliveryListPage({ searchParams }: { searchParams:
   const tasks = tasksRes.data as DeliveryTask[];
   const accounts = (accountsRes.data || []) as EmailSendingAccount[];
   const templates = (templatesRes.data || []) as EmailTemplate[];
-  const allRuns = (runsRes.data || []) as DeliveryRun[];
-
-  // Process latest run and active runs
-  const latestRunMap: Record<string, DeliveryRun> = {};
-  const runningTaskIds = new Set<string>();
-
-  allRuns.forEach(run => {
-    // Collect active runs (authority) with stale check
-    if (run.status === 'running' && !isBefore(new Date(run.started_at), subMinutes(now, 15))) {
-        runningTaskIds.add(run.task_id);
-    }
-    // Since runs are ordered by started_at desc, the first one encountered for a task_id is the latest
-    if (!latestRunMap[run.task_id]) {
-        latestRunMap[run.task_id] = run;
-    }
-  });
 
   return (
     <div className="space-y-8">
@@ -97,8 +77,6 @@ export default async function DeliveryListPage({ searchParams }: { searchParams:
         initialTasks={tasks} 
         emailAccounts={accounts} 
         emailTemplates={templates} 
-        latestRunMap={latestRunMap}
-        runningTaskIds={Array.from(runningTaskIds)}
       />
     </div>
   );

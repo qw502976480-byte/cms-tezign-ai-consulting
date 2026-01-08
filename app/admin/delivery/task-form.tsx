@@ -40,8 +40,7 @@ export default function TaskForm({ initialData, initialRuns = [] }: Props) {
   const [preflightError, setPreflightError] = useState<string | null>(null);
 
   // --- Calculate Derived State ---
-  const latestRun = initialRuns.length > 0 ? initialRuns[0] : null;
-  const derivedResult: DerivedResult = getTaskDerivedResult(latestRun);
+  const derivedResult: DerivedResult = initialData ? getTaskDerivedResult(initialData) : 'not_started';
   const isOneTime = initialData?.schedule_rule?.mode === 'one_time';
   
   const isFormLocked = derivedResult === 'running' || (derivedResult === 'success' && isOneTime);

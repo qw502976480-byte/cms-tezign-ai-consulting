@@ -6,7 +6,7 @@ import { ArrowLeft } from 'lucide-react';
 import { createClient } from '@/utils/supabase/server';
 import { DeliveryTask, DeliveryRun } from '@/types';
 import { recoverStaleRuns } from '../actions';
-import { isRunActive } from '../utils';
+import { isDeliveryRunRecordActive } from '../utils';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,7 +39,7 @@ export default async function EditDeliveryPage({ params }: { params: { id: strin
   const runs = (runsRes.data || []) as DeliveryRun[];
   
   // Use strict timeout logic: Only lock if a run is TRULY active (< 5 mins)
-  const hasActiveRun = runs.some(r => isRunActive(r));
+  const hasActiveRun = runs.some(r => isDeliveryRunRecordActive(r));
 
   return (
     <div className="max-w-6xl mx-auto py-6 space-y-6">

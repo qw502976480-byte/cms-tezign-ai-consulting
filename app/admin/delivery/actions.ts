@@ -4,61 +4,50 @@
 import { createServiceClient } from '@/utils/supabase/server';
 import { revalidatePath } from 'next/cache';
 import { DeliveryTask, DeliveryTaskStatus, DeliveryAudienceRule, Resource, EmailSendingAccount, EmailTemplate, PreflightCheckResult, DeliveryRunStatus, LastRunStatus, UserProfile, DeliveryRun, DeliveryContentRule } from '@/types';
-import { addMinutes, isAfter, isBefore, parse, subDays, startOfDay, endOfDay, subMinutes } from 'date-fns';
+import { addMinutes, isAfter, isBefore, parse, subDays, startOfDay, endOfDay, subMinutes, differenceInMinutes } from 'date-fns';
 import { Resend } from 'resend';
 import { deriveDeliveryTaskState } from './utils';
 
-// --- System Recovery ---
+// --- System Recovery (Restored: Cleans up stuck runs from runs table) ---
 export async function recoverStaleRuns() {
   const supabase = createServiceClient();
   const now = new Date();
 
-  // 1. Find all currently running tasks
+  // 1. Find all currently running tasks from the RUNS table
   const { data: activeRuns, error } = await supabase
     .from('delivery_task_runs')
-    .select('id, started_at, task_id, delivery_tasks!inner(id, schedule_rule)')
+    .select('id, started_at, task_id')
     .eq('status', 'running');
 
-  if (error || !activeRuns || activeRuns.length === 0) return;
+  if (error) {
+      console.error('[Recovery] Failed to fetch active runs:', error);
+      return;
+  }
+  if (!activeRuns || activeRuns.length === 0) return;
 
   const updates = [];
 
   for (const run of activeRuns) {
     const startTime = new Date(run.started_at);
-    const task = run.delivery_tasks as any;
-    const schedule = task.schedule_rule;
+    
+    // Timeout threshold: 15 minutes for any task
+    if (differenceInMinutes(now, startTime) > 15) {
+        console.warn(`[Recovery] Run ${run.id} timed out (> 15m). Cleaning up.`);
 
-    // 2. Determine Timeout Threshold based on Task Type
-    // Immediate (Manual Run): 2 minutes timeout to unlock UI quickly
-    // Scheduled/Recurring: 15 minutes timeout for bulk processing
-    let timeoutMinutes = 15; 
-    let isImmediate = false;
-
-    if (schedule?.mode === 'one_time' && schedule?.one_time_type === 'immediate') {
-        timeoutMinutes = 2;
-        isImmediate = true;
-    }
-
-    // 3. Check Expiry
-    if (isBefore(startTime, subMinutes(now, timeoutMinutes))) {
-        const timeLabel = isImmediate ? '2m (Immediate)' : '15m (Scheduled)';
-        console.warn(`[Recovery] Run ${run.id} timed out (> ${timeLabel}). Cleaning up.`);
-
-        // 4. Perform Recovery Updates
-        // Mark Run as Failed
+        // 1. Mark Run as Failed
         updates.push(
             supabase.from('delivery_task_runs').update({
                 status: 'failed',
                 finished_at: now.toISOString(),
-                message: `System: Execution timed out (> ${timeoutMinutes}m). Stale Lock released.`
+                message: `System: Execution timed out (> 15m). Stale Lock released.`
             }).eq('id', run.id)
         );
 
-        // Mark Task as Failed (Unlock UI)
+        // 2. Mark Task as Failed (Unlock UI)
         updates.push(
             supabase.from('delivery_tasks').update({
                 last_run_status: 'failed',
-                last_run_message: `System: Execution timed out (> ${timeoutMinutes}m).`
+                last_run_message: `System: Execution timed out (> 15m).`
             }).eq('id', run.task_id)
         );
     }
@@ -66,7 +55,6 @@ export async function recoverStaleRuns() {
 
   if (updates.length > 0) {
       await Promise.all(updates);
-      // Revalidate to reflect changes immediately
       revalidatePath('/admin/delivery'); 
   }
 }
@@ -78,39 +66,35 @@ export async function preflightCheckDeliveryTask(task: Partial<DeliveryTask>): P
   
   if (task.id) {
       const supabase = createServiceClient();
-      const { data: existingTask } = await supabase.from('delivery_tasks').select('*').eq('id', task.id).single();
       
-      if (existingTask) {
-          // Guard: Active Run Check (API level - Authority Source: Run Table)
-          // We strictly check if there is a run currently in 'running' state.
-          const { data: activeRun } = await supabase
-            .from('delivery_task_runs')
-            .select('id, started_at')
-            .eq('task_id', task.id)
-            .eq('status', 'running')
-            .maybeSingle();
-            
-          if (activeRun) {
-              // Check for stale lock in preflight too
-              const startTime = new Date(activeRun.started_at);
-              // If it's been running less than 2 mins, consider it valid. Otherwise ignore it (let RunNow handle cleanup).
-              if (!isBefore(startTime, subMinutes(now, 2))) {
-                  hasActiveRun = true;
-                  return { success: false, error: '任务正在执行中 (Active Run Exists)，请等待执行完成。', data: { estimated_recipients: 0, next_run_at: null, has_active_run: true } };
-              }
+      // Check for Active Run in Runs Table (Authority)
+      const { data: activeRun } = await supabase
+        .from('delivery_task_runs')
+        .select('id, started_at')
+        .eq('task_id', task.id)
+        .eq('status', 'running')
+        .maybeSingle();
+        
+      if (activeRun) {
+          const startTime = new Date(activeRun.started_at);
+          // If running < 15 mins, consider it valid.
+          if (differenceInMinutes(now, startTime) < 15) {
+              hasActiveRun = true;
+              return { success: false, error: '任务正在执行中 (Active Run Exists)，请等待执行完成。', data: { estimated_recipients: 0, next_run_at: null, has_active_run: true } };
           }
+      }
 
-          // 1. One-time task idempotency & Overdue check (API Guard)
+      // Check Task Constraints
+      const { data: existingTask } = await supabase.from('delivery_tasks').select('*').eq('id', task.id).single();
+      if (existingTask) {
           if (task.schedule_rule?.mode === 'one_time') {
                 const mergedTask = { ...existingTask, ...task } as DeliveryTask;
                 const state = deriveDeliveryTaskState(mergedTask);
 
-                // Guard A: Already executed
-                if (existingTask.run_count > 0) {
-                    return { success: false, error: '该一次性任务已执行过，无法再次启用。请复制任务。', data: { estimated_recipients: 0, next_run_at: null, has_active_run: false } };
+                if (existingTask.run_count > 0 && existingTask.last_run_status === 'success') {
+                    return { success: false, error: '该一次性任务已成功执行，无法再次启用。请复制任务。', data: { estimated_recipients: 0, next_run_at: null, has_active_run: false } };
                 }
 
-                // Guard B: Overdue (Cannot Enable, must Run Now)
                 if (state.status === 'overdue') {
                     return { success: false, error: '任务计划时间已过期，无法启用调度。请使用“立即执行”或修改时间。', data: { estimated_recipients: 0, next_run_at: null, has_active_run: false } };
                 }
@@ -118,14 +102,13 @@ export async function preflightCheckDeliveryTask(task: Partial<DeliveryTask>): P
       }
   }
 
-  // 2. Time validity check (Basic format check)
+  // 2. Time validity check
   if (task.schedule_rule?.mode === 'one_time' && task.schedule_rule.one_time_type === 'scheduled') {
     const { one_time_date, one_time_time } = task.schedule_rule;
     if (!one_time_date || !one_time_time) {
       return { success: false, error: '定时任务必须设置执行日期和时间。' };
     }
     const targetTime = parse(`${one_time_date} ${one_time_time}`, 'yyyy-MM-dd HH:mm', new Date());
-    // Allow saving if it's strictly future
     if (!task.id && !isAfter(targetTime, addMinutes(now, 1))) {
       return { success: false, error: '一次性任务的执行时间必须晚于当前时间至少1分钟。' };
     }
@@ -153,7 +136,6 @@ export async function preflightCheckDeliveryTask(task: Partial<DeliveryTask>): P
     return { success: false, error: '当前筛选条件命中 0 位用户，请调整筛选条件。' };
   }
 
-  // Calculate next_run_at
   let nextRunAt: string | null = null;
   if (task.schedule_rule?.mode === 'one_time') {
     if (task.schedule_rule.one_time_type === 'immediate') {
@@ -228,13 +210,7 @@ export async function runDeliveryTaskNow(taskId: string): Promise<{ success: boo
   const { data: task } = await supabase.from('delivery_tasks').select('*').eq('id', taskId).single();
   if (!task) return { success: false, error: 'Task not found.' };
 
-  // Guard 1: One-time task logic
-  const state = deriveDeliveryTaskState(task);
-  if (!state.canRunNow) {
-      return { success: false, error: state.message || '该任务当前不允许立即执行。' };
-  }
-
-  // Guard 2: Active Run Check with Stale Lock Release
+  // Guard: Active Run Check in Runs Table
   const { data: existingRuns } = await supabase
     .from('delivery_task_runs')
     .select('id, started_at')
@@ -242,51 +218,33 @@ export async function runDeliveryTaskNow(taskId: string): Promise<{ success: boo
     .eq('status', 'running');
     
   if (existingRuns && existingRuns.length > 0) {
-      let isLocked = false;
-      const now = new Date();
-      // Default fallback threshold if logic misses
-      const LOCK_TIMEOUT_MINUTES = 2; 
-
-      for (const run of existingRuns) {
-          const runStart = new Date(run.started_at);
-          if (isBefore(runStart, subMinutes(now, LOCK_TIMEOUT_MINUTES))) {
-              console.warn(`[Auto-Release] Found stale lock for run ${run.id}. Marking as failed.`);
-              // Release the lock
-              await supabase.from('delivery_task_runs').update({
-                  status: 'failed',
-                  finished_at: now.toISOString(),
-                  message: 'System: Execution timed out (Stale Lock released).'
-              }).eq('id', run.id);
-              await supabase.from('delivery_tasks').update({ last_run_status: 'failed' }).eq('id', taskId);
-          } else {
-              isLocked = true;
-          }
-      }
-
-      if (isLocked) {
+      // Simple timeout check inside execution attempt to auto-recover if recoverStaleRuns hasn't run yet
+      const activeRun = existingRuns[0];
+      if (differenceInMinutes(started_at, new Date(activeRun.started_at)) < 2) {
           return { success: false, error: '任务正在执行中，无法重复触发。', code: 'RUNNING' };
       }
+      // If > 2 mins, we proceed (assuming user clicked Force Run or previous run died), 
+      // effectively ignoring the old lock. Real cleanup happens in recoverStaleRuns.
   }
 
-  // --- START EXECUTION TRANSACTION ---
   let runId: string | null = null;
 
   try {
-      // 2. Lock: Initialize Run
+      // 2. Lock: Initialize Run Record
       const { data: newRun, error: runError } = await supabase.from('delivery_task_runs').insert({
         task_id: taskId,
         started_at: started_at.toISOString(),
-        status: 'running', // <--- ACTIVE LOCK CREATED
+        status: 'running',
         message: 'Initializing...',
         recipient_count: 0,
         success_count: 0,
         failure_count: 0
       }).select('id').single();
 
-      if (runError) throw new Error(`Failed to create run record: ${runError.message}`);
-      runId = newRun.id; // CRITICAL: Only proceed if we have a Run ID
+      if (runError) throw runError;
+      runId = newRun.id;
 
-      // 3. Update Task Status (Redundancy for UI list)
+      // 3. Update Task Status (Sync for List UI)
       await supabase.from('delivery_tasks').update({
           last_run_at: started_at.toISOString(),
           last_run_status: 'running',
@@ -305,13 +263,9 @@ export async function runDeliveryTaskNow(taskId: string): Promise<{ success: boo
       const recipients = audienceRes.users;
       if (recipients.length === 0) {
           // Skipped
-          if (runId) {
-              await updateRunStatus(runId, 'skipped', 0, 0, 0, 'No recipients found.');
-              await updateTaskOnRunCompletion(taskId, 'skipped', 'No recipients found.');
-              return { success: true, message: 'Skipped: No recipients found.' };
-          } else {
-              return { success: false, error: 'Run record was not created; cannot update status.' };
-          }
+          await updateRunStatus(runId, 'skipped', 0, 0, 0, 'No recipients found.');
+          await updateTaskOnRunCompletion(taskId, 'skipped', 'No recipients found.');
+          return { success: true, message: 'Skipped: No recipients found.' };
       }
       
       // MVP Limit
@@ -320,23 +274,19 @@ export async function runDeliveryTaskNow(taskId: string): Promise<{ success: boo
       }
 
       // 5. Send Emails
-      if (runId) {
-          await supabase.from('delivery_task_runs').update({ 
-              recipient_count: recipients.length, 
-              message: `Sending to ${recipients.length} recipients...` 
-          }).eq('id', runId);
-      }
+      await supabase.from('delivery_task_runs').update({ 
+          recipient_count: recipients.length, 
+          message: `Sending to ${recipients.length} recipients...` 
+      }).eq('id', runId);
 
       const { success_count, failure_count } = await sendEmailsToRecipients(task, recipients);
       
       const status: DeliveryRunStatus = failure_count > 0 ? 'failed' : 'success';
       const message = status === 'success' ? `Successfully sent to ${success_count} recipients.` : `Completed with ${failure_count} failures.`;
 
-      // 6. Finalize Run & Task (Success Path)
-      if (runId) {
-          await updateRunStatus(runId, status, recipients.length, success_count, failure_count, message);
-          await updateTaskOnRunCompletion(taskId, status, message);
-      }
+      // 6. Finalize Run & Task
+      await updateRunStatus(runId, status, recipients.length, success_count, failure_count, message);
+      await updateTaskOnRunCompletion(taskId, status, message);
 
       revalidatePath('/admin/delivery');
       revalidatePath(`/admin/delivery/${taskId}`);
@@ -344,20 +294,15 @@ export async function runDeliveryTaskNow(taskId: string): Promise<{ success: boo
 
   } catch (error: any) {
       console.error('Execution Error:', error);
-      
       const errorMessage = error.message || 'Unknown error occurred';
       
-      // 7. Failure Recovery (Release Lock)
+      // 7. Failure Recovery
       if (runId) {
-          // If we created a run, mark it failed
           await updateRunStatus(runId, 'failed', 0, 0, 0, `Crash: ${errorMessage}`);
-          // And update the task
           await supabase.from('delivery_tasks').update({ 
               last_run_status: 'failed', 
               last_run_message: `Execution Failed: ${errorMessage}` 
           }).eq('id', taskId);
-      } else {
-          console.error('Run creation failed, skipping task status update.');
       }
 
       return { success: false, error: errorMessage };
@@ -380,7 +325,6 @@ async function sendEmailsToRecipients(task: DeliveryTask, recipients: UserProfil
     if (!account) return { success_count: 0, failure_count: recipients.length };
 
     const { data: template } = await createServiceClient().from('email_templates').select('*').eq('id', emailConfig.template_id).single();
-    // Basic fallback if template fetch fails, though should be caught by preflight
     const baseHtml = template?.html_content || '<html><body><p>Hi {{name}},</p>{{items}}</body></html>';
 
     let success_count = 0;
@@ -388,26 +332,16 @@ async function sendEmailsToRecipients(task: DeliveryTask, recipients: UserProfil
     const promises = recipients.map(async (user) => {
         let itemsHtml = '';
         
-        // --- DYNAMIC CONTENT MATCHING ---
         if (task.content_mode === 'rule' && task.content_rule) {
             const matchedResources = await matchResourcesByUser(user, task.content_rule);
-            
-            // Handle Empty
             if (matchedResources.length === 0) {
-                if (task.content_rule.fallback === 'skip_user') {
-                    // Log internally but don't count as success
-                    return false; 
-                }
-                // Fallback handled inside matchResourcesByUser if it was 'latest_global'
-                // If we are here and still empty, truly nothing to send.
+                if (task.content_rule.fallback === 'skip_user') return false; 
                 return false;
             }
-
-            // Build HTML List
             itemsHtml = `<ul style="padding-left: 20px;">
                 ${matchedResources.map(r => `
                     <li style="margin-bottom: 10px;">
-                        <a href="${process.env.NEXT_PUBLIC_SITE_URL || ''}/library/${r.slug}" style="color: #2563eb; text-decoration: none; font-weight: bold;">
+                        <a href="${process.env.NEXT_PUBLIC_SITE_URL || ''}/library/${r.slug || '#'}" style="color: #2563eb; text-decoration: none; font-weight: bold;">
                             ${r.title}
                         </a>
                         ${r.summary ? `<div style="font-size: 13px; color: #666; margin-top: 4px;">${r.summary}</div>` : ''}
@@ -415,29 +349,20 @@ async function sendEmailsToRecipients(task: DeliveryTask, recipients: UserProfil
                 `).join('')}
             </ul>`;
         } else {
-            // --- MANUAL CONTENT ---
-            // If manual, we should have content_ids. Fetch them once globally? 
-            // For MVP simplicity, we can fetch inside loop or optimize later. 
-            // Better: fetch once outside loop.
-            // For now, static placeholder for manual mode to keep diff small, 
-            // assuming task.content_ids logic is handled or static text is used.
             if (task.content_ids && task.content_ids.length > 0) {
                  const resources = await getResourcesByIds(task.content_ids);
-                 // Fixed: Removed missing 'slug' access. Only display title.
                  itemsHtml = `<ul style="padding-left: 20px;">${resources.map(r => `<li>${r.title}</li>`).join('')}</ul>`;
             } else {
                  itemsHtml = '<p>No specific resources selected.</p>';
             }
         }
 
-        // Variable Replacement
         const userHtml = baseHtml
             .replace(/{{name}}/g, user.name || 'User')
             .replace(/{{items}}/g, itemsHtml)
             .replace(/{{header}}/g, emailConfig.header_note || '')
             .replace(/{{footer}}/g, emailConfig.footer_note || '');
 
-        // Send
         const { error } = await resend.emails.send({
             from: `${account.from_name} <${account.from_email}>`,
             to: user.email,
@@ -450,7 +375,6 @@ async function sendEmailsToRecipients(task: DeliveryTask, recipients: UserProfil
             console.error(`Failed to send to ${user.email}:`, error.message);
             return false;
         }
-        
         success_count++;
         return true;
     });
@@ -462,14 +386,11 @@ async function sendEmailsToRecipients(task: DeliveryTask, recipients: UserProfil
 // --- Dynamic Matching Logic ---
 async function matchResourcesByUser(user: UserProfile, rule: DeliveryContentRule) {
     const supabase = createServiceClient();
-    
-    // 1. Calculate Time Range
     const now = new Date();
     const daysMap: Record<string, number> = { '7d': 7, '30d': 30, '90d': 90, 'all': 3650 };
     const days = daysMap[rule.time_range || '30d'] || 30;
     const cutoffDate = subDays(now, days).toISOString();
 
-    // 2. Build Query
     let query = supabase
         .from('resources')
         .select('id, title, slug, summary, created_at, interests')
@@ -478,29 +399,18 @@ async function matchResourcesByUser(user: UserProfile, rule: DeliveryContentRule
         .order('created_at', { ascending: false })
         .limit(rule.limit || 3);
 
-    // 3. Apply Tag Matching
-    // If resource has interests array column
     if (user.interest_tags && user.interest_tags.length > 0) {
         if (rule.match_mode === 'all') {
-             // 'containedBy' checks if resource tags are subset of user tags? 
-             // Or 'contains' checks if resource tags contain ALL user tags?
-             // Actually, 'all' usually means resource must match all user interests OR user must match all resource tags.
-             // Given limitations, 'overlaps' is safest for 'any'.
-             // For 'all', we might need complex logic. MVP: Fallback to overlaps (any) for now or basic contains.
              query = query.contains('interests', user.interest_tags); 
         } else {
-             // Any match
              query = query.overlaps('interests', user.interest_tags);
         }
     } else {
-        // User has no tags -> No match possible by tags. 
-        // Return empty so fallback logic triggers.
         return [];
     }
 
     const { data: matched } = await query;
     
-    // 4. Check Fallback
     if (!matched || matched.length === 0) {
         if (rule.fallback === 'latest_global') {
              const { data: globalLatest } = await supabase
@@ -513,12 +423,10 @@ async function matchResourcesByUser(user: UserProfile, rule: DeliveryContentRule
         }
         return [];
     }
-
     return matched;
 }
 
-// --- Task State Management Helpers ---
-
+// --- Helper: Update Run Status ---
 async function updateRunStatus(runId: string, status: DeliveryRunStatus, recipient_count: number, success_count: number, failure_count: number, message: string) {
     const supabase = createServiceClient();
     await supabase.from('delivery_task_runs').update({
@@ -531,6 +439,7 @@ async function updateRunStatus(runId: string, status: DeliveryRunStatus, recipie
     }).eq('id', runId);
 }
 
+// --- Helper: Update Task Status ---
 async function updateTaskOnRunCompletion(taskId: string, status: LastRunStatus, message: string) {
     const supabase = createServiceClient();
     const { data: currentTask } = await supabase.from('delivery_tasks').select('run_count, schedule_rule').eq('id', taskId).single();
@@ -545,8 +454,6 @@ async function updateTaskOnRunCompletion(taskId: string, status: LastRunStatus, 
     const scheduleRule = currentTask?.schedule_rule as any;
     const isOneTime = scheduleRule?.mode === 'one_time';
 
-    // Strict Lifecycle: If one-time task finishes, mark as completed regardless of success/fail
-    // (Failures are logged in runs, but the task instance is "done")
     if (isOneTime) {
         updatePayload.status = status === 'success' || status === 'skipped' ? 'completed' : 'failed';
         updatePayload.completed_at = new Date().toISOString();
@@ -556,7 +463,7 @@ async function updateTaskOnRunCompletion(taskId: string, status: LastRunStatus, 
     await supabase.from('delivery_tasks').update(updatePayload as any).eq('id', taskId);
 }
 
-// New Action: Get Runs for a Task
+// Restore Real Implementation: Get Runs for a Task
 export async function getTaskRuns(taskId: string): Promise<DeliveryRun[]> {
     const supabase = createServiceClient();
     const { data } = await supabase
@@ -567,8 +474,7 @@ export async function getTaskRuns(taskId: string): Promise<DeliveryRun[]> {
     return (data || []) as DeliveryRun[];
 }
 
-// --- Audience Calculation ---
-
+// --- Audience Calculation (Unchanged) ---
 export async function previewAudience(rule: DeliveryAudienceRule): Promise<{ success: true, users: UserProfile[] } | { success: false, error: string }> {
     const result = await getAudience(rule, 20); 
     if (!result.success) return result;
@@ -580,15 +486,9 @@ async function getAudience(rule: DeliveryAudienceRule | null, limit?: number): P
     const supabase = createServiceClient();
     let query = supabase.from('user_profiles').select('id, name, email, user_type, created_at, interest_tags');
     
-    if (rule.user_type && rule.user_type !== 'all') {
-        query = query.eq('user_type', rule.user_type);
-    }
-    if (rule.marketing_opt_in === 'yes') {
-        query = query.is('marketing_opt_in', true);
-    }
-    if (rule.marketing_opt_in === 'no') {
-        query = query.is('marketing_opt_in', false);
-    }
+    if (rule.user_type && rule.user_type !== 'all') query = query.eq('user_type', rule.user_type);
+    if (rule.marketing_opt_in === 'yes') query = query.is('marketing_opt_in', true);
+    if (rule.marketing_opt_in === 'no') query = query.is('marketing_opt_in', false);
 
     if (rule.has_communicated && rule.has_communicated !== 'all') {
         const { data: demoRequests } = await supabase.from('demo_requests').select('user_id').not('user_id', 'is', null);
@@ -604,9 +504,7 @@ async function getAudience(rule: DeliveryAudienceRule | null, limit?: number): P
         }
     }
     
-    if (rule.interest_tags && rule.interest_tags.length > 0) {
-        query = query.overlaps('interest_tags', rule.interest_tags);
-    }
+    if (rule.interest_tags && rule.interest_tags.length > 0) query = query.overlaps('interest_tags', rule.interest_tags);
     if (rule.country) query = query.ilike('country', `%${rule.country}%`);
     if (rule.city) query = query.ilike('city', `%${rule.city}%`);
     if (rule.registered_from) query = query.gte('created_at', startOfDay(new Date(rule.registered_from)).toISOString());
@@ -614,16 +512,10 @@ async function getAudience(rule: DeliveryAudienceRule | null, limit?: number): P
     if (rule.last_login_start) query = query.gte('last_login_at', startOfDay(new Date(rule.last_login_start)).toISOString());
     if (rule.last_login_end) query = query.lte('last_login_at', endOfDay(new Date(rule.last_login_end)).toISOString());
 
-    if (limit) {
-        query = query.limit(limit);
-    }
+    if (limit) query = query.limit(limit);
 
     const { data: users, error } = await query;
-
-    if (error) {
-        console.error("Audience Fetch Error:", error);
-        return { success: false, error: error.message };
-    }
+    if (error) return { success: false, error: error.message };
     return { success: true, users: users || [] };
 }
 
@@ -631,10 +523,7 @@ export async function estimateAudienceCount(rule: DeliveryAudienceRule): Promise
     const supabase = createServiceClient();
     let query = supabase.from('user_profiles').select('id', { count: 'exact', head: true });
 
-    if (rule.user_type && rule.user_type !== 'all') {
-        query = query.eq('user_type', rule.user_type);
-    }
-    
+    if (rule.user_type && rule.user_type !== 'all') query = query.eq('user_type', rule.user_type);
     if (rule.marketing_opt_in === 'yes') query = query.is('marketing_opt_in', true);
     if (rule.marketing_opt_in === 'no') query = query.is('marketing_opt_in', false);
 
@@ -652,9 +541,7 @@ export async function estimateAudienceCount(rule: DeliveryAudienceRule): Promise
         }
     }
     
-    if (rule.interest_tags && rule.interest_tags.length > 0) {
-        query = query.overlaps('interest_tags', rule.interest_tags);
-    }
+    if (rule.interest_tags && rule.interest_tags.length > 0) query = query.overlaps('interest_tags', rule.interest_tags);
     if (rule.country) query = query.ilike('country', `%${rule.country}%`);
     if (rule.city) query = query.ilike('city', `%${rule.city}%`);
     if (rule.registered_from) query = query.gte('created_at', startOfDay(new Date(rule.registered_from)).toISOString());
@@ -663,15 +550,11 @@ export async function estimateAudienceCount(rule: DeliveryAudienceRule): Promise
     if (rule.last_login_end) query = query.lte('last_login_at', endOfDay(new Date(rule.last_login_end)).toISOString());
 
     const { count, error } = await query;
-    if (error) {
-        console.error("Audience Estimation Error:", error);
-        return { success: false, error: error.message };
-    }
+    if (error) return { success: false, error: error.message };
     return { success: true, count: count || 0 };
 }
 
-// --- Other existing actions ---
-
+// --- Other existing actions (Unchanged) ---
 export async function updateTaskStatus(id: string, status: DeliveryTaskStatus) {
   const supabase = createServiceClient();
   const { error } = await supabase.from('delivery_tasks').update({ status, updated_at: new Date().toISOString() }).eq('id', id);
@@ -690,13 +573,12 @@ export async function deleteTask(id: string) {
 }
 
 export async function duplicateTask(task: DeliveryTask) {
-  // Reset critical lifecycle fields
   const { id, created_at, updated_at, next_run_at, last_run_at, run_count, completed_at, last_run_status, last_run_message, ...rest } = task;
   const payload = {
     ...rest,
     name: `${rest.name} (复制)`,
     status: 'draft',
-    run_count: 0, // Reset run count
+    run_count: 0,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
