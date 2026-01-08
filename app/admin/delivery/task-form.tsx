@@ -348,7 +348,11 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
   
   const { status: derivedStatus, canEnable, canRunNow, message: stateMessage } = deriveDeliveryTaskState(taskForDerivation);
   const isOverdue = !executionLocked && derivedStatus === 'overdue';
-  const isCompleted = !executionLocked && (derivedStatus === 'completed' || derivedStatus === 'failed');
+  
+  // Guard: One-time task that has finished execution
+  const isOneTimeDone = schedule.mode === 'one_time' && (initialData?.run_count || 0) > 0;
+  
+  const isCompleted = !executionLocked && (derivedStatus === 'completed' || derivedStatus === 'failed' || isOneTimeDone);
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 relative">
@@ -386,13 +390,13 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
                     </div>
                 ) : (
                     <>
-                        <button onClick={() => handleSave(true)} disabled={executionLocked || isPending || isChecking || isManualRunning} className="w-full flex items-center justify-center gap-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                        <button onClick={() => handleSave(true)} disabled={executionLocked || isOneTimeDone || isPending || isChecking || isManualRunning} className="w-full flex items-center justify-center gap-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                             <Save size={16} /> 保存草稿
                         </button>
 
                         {canEnable ? (
                             // 2) Update "Enable Task" button disabled condition
-                            <button onClick={() => handleSave(false)} disabled={executionLocked || isPending || isChecking || isManualRunning || !!scheduleError || (isEmail && (availableAccounts.length === 0 || availableTemplates.length === 0))} className="w-full flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm">
+                            <button onClick={() => handleSave(false)} disabled={executionLocked || isOneTimeDone || isPending || isChecking || isManualRunning || !!scheduleError || (isEmail && (availableAccounts.length === 0 || availableTemplates.length === 0))} className="w-full flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm">
                                 {isChecking ? <Loader2 className="animate-spin" size={16} /> : <Play size={16} />}
                                 {isChecking ? '校验中...' : '启用任务'}
                             </button>
@@ -406,7 +410,7 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
 
                         {initialData && canRunNow && (
                             // 3) Update "Run Now" button disabled condition
-                            <button onClick={handleRunNow} disabled={executionLocked || isManualRunning || isPending || isChecking} className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm">
+                            <button onClick={handleRunNow} disabled={executionLocked || isOneTimeDone || isManualRunning || isPending || isChecking} className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm">
                                 {isManualRunning ? <Loader2 className="animate-spin" size={16} /> : <Send size={16} />}
                                 {isManualRunning ? '执行中...' : '立即执行'}
                             </button>
