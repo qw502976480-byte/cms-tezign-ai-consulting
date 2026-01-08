@@ -4,6 +4,9 @@ import { isBefore, parseISO, parse, differenceInMinutes } from 'date-fns';
 
 export type DerivedTaskStatus = 'draft' | 'scheduled' | 'active' | 'paused' | 'completed' | 'failed' | 'overdue' | 'running';
 
+// New Unified Result State
+export type DerivedResult = 'running' | 'failed' | 'success' | 'not_started';
+
 export interface DerivedTaskState {
   status: DerivedTaskStatus;
   canEnable: boolean;
@@ -32,6 +35,24 @@ export function isRunActive(run: { status: string; started_at: string } | null |
   const now = new Date();
   // Use absolute difference to be safe, though startedAt should be in past
   return differenceInMinutes(now, startedAt) < 5;
+}
+
+/**
+ * Centralized logic to determine the high-level result state of a task
+ * based on its latest run. This drives UI permissions and displays.
+ */
+export function getTaskDerivedResult(latestRun?: DeliveryRun | null): DerivedResult {
+  if (!latestRun) return 'not_started';
+
+  if (latestRun.status === 'running') {
+    // Integrate timeout check: if stale, treat as failed
+    return isRunActive(latestRun) ? 'running' : 'failed';
+  }
+
+  if (latestRun.status === 'success') return 'success';
+  
+  // 'failed', 'skipped', or other statuses treat as failed for operational purposes (needs retry)
+  return 'failed'; 
 }
 
 export function deriveDeliveryTaskState(task: DeliveryTaskDeriveInput): DerivedTaskState {

@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useTransition, useMemo, useRef } from 'react';
 import { createClient } from '@/utils/supabase/client';
 import { useRouter } from 'next/navigation';
-import { Loader2, ArrowLeft, Save, Globe, Layout, FileText, RefreshCw, Calendar as CalendarIcon, Trash2, MoreHorizontal, ChevronDown, Check } from 'lucide-react';
+import { Loader2, ArrowLeft, Save, Globe, Layout, FileText, RefreshCw, Calendar as CalendarIcon, Trash2, MoreHorizontal, ChevronDown, Check, Tag } from 'lucide-react';
 import { Resource } from '@/types';
 import Link from 'next/link';
 import { deleteResource } from './actions';
@@ -48,10 +48,14 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
     published_at: initialData?.published_at 
       ? new Date(initialData.published_at).toISOString().split('T')[0] 
       : new Date().toISOString().split('T')[0],
+    interests: initialData?.interests || [] as string[],
   });
 
   const [formData, setFormData] = useState(getDefaultFormData());
   const [homepageFlags, setHomepageFlags] = useState({ carousel: false, sidebar: false });
+  
+  // Local state for interests input (comma separated)
+  const [interestsInput, setInterestsInput] = useState(initialData?.interests?.join(', ') || '');
 
   // State for dirty check
   const [initialFormState, setInitialFormState] = useState(getDefaultFormData());
@@ -64,9 +68,11 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
   const moreMenuRef = useRef<HTMLDivElement>(null);
 
   const isDirty = useMemo(() => {
+    // Basic deep check approximation
     return JSON.stringify(formData) !== JSON.stringify(initialFormState) ||
-           JSON.stringify(homepageFlags) !== JSON.stringify(initialHomepageFlags);
-  }, [formData, homepageFlags, initialFormState, initialHomepageFlags]);
+           JSON.stringify(homepageFlags) !== JSON.stringify(initialHomepageFlags) ||
+           interestsInput !== (initialData?.interests?.join(', ') || '');
+  }, [formData, homepageFlags, initialFormState, initialHomepageFlags, interestsInput, initialData?.interests]);
   
   // Custom hook to handle clicks outside of a ref
   const useClickOutside = (ref: React.RefObject<HTMLDivElement>, handler: () => void) => {
@@ -131,6 +137,7 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
   const handleDiscardChanges = () => {
      if (confirm("确定要丢弃所有未保存的更改吗？")) {
         setFormData(initialFormState);
+        setInterestsInput(initialData?.interests?.join(', ') || '');
         setHomepageFlags(initialHomepageFlags);
         setIsMoreMenuOpen(false);
      }
@@ -150,6 +157,13 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
 
       try {
         const payload = { ...formData };
+        
+        // Parse interests
+        payload.interests = interestsInput
+            .split(/[,，]/)
+            .map(s => s.trim())
+            .filter(Boolean);
+
         if (options.publish) payload.status = 'published';
         if (options.unpublish) payload.status = 'draft';
         
@@ -326,6 +340,22 @@ export default function ResourceForm({ initialData }: ResourceFormProps) {
                 <label className="block text-sm font-medium text-gray-700 mb-1">摘要</label>
                 <textarea name="summary" rows={3} value={formData.summary} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900" />
               </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">兴趣标签 (Tags)</label>
+                <div className="relative">
+                    <input 
+                        type="text" 
+                        value={interestsInput} 
+                        onChange={(e) => setInterestsInput(e.target.value)} 
+                        placeholder="e.g. AI, Marketing, Design (逗号分隔)"
+                        className="w-full px-3 py-2 pl-9 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900" 
+                    />
+                    <Tag className="absolute left-3 top-2.5 text-gray-400" size={18} />
+                </div>
+                <p className="text-xs text-gray-500 mt-1">用于自动化分发时的规则匹配，请使用半角逗号分隔。</p>
+              </div>
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">正文 (Markdown)</label>
                 <textarea name="content" rows={15} value={formData.content} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900 font-mono text-sm" />

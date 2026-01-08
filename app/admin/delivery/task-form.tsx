@@ -5,10 +5,10 @@ import React, { useState, useTransition, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { upsertDeliveryTask, estimateAudienceCount, previewAudience, searchResources, getResourcesByIds, getEmailAccounts, getEmailTemplates, getUniqueInterestTags, preflightCheckDeliveryTask, runDeliveryTaskNow, duplicateTask } from './actions';
 import { DeliveryTask, DeliveryTaskType, DeliveryChannel, DeliveryTaskStatus, DeliveryContentMode, DeliveryAudienceRule, DeliveryContentRule, DeliveryScheduleRule, EmailSendingAccount, EmailTemplate, EmailChannelConfig, DeliveryRun, UserProfile } from '@/types';
-import { Loader2, Save, Play, Search, X, Check, Calculator, CalendarClock, Users, FileText, Settings, AlertTriangle, Mail, Calendar, ArrowRight, ExternalLink, ChevronDown, Tag, Send, History, Eye, Info, PlusCircle, Lock, Unlock, Copy, RefreshCw } from 'lucide-react';
+import { Loader2, Save, Play, Search, X, Check, Calculator, CalendarClock, Users, FileText, Settings, AlertTriangle, Mail, Calendar, ArrowRight, ExternalLink, ChevronDown, Tag, Send, History, Eye, Info, PlusCircle, Lock, Unlock, Copy, RefreshCw, Sparkles } from 'lucide-react';
 import EmailConfigModal from './EmailConfigModal';
 import { format } from 'date-fns';
-import { deriveDeliveryTaskState, DeliveryTaskDeriveInput } from './utils';
+import { getTaskDerivedResult, DerivedResult } from './utils';
 
 interface Props {
   initialData?: DeliveryTask;
@@ -32,16 +32,19 @@ const CustomSelect = ({ value, onChange, options, placeholder, className, disabl
 };
 
 
-export default function TaskForm({ initialData, initialRuns = [], hasActiveRun = false }: Props) {
+export default function TaskForm({ initialData, initialRuns = [] }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [isChecking, setIsChecking] = useState(false);
   const [isManualRunning, setIsManualRunning] = useState(false);
   const [preflightError, setPreflightError] = useState<string | null>(null);
 
-  // 1) Define executionLocked based on props (Authority is hasActiveRun)
-  // If the server says hasActiveRun is false (due to timeout), we respect that over DB 'running' status.
-  const executionLocked = Boolean(hasActiveRun);
+  // --- Calculate Derived State ---
+  const latestRun = initialRuns.length > 0 ? initialRuns[0] : null;
+  const derivedResult: DerivedResult = getTaskDerivedResult(latestRun);
+  const isOneTime = initialData?.schedule_rule?.mode === 'one_time';
+  
+  const isFormLocked = derivedResult === 'running' || (derivedResult === 'success' && isOneTime);
 
   // --- State ---
   const [basic, setBasic] = useState({
@@ -49,7 +52,7 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
     type: initialData?.type || 'automated' as DeliveryTaskType,
     channel: initialData?.channel || 'email' as DeliveryChannel,
     status: initialData?.status || 'draft' as DeliveryTaskStatus,
-    locale: 'zh-CN', // Default locale (UI only)
+    locale: 'zh-CN',
   });
 
   const [audience, setAudience] = useState<DeliveryAudienceRule>(initialData?.audience_rule || {
@@ -57,11 +60,16 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
   });
   
   const [contentMode, setContentMode] = useState<DeliveryContentMode>(initialData?.content_mode || 'manual');
+  
   const [contentSource, setContentSource] = useState<'resource' | 'custom'>(
       (initialData?.content_ids && initialData.content_ids.length > 0) ? 'resource' : 'custom'
   );
 
-  const [contentRule, setContentRule] = useState<DeliveryContentRule>(initialData?.content_rule || { category: [], time_range: '30d', limit: 3, featured_slot: 'none' });
+  const [contentRule, setContentRule] = useState<DeliveryContentRule>(initialData?.content_rule || { 
+      category: [], time_range: '30d', limit: 3, featured_slot: 'none',
+      match_mode: 'any', fallback: 'skip_user'
+  });
+  
   const [selectedContentIds, setSelectedContentIds] = useState<string[]>(initialData?.content_ids || []);
   const [schedule, setSchedule] = useState<DeliveryScheduleRule>(initialData?.schedule_rule || { mode: 'one_time', one_time_type: 'immediate', timezone: 'Asia/Shanghai' });
   
@@ -92,7 +100,6 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
 
   useEffect(() => { loadOptions(); }, []);
 
-  // Reset estimated count when audience rule changes
   const isFirstRender = useRef(true);
   useEffect(() => {
       if (isFirstRender.current) {
@@ -124,7 +131,6 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
     }
   }, [selectedResources, contentSource]);
 
-  // Sync Template Content - Only when template changes and override is OFF
   useEffect(() => {
       if (basic.channel === 'email' && emailConfig.template_id && !overrideTemplate) {
           const tmpl = availableTemplates.find(t => t.id === emailConfig.template_id);
@@ -135,14 +141,11 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
   }, [emailConfig.template_id, basic.channel, overrideTemplate, availableTemplates]);
 
   useEffect(() => {
-    // Schedule Validation Logic
     let error = null;
     if (schedule.mode === 'one_time' && schedule.one_time_type === 'scheduled') {
         const { one_time_date, one_time_time } = schedule;
-        if (one_time_date && one_time_time) {
-            // Note: We loosen the check here to allow viewing old tasks without error, 
-            // but the API Guard will prevent saving an overdue one as "Enable".
-            // The derived state logic handles the "Overdue" status display.
+        if (!one_time_date || !one_time_time) {
+             // Basic validation
         }
     } else if (schedule.mode === 'recurring') {
         if (schedule.start_date && schedule.end_date) {
@@ -194,114 +197,77 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
   const handleSave = (isDraft: boolean) => {
     setPreflightError(null);
 
-    // Front-end Validation before saving
+    // Front-end Validation
     if (!isDraft) {
         if (basic.channel === 'email') {
-            if (!emailConfig.account_id) {
-                alert('请选择发送账户 (Sender Account)');
-                scrollToSection('basic');
-                return;
-            }
-            if (!emailConfig.template_id) {
-                alert('请选择邮件模板 (Email Template)');
-                scrollToSection('basic');
-                return;
-            }
-        }
-        if (contentSource === 'custom' && !emailConfig.subject) {
-            alert('请输入标题/主题 (Subject/Title)');
-            scrollToSection('content');
-            return;
+            if (!emailConfig.account_id) { alert('请选择发送账户'); scrollToSection('basic'); return; }
+            if (!emailConfig.template_id) { alert('请选择邮件模板'); scrollToSection('basic'); return; }
         }
     }
 
+    // Determine content mode: if recurring and resource selected, use 'rule'
+    const isRuleMode = schedule.mode === 'recurring' && contentSource === 'resource';
+    const finalContentMode = isRuleMode ? 'rule' : contentMode;
+
     const taskData: Partial<DeliveryTask> = {
-        id: initialData?.id, ...basic, audience_rule: audience, content_mode: contentMode,
-        content_rule: contentMode === 'rule' ? contentRule : null,
-        content_ids: contentSource === 'resource' ? selectedContentIds : [],
+        id: initialData?.id, ...basic, audience_rule: audience, 
+        content_mode: finalContentMode,
+        content_rule: finalContentMode === 'rule' ? contentRule : null,
+        content_ids: contentSource === 'resource' && !isRuleMode ? selectedContentIds : [],
         schedule_rule: schedule,
-        // Channel Config Logic
         channel_config: basic.channel === 'email' 
             ? { email: emailConfig } 
-            : { in_app: { subject: emailConfig.subject, message: emailConfig.header_note } } as any // Cast to support in_app via JSONB
+            : { in_app: { subject: emailConfig.subject, message: emailConfig.header_note } } as any
     };
 
     if (isDraft) {
         taskData.status = 'draft';
         startTransition(async () => {
             const res = await upsertDeliveryTask(taskData);
-            if (res.success) {
-                alert('草稿已保存');
-                router.push('/admin/delivery');
-                router.refresh();
-            } else {
-                alert(`保存失败: ${res.error}`);
-            }
+            if (res.success) { alert('草稿已保存'); router.push('/admin/delivery'); router.refresh(); }
+            else { alert(`保存失败: ${res.error}`); }
         });
     } else {
-        if (scheduleError) return; // Block
+        if (scheduleError) return;
         setIsChecking(true);
         startTransition(async () => {
             const check = await preflightCheckDeliveryTask(taskData);
-            
-            if (!check.success) {
-                setPreflightError(check.error || '未知校验错误');
-                setIsChecking(false);
-                return;
-            }
-
+            if (!check.success) { setPreflightError(check.error || '未知错误'); setIsChecking(false); return; }
             taskData.status = 'active';
             const res = await upsertDeliveryTask(taskData, check.data);
             setIsChecking(false);
-            if (res.success) {
-                alert(`任务已启用! 预计命中 ${check.data?.estimated_recipients} 人。`);
-                router.push('/admin/delivery');
-                router.refresh();
-            } else {
-                setPreflightError(`启用失败: ${res.error}`);
-            }
+            if (res.success) { alert(`任务已启用!`); router.push('/admin/delivery'); router.refresh(); }
+            else { setPreflightError(`启用失败: ${res.error}`); }
         });
     }
   };
 
   const handleRunNow = async () => {
     if (!initialData?.id) return;
-    
-    if (!confirm(`确定要立即执行任务 "${initialData.name}" 吗？\n这将向预计 ${audience.estimated_count || 'N/A'} 位用户真实发送内容。`)) return;
+    if (!confirm(`确定要执行任务 "${initialData.name}" 吗？\n这将向预计 ${audience.estimated_count || 'N/A'} 位用户真实发送内容。`)) return;
 
     setIsManualRunning(true);
     const result = await runDeliveryTaskNow(initialData.id);
     setIsManualRunning(false);
     
-    if (result.success) {
-        alert(`执行成功: ${result.message}`);
-    } else {
-        alert(`执行失败: ${result.error}`);
-    }
+    if (result.success) { alert(`执行成功: ${result.message}`); } 
+    else { alert(`执行失败: ${result.error}`); }
     router.refresh();
   };
 
   const handleDuplicate = async () => {
     if (!initialData) return;
     if (!confirm('确定要复制此任务吗？')) return;
-    
     startTransition(async () => {
         const res = await duplicateTask(initialData);
-        if (res.success) {
-            router.push('/admin/delivery');
-            router.refresh();
-        } else {
-            alert(`复制失败: ${res.error}`);
-        }
+        if (res.success) { router.push('/admin/delivery'); router.refresh(); } 
+        else { alert(`复制失败: ${res.error}`); }
     });
   };
 
   const handleResourceSearch = async (keyword: string) => {
     setSearchKeyword(keyword);
-    if (keyword.length < 2) {
-        setSearchResults([]);
-        return;
-    }
+    if (keyword.length < 2) { setSearchResults([]); return; }
     setIsSearching(true);
     const results = await searchResources(keyword);
     setSearchResults(results);
@@ -310,57 +276,94 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
 
   const toggleResource = (resource: {id: string, title: string}) => {
     setSelectedResources(prev => {
-        if (prev.some(r => r.id === resource.id)) {
-            return prev.filter(r => r.id !== resource.id);
-        } else {
-            return [...prev, resource];
-        }
+        if (prev.some(r => r.id === resource.id)) return prev.filter(r => r.id !== resource.id);
+        else return [...prev, resource];
     });
   };
 
   const toggleInterestTag = (tag: string) => {
     setAudience(prev => {
         const current = prev.interest_tags || [];
-        if (current.includes(tag)) {
-            return { ...prev, interest_tags: current.filter(t => t !== tag) };
-        } else {
-            return { ...prev, interest_tags: [...current, tag] };
-        }
+        if (current.includes(tag)) return { ...prev, interest_tags: current.filter(t => t !== tag) };
+        else return { ...prev, interest_tags: [...current, tag] };
     });
   };
 
   const isEmail = basic.channel === 'email';
-  const labelSubject = isEmail ? '邮件主题 (Subject)' : '标题 (Title)';
-  const labelBody = isEmail ? '邮件正文 (Body)' : '消息内容 (Content)';
-  const placeholderSubject = isEmail ? '请输入邮件标题' : '请输入站内信/通知标题';
-  const placeholderBody = isEmail ? '请输入邮件正文内容...' : '请输入消息正文内容...';
-  
+  const labelSubject = isEmail ? '邮件主题' : '标题';
+  const labelBody = isEmail ? '邮件正文' : '消息内容';
   const isContentDisabled = isEmail && !!emailConfig.template_id && !overrideTemplate;
+  const placeholderSubject = isEmail ? 'e.g., [重要] 您的月度账单' : 'e.g., 系统通知';
+  const placeholderBody = isEmail ? '在此输入邮件内容...' : '在此输入消息内容...';
 
-  // --- DERIVED STATE & LOCK LOGIC ---
-  // If not locked (not running/timed out), but DB still says running, treat as 'failed' for UI state logic.
-  const effectiveLastRunStatus = (!executionLocked && initialData?.last_run_status === 'running') 
-      ? 'failed' 
-      : (initialData?.last_run_status || null);
+  // Rule config visibility
+  const showRuleConfig = schedule.mode === 'recurring' && contentSource === 'resource';
 
-  const taskForDerivation: DeliveryTaskDeriveInput = {
-      status: initialData ? initialData.status : basic.status,
-      run_count: initialData?.run_count || 0,
-      last_run_status: executionLocked ? 'running' : effectiveLastRunStatus, 
-      schedule_rule: schedule
+  // --- BUTTON RENDERING LOGIC ---
+  const renderActionButtons = () => {
+      // 1. Running: Only show loading state
+      if (derivedResult === 'running') {
+          return (
+              <div className="w-full flex items-center justify-center gap-2 bg-indigo-50 border border-indigo-200 text-indigo-700 px-4 py-2.5 rounded-lg text-sm font-medium cursor-not-allowed">
+                  <Loader2 className="animate-spin" size={16} /> 任务执行中...
+              </div>
+          );
+      }
+
+      // 2. Failed: Allow Retry, Save Draft. No Duplicate here.
+      if (derivedResult === 'failed') {
+          return (
+              <>
+                  <button onClick={() => handleSave(true)} disabled={isPending} className="w-full flex items-center justify-center gap-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors">
+                      <Save size={16} /> 保存草稿
+                  </button>
+                  {initialData && (
+                      <button onClick={handleRunNow} disabled={isManualRunning} className="w-full flex items-center justify-center gap-2 bg-amber-600 hover:bg-amber-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors">
+                          {isManualRunning ? <Loader2 className="animate-spin" size={16} /> : <RefreshCw size={16} />}
+                          重新执行 (Retry)
+                      </button>
+                  )}
+              </>
+          );
+      }
+
+      // 3. Success (One-time): Only Duplicate
+      if (derivedResult === 'success' && isOneTime) {
+          return (
+              <div className="space-y-2">
+                  <div className="flex items-center justify-center gap-1 text-xs text-green-600 font-medium bg-green-50 p-2 rounded">
+                      <Check size={14} /> 任务已完成
+                  </div>
+                  <button onClick={handleDuplicate} disabled={isPending} className="w-full flex items-center justify-center gap-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+                      <Copy size={16} /> 复制任务
+                  </button>
+                  <p className="text-[10px] text-gray-400 text-center">如需再次发送，请复制创建新任务</p>
+              </div>
+          );
+      }
+
+      // 4. Default / Not Started / Recurring: Standard Actions
+      return (
+          <>
+              <button onClick={() => handleSave(true)} disabled={isPending} className="w-full flex items-center justify-center gap-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors">
+                  <Save size={16} /> 保存草稿
+              </button>
+              
+              {/* Execute / Enable logic */}
+              {schedule.mode === 'one_time' && schedule.one_time_type === 'immediate' && initialData ? (
+                   <button onClick={handleRunNow} disabled={isManualRunning} className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors">
+                      {isManualRunning ? <Loader2 className="animate-spin" size={16} /> : <Send size={16} />}
+                      执行一次 (Run Once)
+                   </button>
+              ) : (
+                   <button onClick={() => handleSave(false)} disabled={isChecking} className="w-full flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors">
+                      {isChecking ? <Loader2 className="animate-spin" size={16} /> : <Play size={16} />}
+                      启用任务
+                   </button>
+              )}
+          </>
+      );
   };
-  
-  const { status: derivedStatus, canEnable, canRunNow, message: stateMessage } = deriveDeliveryTaskState(taskForDerivation);
-  const isOverdue = !executionLocked && derivedStatus === 'overdue';
-  
-  // States specific for Immediate Tasks
-  const isImmediate = schedule.mode === 'one_time' && schedule.one_time_type === 'immediate';
-  const isRunFinished = isImmediate && (initialData?.run_count || 0) > 0;
-  // Use effective status to check for failure (handles timeout fallback)
-  const isRunFailed = isImmediate && effectiveLastRunStatus === 'failed';
-  
-  // Guard: Determine if any action is allowed
-  const isActionDisabled = executionLocked || isPending || isChecking || isManualRunning || !!scheduleError || (isEmail && (availableAccounts.length === 0 || availableTemplates.length === 0));
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 relative">
@@ -378,60 +381,7 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
             ))}
             
             <div className="pt-6 border-t border-gray-100 mt-6 space-y-3">
-                {/* Status Feedback */}
-                {executionLocked && (
-                    <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-lg text-center text-xs text-indigo-700 font-medium flex flex-col items-center gap-2">
-                        <Loader2 className="animate-spin" size={16} />
-                        任务执行中，已锁定编辑...
-                    </div>
-                )}
-                
-                {/* Logic Branching for Buttons */}
-                {isRunFinished && !isRunFailed ? (
-                    // A. Task Completed (Success)
-                    <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg text-center space-y-2">
-                        <div className="flex items-center justify-center gap-1 text-xs text-gray-500 font-medium">
-                            <Check size={14} className="text-green-600" /> 任务已完成
-                        </div>
-                        <button onClick={handleDuplicate} disabled={isPending} className="w-full flex items-center justify-center gap-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50">
-                            <Copy size={16} /> 复制任务
-                        </button>
-                        <p className="text-[10px] text-gray-400">如需再次发送，请复制创建新任务</p>
-                    </div>
-                ) : (
-                    // B. Task Actionable
-                    <>
-                        <button onClick={() => handleSave(true)} disabled={executionLocked || isPending || isChecking || isManualRunning} className="w-full flex items-center justify-center gap-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-                            <Save size={16} /> 保存草稿
-                        </button>
-
-                        {/* Immediate Task Actions */}
-                        {isImmediate && initialData ? (
-                            <button 
-                                onClick={handleRunNow} 
-                                disabled={isActionDisabled} 
-                                className={`w-full flex items-center justify-center gap-2 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm ${isRunFailed ? 'bg-amber-600 hover:bg-amber-700' : 'bg-indigo-600 hover:bg-indigo-700'}`}
-                            >
-                                {isManualRunning ? <Loader2 className="animate-spin" size={16} /> : (isRunFailed ? <RefreshCw size={16} /> : <Send size={16} />)}
-                                {isManualRunning ? '执行中...' : (isRunFailed ? '重新执行 (Retry)' : '执行一次 (Run Once)')}
-                            </button>
-                        ) : (
-                            // Scheduled / Recurring Task Actions
-                            canEnable ? (
-                                <button onClick={() => handleSave(false)} disabled={isActionDisabled} className="w-full flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm">
-                                    {isChecking ? <Loader2 className="animate-spin" size={16} /> : <Play size={16} />}
-                                    {isChecking ? '校验中...' : '启用任务'}
-                                </button>
-                            ) : (
-                                !executionLocked && (
-                                    <div className="text-xs text-center text-amber-600 bg-amber-50 p-2 rounded border border-amber-100">
-                                        {isOverdue ? '任务已逾期，请使用立即执行' : (stateMessage || '无法启用')}
-                                    </div>
-                                )
-                            )
-                        )}
-                    </>
-                )}
+                {renderActionButtons()}
                  
                  {preflightError && (
                     <div className="p-3 bg-red-50 border border-red-200 rounded text-red-800 text-xs flex items-start gap-2">
@@ -443,7 +393,7 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
         </div>
 
         <div className="lg:col-span-3 space-y-8 pb-20">
-            {/* ... Form Content Sections (Identical to previous, just ensuring they render correctly) ... */}
+            {/* ... Form Content Sections ... */}
             <div ref={sectionRefs.basic} className="scroll-mt-6">
                 <section className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm space-y-6">
                     <div className="flex items-center gap-2 pb-4 border-b border-gray-100">
@@ -453,7 +403,7 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="md:col-span-2">
                             <label className="block text-sm font-medium text-gray-700 mb-1">任务名称</label>
-                            <input type="text" value={basic.name} onChange={(e) => setBasic(p => ({...p, name: e.target.value}))} required disabled={executionLocked} className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 disabled:bg-gray-50 disabled:text-gray-500" placeholder="e.g., 月度产品更新速递" />
+                            <input type="text" value={basic.name} onChange={(e) => setBasic(p => ({...p, name: e.target.value}))} required disabled={isFormLocked} className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 disabled:bg-gray-50 disabled:text-gray-500" placeholder="e.g., 月度产品更新速递" />
                         </div>
                         {/* ... (Rest of Basic Info) ... */}
                         <div>
@@ -461,7 +411,7 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
                             <CustomSelect 
                                 value={basic.channel} 
                                 onChange={(v) => setBasic(p => ({...p, channel: v as any}))} 
-                                disabled={executionLocked}
+                                disabled={isFormLocked}
                                 options={[
                                     {label:'Email', value:'email'},
                                     {label:'站内信 (In-app)', value:'in_app'}
@@ -480,14 +430,14 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
                                                 options={availableAccounts.map(a => ({ label: `${a.name} (${a.from_email})`, value: a.id }))}
                                                 placeholder="选择发送账户"
                                                 className="flex-1"
-                                                disabled={executionLocked}
+                                                disabled={isFormLocked}
                                             />
                                         ) : (
                                             <div className="flex-1 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-2 flex items-center gap-2">
                                                 <AlertTriangle size={14}/> 未配置发送账户
                                             </div>
                                         )}
-                                        <button onClick={() => setIsConfigModalOpen(true)} disabled={executionLocked} className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600 disabled:opacity-50" title="管理账户">
+                                        <button onClick={() => setIsConfigModalOpen(true)} disabled={isFormLocked} className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600 disabled:opacity-50" title="管理账户">
                                             <Settings size={18} />
                                         </button>
                                     </div>
@@ -505,14 +455,14 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
                                                 options={availableTemplates.map(t => ({ label: t.name, value: t.id }))}
                                                 placeholder="选择邮件模板"
                                                 className="flex-1"
-                                                disabled={executionLocked}
+                                                disabled={isFormLocked}
                                             />
                                         ) : (
                                              <div className="flex-1 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-2 flex items-center gap-2">
                                                 <AlertTriangle size={14}/> 未配置邮件模板
                                             </div>
                                         )}
-                                        <button onClick={() => setIsConfigModalOpen(true)} disabled={executionLocked} className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600 disabled:opacity-50" title="管理模板">
+                                        <button onClick={() => setIsConfigModalOpen(true)} disabled={isFormLocked} className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600 disabled:opacity-50" title="管理模板">
                                             <Settings size={18} />
                                         </button>
                                     </div>
@@ -524,7 +474,7 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
                             <CustomSelect 
                                 value={basic.locale} 
                                 onChange={(v) => setBasic(p => ({...p, locale: v}))} 
-                                disabled={executionLocked}
+                                disabled={isFormLocked}
                                 options={[
                                     {label:'Auto (zh-CN)', value:'zh-CN'},
                                     {label:'English (en-US)', value:'en-US'}
@@ -534,7 +484,7 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
                         </div>
                         <div className="md:col-span-2">
                             <label className="block text-sm font-medium text-gray-700 mb-1">备注 (Optional)</label>
-                            <input type="text" className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 disabled:bg-gray-50" placeholder="内部备注..." disabled={executionLocked} />
+                            <input type="text" className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 disabled:bg-gray-50" placeholder="内部备注..." disabled={isFormLocked} />
                         </div>
                     </div>
                 </section>
@@ -546,7 +496,7 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
                         <Users className="text-gray-400" size={20} />
                         <h2 className="text-lg font-semibold text-gray-900">目标受众 (Audience)</h2>
                     </div>
-                     <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 ${executionLocked ? 'opacity-70 pointer-events-none' : ''}`}>
+                     <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 ${isFormLocked ? 'opacity-70 pointer-events-none' : ''}`}>
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">用户类型</label>
                             <CustomSelect value={audience.user_type} onChange={(v) => setAudience(p => ({...p, user_type: v as any}))} options={[{label:'全部',value:'all'},{label:'个人',value:'personal'},{label:'企业',value:'company'}]} />
@@ -640,7 +590,7 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
                     <h2 className="text-lg font-semibold text-gray-900">内容配置 (Content)</h2>
                     </div>
                     
-                    <div className={`space-y-6 ${executionLocked ? 'opacity-70 pointer-events-none' : ''}`}>
+                    <div className={`space-y-6 ${isFormLocked ? 'opacity-70 pointer-events-none' : ''}`}>
                         <div className="space-y-3">
                             <label className="block text-sm font-medium text-gray-700">是否引用站内内容？</label>
                             <div className="flex gap-4">
@@ -667,7 +617,71 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
                             </div>
                         </div>
 
-                        {contentSource === 'resource' && (
+                        {showRuleConfig ? (
+                            // --- AUTOMATED RULE UI ---
+                            <div className="animate-in fade-in slide-in-from-top-2 duration-200">
+                                <div className="bg-purple-50 border border-purple-100 rounded-lg p-4 space-y-4">
+                                    <div className="flex items-center gap-2 text-purple-800 font-semibold text-sm">
+                                        <Sparkles size={16} />
+                                        自动引用规则 (Automated Content Rule)
+                                    </div>
+                                    <p className="text-xs text-purple-600">
+                                        系统将在每次执行时，基于用户的兴趣标签自动检索最新的匹配资源。
+                                    </p>
+                                    
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-xs font-medium text-purple-700 mb-1">匹配模式 (Match Mode)</label>
+                                            <CustomSelect 
+                                                value={contentRule.match_mode} 
+                                                onChange={(v) => setContentRule(p => ({...p, match_mode: v as any}))} 
+                                                options={[
+                                                    {label:'任意匹配 (Any Tag)', value:'any'},
+                                                    {label:'完全匹配 (All Tags)', value:'all', disabled: true}
+                                                ]} 
+                                                className="border-purple-200"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-medium text-purple-700 mb-1">检索范围 (Time Range)</label>
+                                            <CustomSelect 
+                                                value={contentRule.time_range || '30d'} 
+                                                onChange={(v) => setContentRule(p => ({...p, time_range: v as any}))} 
+                                                options={[
+                                                    {label:'最近 7 天', value:'7d'},
+                                                    {label:'最近 30 天', value:'30d'},
+                                                    {label:'最近 90 天', value:'90d'},
+                                                    {label:'全部时间', value:'all'}
+                                                ]} 
+                                                className="border-purple-200"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-medium text-purple-700 mb-1">数量限制 (Limit)</label>
+                                            <CustomSelect 
+                                                value={contentRule.limit || 3} 
+                                                onChange={(v) => setContentRule(p => ({...p, limit: Number(v)}))} 
+                                                options={[1,2,3,4,5].map(n => ({label:`${n} 条`, value: n}))} 
+                                                className="border-purple-200"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-medium text-purple-700 mb-1">兜底策略 (Fallback)</label>
+                                            <CustomSelect 
+                                                value={contentRule.fallback || 'skip_user'} 
+                                                onChange={(v) => setContentRule(p => ({...p, fallback: v as any}))} 
+                                                options={[
+                                                    {label:'跳过该用户 (Skip)', value:'skip_user'},
+                                                    {label:'全站最新 (Latest Global)', value:'latest_global'}
+                                                ]} 
+                                                className="border-purple-200"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        ) : contentSource === 'resource' && (
+                            // --- MANUAL SELECTION UI ---
                             <div className="animate-in fade-in slide-in-from-top-2 duration-200">
                                 <label className="block text-sm font-medium text-gray-700 mb-1">选择内容资源 (Resources)</label>
                                 <div className="border rounded-lg p-3 space-y-2 bg-gray-50">
@@ -762,7 +776,7 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
                     <h2 className="text-lg font-semibold text-gray-900">执行计划 (Schedule)</h2>
                     </div>
                     
-                    <div className={`space-y-2 ${executionLocked ? 'opacity-70 pointer-events-none' : ''}`}>
+                    <div className={`space-y-2 ${isFormLocked ? 'opacity-70 pointer-events-none' : ''}`}>
                     <label className="block text-sm font-medium text-gray-700">执行方式</label>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
                         <label className={`flex items-center p-3 border rounded-lg cursor-pointer transition-colors ${schedule.mode === 'one_time' && schedule.one_time_type === 'immediate' ? 'bg-gray-50 border-gray-900' : 'hover:bg-gray-50'}`}>
@@ -780,7 +794,7 @@ export default function TaskForm({ initialData, initialRuns = [], hasActiveRun =
                     </div>
                     </div>
                     
-                    <div className={executionLocked ? 'opacity-70 pointer-events-none' : ''}>
+                    <div className={isFormLocked ? 'opacity-70 pointer-events-none' : ''}>
                         {schedule.mode === 'one_time' && schedule.one_time_type === 'scheduled' && (
                         <div className="grid grid-cols-2 gap-4 pt-4 border-t border-gray-100 animate-in fade-in">
                             <div>

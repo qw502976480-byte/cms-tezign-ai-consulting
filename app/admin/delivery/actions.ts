@@ -3,7 +3,7 @@
 
 import { createServiceClient } from '@/utils/supabase/server';
 import { revalidatePath } from 'next/cache';
-import { DeliveryTask, DeliveryTaskStatus, DeliveryAudienceRule, Resource, EmailSendingAccount, EmailTemplate, PreflightCheckResult, DeliveryRunStatus, LastRunStatus, UserProfile, DeliveryRun } from '@/types';
+import { DeliveryTask, DeliveryTaskStatus, DeliveryAudienceRule, Resource, EmailSendingAccount, EmailTemplate, PreflightCheckResult, DeliveryRunStatus, LastRunStatus, UserProfile, DeliveryRun, DeliveryContentRule } from '@/types';
 import { addMinutes, isAfter, isBefore, parse, subDays, startOfDay, endOfDay, subMinutes } from 'date-fns';
 import { Resend } from 'resend';
 import { deriveDeliveryTaskState } from './utils';
@@ -235,8 +235,6 @@ export async function runDeliveryTaskNow(taskId: string): Promise<{ success: boo
   }
 
   // Guard 2: Active Run Check with Stale Lock Release
-  // We now rely on the global `recoverStaleRuns` for bulk cleanup, 
-  // but we keep a local check here for immediate feedback to avoid race conditions.
   const { data: existingRuns } = await supabase
     .from('delivery_task_runs')
     .select('id, started_at')
@@ -309,11 +307,9 @@ export async function runDeliveryTaskNow(taskId: string): Promise<{ success: boo
           // Skipped
           if (runId) {
               await updateRunStatus(runId, 'skipped', 0, 0, 0, 'No recipients found.');
-              // Only update task if run creation was successful (runId exists)
               await updateTaskOnRunCompletion(taskId, 'skipped', 'No recipients found.');
               return { success: true, message: 'Skipped: No recipients found.' };
           } else {
-              // Should not happen if insert succeeded, but satisfies TS and safety
               return { success: false, error: 'Run record was not created; cannot update status.' };
           }
       }
@@ -324,7 +320,6 @@ export async function runDeliveryTaskNow(taskId: string): Promise<{ success: boo
       }
 
       // 5. Send Emails
-      // Update run to show we are sending
       if (runId) {
           await supabase.from('delivery_task_runs').update({ 
               recipient_count: recipients.length, 
@@ -362,8 +357,6 @@ export async function runDeliveryTaskNow(taskId: string): Promise<{ success: boo
               last_run_message: `Execution Failed: ${errorMessage}` 
           }).eq('id', taskId);
       } else {
-          // If Run creation failed, we do NOT touch the task status/run_count
-          // This prevents the task from getting "locked" or incrementing counts phantomly
           console.error('Run creation failed, skipping task status update.');
       }
 
@@ -372,8 +365,7 @@ export async function runDeliveryTaskNow(taskId: string): Promise<{ success: boo
 }
 
 // --- Email Sending Logic ---
-async function sendEmailsToRecipients(task: DeliveryTask, recipients: any[]) {
-    // Check for Resend API Key
+async function sendEmailsToRecipients(task: DeliveryTask, recipients: UserProfile[]) {
     const resendApiKey = process.env.RESEND_API_KEY;
     if (!resendApiKey) {
         console.error("Missing RESEND_API_KEY environment variable.");
@@ -387,28 +379,141 @@ async function sendEmailsToRecipients(task: DeliveryTask, recipients: any[]) {
     const { data: account } = await createServiceClient().from('email_sending_accounts').select('*').eq('id', emailConfig.account_id).single();
     if (!account) return { success_count: 0, failure_count: recipients.length };
 
+    const { data: template } = await createServiceClient().from('email_templates').select('*').eq('id', emailConfig.template_id).single();
+    // Basic fallback if template fetch fails, though should be caught by preflight
+    const baseHtml = template?.html_content || '<html><body><p>Hi {{name}},</p>{{items}}</body></html>';
+
     let success_count = 0;
     
-    // For now, content is static. A real implementation would fetch and inject dynamic content.
-    const promises = recipients.map(user => {
-        return resend.emails.send({
+    const promises = recipients.map(async (user) => {
+        let itemsHtml = '';
+        
+        // --- DYNAMIC CONTENT MATCHING ---
+        if (task.content_mode === 'rule' && task.content_rule) {
+            const matchedResources = await matchResourcesByUser(user, task.content_rule);
+            
+            // Handle Empty
+            if (matchedResources.length === 0) {
+                if (task.content_rule.fallback === 'skip_user') {
+                    // Log internally but don't count as success
+                    return false; 
+                }
+                // Fallback handled inside matchResourcesByUser if it was 'latest_global'
+                // If we are here and still empty, truly nothing to send.
+                return false;
+            }
+
+            // Build HTML List
+            itemsHtml = `<ul style="padding-left: 20px;">
+                ${matchedResources.map(r => `
+                    <li style="margin-bottom: 10px;">
+                        <a href="${process.env.NEXT_PUBLIC_SITE_URL || ''}/library/${r.slug}" style="color: #2563eb; text-decoration: none; font-weight: bold;">
+                            ${r.title}
+                        </a>
+                        ${r.summary ? `<div style="font-size: 13px; color: #666; margin-top: 4px;">${r.summary}</div>` : ''}
+                    </li>
+                `).join('')}
+            </ul>`;
+        } else {
+            // --- MANUAL CONTENT ---
+            // If manual, we should have content_ids. Fetch them once globally? 
+            // For MVP simplicity, we can fetch inside loop or optimize later. 
+            // Better: fetch once outside loop.
+            // For now, static placeholder for manual mode to keep diff small, 
+            // assuming task.content_ids logic is handled or static text is used.
+            if (task.content_ids && task.content_ids.length > 0) {
+                 const resources = await getResourcesByIds(task.content_ids);
+                 itemsHtml = `<ul style="padding-left: 20px;">${resources.map(r => `<li><a href="${process.env.NEXT_PUBLIC_SITE_URL}/library/${r.slug || ''}">${r.title}</a></li>`).join('')}</ul>`;
+            } else {
+                 itemsHtml = '<p>No specific resources selected.</p>';
+            }
+        }
+
+        // Variable Replacement
+        const userHtml = baseHtml
+            .replace(/{{name}}/g, user.name || 'User')
+            .replace(/{{items}}/g, itemsHtml)
+            .replace(/{{header}}/g, emailConfig.header_note || '')
+            .replace(/{{footer}}/g, emailConfig.footer_note || '');
+
+        // Send
+        const { error } = await resend.emails.send({
             from: `${account.from_name} <${account.from_email}>`,
             to: user.email,
             subject: emailConfig.subject.replace('{{name}}', user.name || ''),
-            html: `Hi ${user.name || ''}, this is a test delivery. ${emailConfig.header_note || ''}`,
+            html: userHtml,
             reply_to: account.reply_to || undefined,
-        }).then(res => {
-            if (res.error) {
-                console.error(`Failed to send to ${user.email}:`, res.error.message);
-                return false;
-            }
-            success_count++;
-            return true;
         });
+
+        if (error) {
+            console.error(`Failed to send to ${user.email}:`, error.message);
+            return false;
+        }
+        
+        success_count++;
+        return true;
     });
 
     await Promise.all(promises);
     return { success_count, failure_count: recipients.length - success_count };
+}
+
+// --- Dynamic Matching Logic ---
+async function matchResourcesByUser(user: UserProfile, rule: DeliveryContentRule) {
+    const supabase = createServiceClient();
+    
+    // 1. Calculate Time Range
+    const now = new Date();
+    const daysMap: Record<string, number> = { '7d': 7, '30d': 30, '90d': 90, 'all': 3650 };
+    const days = daysMap[rule.time_range || '30d'] || 30;
+    const cutoffDate = subDays(now, days).toISOString();
+
+    // 2. Build Query
+    let query = supabase
+        .from('resources')
+        .select('id, title, slug, summary, created_at, interests')
+        .eq('status', 'published')
+        .gte('created_at', cutoffDate)
+        .order('created_at', { ascending: false })
+        .limit(rule.limit || 3);
+
+    // 3. Apply Tag Matching
+    // If resource has interests array column
+    if (user.interest_tags && user.interest_tags.length > 0) {
+        if (rule.match_mode === 'all') {
+             // 'containedBy' checks if resource tags are subset of user tags? 
+             // Or 'contains' checks if resource tags contain ALL user tags?
+             // Actually, 'all' usually means resource must match all user interests OR user must match all resource tags.
+             // Given limitations, 'overlaps' is safest for 'any'.
+             // For 'all', we might need complex logic. MVP: Fallback to overlaps (any) for now or basic contains.
+             query = query.contains('interests', user.interest_tags); 
+        } else {
+             // Any match
+             query = query.overlaps('interests', user.interest_tags);
+        }
+    } else {
+        // User has no tags -> No match possible by tags. 
+        // Return empty so fallback logic triggers.
+        return [];
+    }
+
+    const { data: matched } = await query;
+    
+    // 4. Check Fallback
+    if (!matched || matched.length === 0) {
+        if (rule.fallback === 'latest_global') {
+             const { data: globalLatest } = await supabase
+                .from('resources')
+                .select('id, title, slug, summary')
+                .eq('status', 'published')
+                .order('created_at', { ascending: false })
+                .limit(rule.limit || 3);
+             return globalLatest || [];
+        }
+        return [];
+    }
+
+    return matched;
 }
 
 // --- Task State Management Helpers ---
@@ -472,7 +577,7 @@ export async function previewAudience(rule: DeliveryAudienceRule): Promise<{ suc
 async function getAudience(rule: DeliveryAudienceRule | null, limit?: number): Promise<{ success: true, users: any[] } | { success: false, error: string }> {
     if (!rule) return { success: false, error: 'Audience rule is missing.' };
     const supabase = createServiceClient();
-    let query = supabase.from('user_profiles').select('id, name, email, user_type, created_at');
+    let query = supabase.from('user_profiles').select('id, name, email, user_type, created_at, interest_tags');
     
     if (rule.user_type && rule.user_type !== 'all') {
         query = query.eq('user_type', rule.user_type);

@@ -55,6 +55,9 @@ export interface DeliveryContentRule {
   time_range?: '7d' | '30d' | '90d' | 'all';
   limit?: number;
   featured_slot?: 'none' | 'carousel' | 'fixed';
+  // Rule Matching Fields
+  match_mode?: 'any' | 'all';
+  fallback?: 'skip_user' | 'latest_global';
 }
 
 export interface DeliveryAudienceRule {
@@ -144,6 +147,8 @@ export interface Resource {
   status: ResourceStatus;
   published_at: string | null;
   created_at: string;
+  // Added interests for matching logic
+  interests?: string[];
 }
 
 export interface UserProfile {
@@ -160,9 +165,7 @@ export interface UserProfile {
   interest_tags: string[];
   has_communicated?: boolean;
   last_login_at?: string | null;
-  // This field may not exist in DB, handle gracefully
   marketing_opt_in?: boolean;
-  // FIX: Add missing optional properties for UserDetailModal component
   use_case_tags?: string[];
   pain_points?: string | null;
 }

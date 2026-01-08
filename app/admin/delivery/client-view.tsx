@@ -4,13 +4,13 @@
 import React, { useState, useEffect, useRef, useTransition } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { DeliveryTask, EmailSendingAccount, EmailTemplate, DeliveryRun } from '@/types';
-import { Search, ChevronDown, Check, MoreHorizontal, Clock, Play, Pause, Copy, Trash2, Edit2, Settings, Mail, Repeat, ScrollText, AlertTriangle, UserCheck, Loader2, CheckCircle2, AlertCircle, Ban } from 'lucide-react';
+import { Search, ChevronDown, Check, MoreHorizontal, Clock, Play, Pause, Copy, Trash2, Edit2, Settings, Mail, Repeat, ScrollText, AlertTriangle, UserCheck, Loader2, CheckCircle2, AlertCircle, Ban, RefreshCw } from 'lucide-react';
 import { format, differenceInSeconds } from 'date-fns';
-import { updateTaskStatus, deleteTask, duplicateTask } from './actions';
+import { updateTaskStatus, deleteTask, duplicateTask, runDeliveryTaskNow } from './actions';
 import Link from 'next/link';
 import EmailConfigModal from './EmailConfigModal';
 import TaskRunHistoryModal from './TaskRunHistoryModal';
-import { deriveDeliveryTaskState, DerivedTaskStatus, DeliveryTaskDeriveInput, isRunActive } from './utils';
+import { getTaskDerivedResult, DerivedResult, isRunActive } from './utils';
 
 // --- Components ---
 
@@ -46,14 +46,12 @@ function FilterDropdown({ label, value, options, onChange }: any) {
 
 // Separate component to handle menu state and click-outside independently per row
 function TaskActionMenu({ 
-    task, 
-    isLocked, 
-    canEnable, 
+    task,
+    derivedResult, 
     onAction 
 }: { 
     task: DeliveryTask; 
-    isLocked: boolean; 
-    canEnable: boolean; 
+    derivedResult: DerivedResult;
     onAction: (action: string, task: DeliveryTask) => void 
 }) {
     const [isOpen, setIsOpen] = useState(false);
@@ -79,46 +77,90 @@ function TaskActionMenu({
         };
     }, [isOpen]);
 
+    const isOneTime = task.schedule_rule?.mode === 'one_time';
+    const isRecurring = task.schedule_rule?.mode === 'recurring';
+
+    // PERMISSION MATRIX LOGIC
+    // 1. Running: Only Logs allowed.
+    if (derivedResult === 'running') {
+        return (
+            <div className="relative" ref={menuRef}>
+                <button onClick={(e) => { e.stopPropagation(); setIsOpen(!isOpen); }} className={`p-2 rounded-lg transition-colors ${isOpen ? 'bg-gray-100 text-gray-900' : 'text-gray-400 hover:text-gray-900 hover:bg-gray-100'}`}>
+                    <MoreHorizontal size={18} />
+                </button>
+                {isOpen && (
+                    <div className="absolute right-0 top-full mt-1 w-44 bg-white border border-gray-100 rounded-xl shadow-lg z-20 p-1">
+                        <button onClick={() => { onAction('logs', task); setIsOpen(false); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-gray-50 rounded text-gray-700">
+                            <ScrollText size={14} /> 查看执行记录
+                        </button>
+                        <div className="px-3 py-2 text-xs text-indigo-600 flex items-center gap-2 cursor-not-allowed bg-indigo-50 rounded mx-1 my-1">
+                            <Loader2 size={14} className="animate-spin" /> 执行中...
+                        </div>
+                    </div>
+                )}
+            </div>
+        );
+    }
+
+    // 2. Failed: Edit, Log, Retry. No Duplicate.
+    // 3. Success (One-time): Log, Duplicate. No Edit, No Run.
+    // 4. Success (Recurring): Edit, Duplicate, Log.
+    // 5. Not Started: Edit, Duplicate, Log, Delete.
+
+    const allowEdit = derivedResult !== 'success' || !isOneTime; // Locked if one-time success
+    const allowDuplicate = derivedResult !== 'failed'; // Forbidden if failed
+    const allowRetry = derivedResult === 'failed'; // Only explicit retry if failed
+    const allowRunOnce = derivedResult === 'not_started' && isOneTime && task.schedule_rule?.one_time_type === 'immediate';
+    const allowStatusToggle = derivedResult === 'not_started' || (derivedResult === 'success' && isRecurring);
+
     return (
         <div className="relative" ref={menuRef}>
-            <button 
-                onClick={(e) => { e.stopPropagation(); setIsOpen(!isOpen); }} 
-                className={`p-2 rounded-lg transition-colors ${isOpen ? 'bg-gray-100 text-gray-900' : 'text-gray-400 hover:text-gray-900 hover:bg-gray-100'}`}
-            >
+            <button onClick={(e) => { e.stopPropagation(); setIsOpen(!isOpen); }} className={`p-2 rounded-lg transition-colors ${isOpen ? 'bg-gray-100 text-gray-900' : 'text-gray-400 hover:text-gray-900 hover:bg-gray-100'}`}>
                 <MoreHorizontal size={18} />
             </button>
-            
             {isOpen && (
                 <div className="absolute right-0 top-full mt-1 w-44 bg-white border border-gray-100 rounded-xl shadow-lg z-20 p-1 animate-in fade-in zoom-in-95 duration-100 origin-top-right">
-                    {/* Edit Config - Disabled if Locked */}
-                    {isLocked ? (
-                        <div className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 text-gray-300 cursor-not-allowed">
-                            <Edit2 size={14} /> 编辑配置
-                        </div>
-                    ) : (
+                    
+                    {/* EDIT */}
+                    {allowEdit ? (
                         <Link href={`/admin/delivery/${task.id}`} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-gray-50 rounded text-gray-700">
                             <Edit2 size={14} /> 编辑配置
                         </Link>
+                    ) : (
+                        <div className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 text-gray-300 cursor-not-allowed">
+                            <Edit2 size={14} /> 编辑配置
+                        </div>
                     )}
 
+                    {/* LOGS */}
                     <button onClick={() => { onAction('logs', task); setIsOpen(false); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-gray-50 rounded text-gray-700">
                         <ScrollText size={14} /> 查看执行记录
                     </button>
                     
-                    <button onClick={() => { onAction('duplicate', task); setIsOpen(false); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-gray-50 rounded text-gray-700">
-                        <Copy size={14} /> 复制任务
-                    </button>
+                    {/* DUPLICATE */}
+                    {allowDuplicate && (
+                        <button onClick={() => { onAction('duplicate', task); setIsOpen(false); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-gray-50 rounded text-gray-700">
+                            <Copy size={14} /> 复制任务
+                        </button>
+                    )}
+
+                    {/* ACTIONS: Retry or Toggle */}
+                    {allowRetry && (
+                        <button onClick={() => { onAction('run_now', task); setIsOpen(false); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-amber-50 text-amber-700 rounded">
+                            <RefreshCw size={14} /> 重新执行
+                        </button>
+                    )}
                     
-                    {/* Status Toggle - Hidden/Disabled if Locked */}
-                    {!isLocked && canEnable && (
+                    {allowRunOnce && (
+                         <button onClick={() => { onAction('run_now', task); setIsOpen(false); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-indigo-50 text-indigo-700 rounded">
+                            <Play size={14} /> 执行一次
+                        </button>
+                    )}
+
+                    {allowStatusToggle && isRecurring && (
                         <button onClick={() => { onAction('toggle_status', task); setIsOpen(false); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-gray-50 rounded text-gray-700">
                             {task.status === 'active' ? <><Pause size={14} /> 暂停任务</> : <><Play size={14} /> 启用任务</>}
                         </button>
-                    )}
-                    {isLocked && (
-                        <div className="px-3 py-2 text-xs text-indigo-600 flex items-center gap-2 cursor-not-allowed bg-indigo-50 rounded mx-1 my-1">
-                            <Loader2 size={14} className="animate-spin" /> 执行中...
-                        </div>
                     )}
                     
                     <div className="h-px bg-gray-100 my-1"></div>
@@ -177,6 +219,16 @@ export default function TaskClientView({
                 await duplicateTask(task);
             } else if (action === 'logs') {
                 setHistoryModalTask({ id: task.id, name: task.name });
+            } else if (action === 'run_now') {
+                if(confirm('确定要立即执行此任务吗？')) {
+                    const res = await runDeliveryTaskNow(task.id);
+                    if(res.success) {
+                        alert(res.message);
+                        router.refresh();
+                    } else {
+                        alert(`执行失败: ${res.error}`);
+                    }
+                }
             }
         });
     };
@@ -185,11 +237,9 @@ export default function TaskClientView({
         if (task.channel !== 'email' || !task.channel_config?.email) return null;
         const conf = task.channel_config.email;
         const acct = emailAccounts.find(a => a.id === conf.account_id);
-        // const tmpl = emailTemplates.find(t => t.id === conf.template_id);
         return {
             accountName: acct ? acct.name : 'Unknown Account',
             accountEmail: acct ? acct.from_email : '',
-            // templateName: tmpl ? tmpl.name : 'Unknown Template'
         };
     };
 
@@ -209,38 +259,25 @@ export default function TaskClientView({
 
         // 1. One Time Task
         if (s.mode === 'one_time') {
-            const hasRun = task.run_count > 0 || !!lastRun;
-            
             // Immediate Type
             if (s.one_time_type === 'immediate') {
-                if (hasRun && lastRun) {
-                    return (
-                        <div className="flex flex-col">
-                            <span className="text-gray-900 text-xs font-medium">已触发 (Triggered)</span>
-                            <span className="text-[10px] text-gray-500 font-mono">
-                                {format(new Date(lastRun.started_at), 'MM-dd HH:mm')}
-                            </span>
-                        </div>
-                    );
-                }
-                return <span className="text-slate-500 text-xs font-medium bg-slate-100 px-2 py-0.5 rounded border border-slate-200">手动触发</span>;
+                const triggerTime = lastRun ? lastRun.started_at : task.created_at;
+                return (
+                    <div className="flex flex-col">
+                        <span className="text-gray-900 text-xs font-medium">立即执行 (Immediate)</span>
+                        <span className="text-[10px] text-gray-400 font-mono">
+                            创建于: {format(new Date(triggerTime), 'MM-dd HH:mm')}
+                        </span>
+                    </div>
+                );
             }
             
             // Scheduled Type
             if (s.one_time_type === 'scheduled') {
                 const dateStr = `${s.one_time_date || ''} ${s.one_time_time || ''}`;
-                const isValid = dateStr.trim().length > 5;
-                if (hasRun && lastRun) {
-                     return (
-                        <div className="flex flex-col">
-                            <span className="text-gray-400 text-xs line-through">{isValid ? dateStr : 'Schedule'}</span>
-                            <span className="text-[10px] text-green-600">已执行 (Executed)</span>
-                        </div>
-                    );
-                }
                 return (
                     <div className="flex flex-col">
-                        <span className="text-gray-900 text-xs font-medium truncate">{isValid ? dateStr : '未设置'}</span>
+                        <span className="text-gray-900 text-xs font-medium">定时: {dateStr}</span>
                     </div>
                 );
             }
@@ -254,7 +291,7 @@ export default function TaskClientView({
                 <div className="flex flex-col">
                     <span className="text-gray-900 text-xs font-medium">周期: {freq}</span>
                     {task.next_run_at ? (
-                        <span className="text-[10px] text-gray-500">Next: {format(new Date(task.next_run_at), 'MM-dd HH:mm')}</span>
+                        <span className="text-[10px] text-gray-500">下次: {format(new Date(task.next_run_at), 'MM-dd HH:mm')}</span>
                     ) : null}
                 </div>
             );
@@ -273,16 +310,11 @@ export default function TaskClientView({
         const end = run.finished_at ? new Date(run.finished_at) : new Date();
         const duration = formatDurationSimple(start, end);
 
-        // UI Logic: 
-        // 1. Actually Running (<5m): Show "Running (Duration)"
-        // 2. Stale Running (>5m): Show "Failed (Timeout)"
-        // 3. Finished: Show "Finished (Duration)"
-
         if (isRunning && isActive) {
              return (
                 <div className="flex flex-col">
                     <span className="text-gray-900 text-xs font-mono">Start: {startStr}</span>
-                    <span className="text-[10px] text-indigo-600 font-medium animate-pulse">Running ({duration})</span>
+                    <span className="text-[10px] text-indigo-600 font-medium animate-pulse">运行中 (已运行 {duration})</span>
                 </div>
             );
         }
@@ -291,7 +323,7 @@ export default function TaskClientView({
              return (
                 <div className="flex flex-col">
                     <span className="text-gray-900 text-xs font-mono">Start: {startStr}</span>
-                    <span className="text-[10px] text-red-500 font-medium">Failed (超时)</span>
+                    <span className="text-[10px] text-red-500 font-medium">失败 (超时)</span>
                 </div>
             );
         }
@@ -299,76 +331,39 @@ export default function TaskClientView({
         return (
             <div className="flex flex-col">
                 <span className="text-gray-900 text-xs font-mono">Start: {startStr}</span>
-                <span className="text-[10px] text-gray-400">Finished (耗时 {duration})</span>
+                <span className="text-[10px] text-gray-400">结束 (耗时 {duration})</span>
             </div>
         );
     };
 
-    const getStatusBadge = (task: DeliveryTask, lastRun: DeliveryRun | undefined, derivedStatus: DerivedTaskStatus) => {
-        // 1. Running (Highest Priority)
-        if (lastRun?.status === 'running') {
-             // Use strict check for UI status
-             if (isRunActive(lastRun)) {
-                 return (
-                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium border bg-indigo-50 text-indigo-700 border-indigo-200">
-                        <Loader2 size={12} className="animate-spin" />
-                        执行中
-                    </span>
-                 );
-             } else {
-                 // Timeout fallback badge
-                 return (
-                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium border bg-red-50 text-red-700 border-red-200">
-                        <AlertTriangle size={12} /> 失败 (超时)
-                    </span>
-                 );
-             }
-        }
-        
-        // 2. Paused (Explicitly Paused Recurring Task)
-        if (derivedStatus === 'paused') {
-             return (
-                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium border bg-yellow-50 text-yellow-700 border-yellow-200">
-                    <Pause size={12} /> 已暂停
-                </span>
-             );
-        }
-
-        // 3. Run Result (If available) - Shows the result of the LAST run
-        if (lastRun) {
-            const map: any = {
-                success: { label: '成功', color: 'bg-emerald-50 text-emerald-700 border-emerald-200', icon: CheckCircle2 },
-                failed: { label: '失败', color: 'bg-red-50 text-red-700 border-red-200', icon: AlertTriangle },
-                skipped: { label: '跳过', color: 'bg-amber-50 text-amber-700 border-amber-200', icon: AlertCircle },
-            };
-            const conf = map[lastRun.status];
-            if (conf) {
+    const getStatusBadge = (derivedResult: DerivedResult) => {
+        switch (derivedResult) {
+            case 'running':
                 return (
-                    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium border ${conf.color}`}>
-                        <conf.icon size={12} /> {conf.label}
+                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium border bg-indigo-50 text-indigo-700 border-indigo-200">
+                        <Loader2 size={12} className="animate-spin" /> 执行中
                     </span>
                 );
-            }
+            case 'success':
+                return (
+                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium border bg-emerald-50 text-emerald-700 border-emerald-200">
+                        <CheckCircle2 size={12} /> 成功
+                    </span>
+                );
+            case 'failed':
+                return (
+                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium border bg-red-50 text-red-700 border-red-200">
+                        <AlertTriangle size={12} /> 失败
+                    </span>
+                );
+            case 'not_started':
+            default:
+                return (
+                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium border bg-gray-50 text-gray-600 border-gray-200">
+                        未开始
+                    </span>
+                );
         }
-
-        // 4. Default Task Status
-        const defMap: any = {
-            draft: { label: '草稿', color: 'bg-gray-100 text-gray-600 border-gray-200' },
-            scheduled: { label: '已排期', color: 'bg-blue-50 text-blue-700 border-blue-200', icon: Clock },
-            active: { label: '运行中', color: 'bg-green-50 text-green-700 border-green-200', icon: Play },
-            completed: { label: '已完成', color: 'bg-slate-100 text-slate-600 border-slate-200', icon: Check },
-            overdue: { label: '已逾期', color: 'bg-orange-50 text-orange-700 border-orange-200', icon: AlertTriangle },
-        };
-        const def = defMap[derivedStatus];
-        if (def) {
-             return (
-                <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium border ${def.color}`}>
-                    {def.icon && <def.icon size={12} />} {def.label}
-                </span>
-             );
-        }
-        
-        return <span className="text-gray-400 text-xs">{derivedStatus}</span>;
     };
 
     return (
@@ -434,24 +429,13 @@ export default function TaskClientView({
                             const emailDetails = getEmailDetails(task);
                             const isRecurring = task.schedule_rule?.mode === 'recurring';
                             const lastRun = latestRunMap[task.id];
-                            
-                            // Use strict timeout logic for determining locking
-                            const isLocked = isRunActive(lastRun);
-                            
-                            const deriveInput: DeliveryTaskDeriveInput = {
-                                status: task.status,
-                                run_count: task.run_count,
-                                schedule_rule: task.schedule_rule,
-                                last_run_status: isLocked ? 'running' : (lastRun ? lastRun.status : task.last_run_status),
-                            };
-                            
-                            const { status: derivedStatus, canEnable } = deriveDeliveryTaskState(deriveInput);
+                            const derivedResult = getTaskDerivedResult(lastRun);
 
                             return (
                                 <tr key={task.id} className="hover:bg-gray-50 transition-colors group">
                                     <td className="px-6 py-4 font-medium text-gray-900">
                                         <div className="flex flex-col gap-1.5 items-start">
-                                            {isLocked ? (
+                                            {derivedResult === 'running' ? (
                                                 <span className="block truncate max-w-[200px]" title={task.name}>{task.name}</span>
                                             ) : (
                                                 <Link href={`/admin/delivery/${task.id}`} className="hover:text-indigo-600 hover:underline block truncate max-w-[200px]" title={task.name}>
@@ -481,7 +465,7 @@ export default function TaskClientView({
                                         )}
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
-                                        {getStatusBadge(task, lastRun, derivedStatus)}
+                                        {getStatusBadge(derivedResult)}
                                     </td>
                                     <td className="px-6 py-4 align-top">
                                         {getPlannedTimeDisplay(task, lastRun)}
@@ -510,8 +494,7 @@ export default function TaskClientView({
                                     <td className="px-6 py-4 text-right relative align-top">
                                         <TaskActionMenu 
                                             task={task} 
-                                            isLocked={isLocked} 
-                                            canEnable={canEnable} 
+                                            derivedResult={derivedResult}
                                             onAction={handleAction} 
                                         />
                                     </td>
